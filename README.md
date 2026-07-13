@@ -1,17 +1,20 @@
-# ats_onework
+# 🏢 ATS OneWork - Mobile Portal
 
-A new Flutter project.
+A comprehensive, cross-platform mobile application built with **Flutter & Dart**, featuring dedicated, secure portals for both Employees and Management.
 
-## Getting Started
+## ✨ Core Modules & Features
 
-This project is a starting point for a Flutter application.
+### 👤 Employee Portal
+- **Dashboard**: High-level metrics for pending, approved, and rejected submissions.
+- **Document Upload & Scanner**: Interactive receipt capture with image preview and categorization.
+- **Request Tracking**: Real-time status feed of all historical expense submissions.
 
-A few resources to get you started if this is your first Flutter project:
+### 👔 Management Portal
+- **Review Hub**: Centralized feed of pending team requests requiring action.
+- **Approval Workflows**: One-tap approval, rejection, or requests for additional information.
+- **Notification System**: Automated alerts for status updates and team communications.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 🛠️ Technical Architecture
+- **Frontend Framework**: Flutter (Dart)
+- **State Management**: `ChangeNotifier` / Provider architecture
+- **Database (Upcoming)**: PostgreSQL utilizing structured ORM Migrations

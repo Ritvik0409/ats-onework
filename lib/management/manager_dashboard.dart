@@ -142,13 +142,14 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                       style: const TextStyle(color: champagneGold, fontWeight: FontWeight.bold, fontSize: 18),
                                     ),
                                   ),
-                                  title: Row(
-                                    children: [
-                                      Text(expense.name, style: const TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 16)),
-                                      const SizedBox(width: 8),
-                                      Text('(${expense.id})', style: const TextStyle(color: textMuted, fontSize: 12, fontFamily: 'monospace')),
-                                    ],
-                                  ),
+                                  title: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(expense.name, style: const TextStyle(color: textFrost, fontWeight: FontWeight.bold)), 
+            const SizedBox(width: 8),
+            Text('(${expense.id})', style: const TextStyle(color: textMuted)), 
+          ],
+        ),
                                   subtitle: Padding(
                                     padding: const EdgeInsets.only(top: 6.0),
                                     child: Text(

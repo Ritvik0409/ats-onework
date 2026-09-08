@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "581115815178",
+    "project_id": "ats-onework-332dc",
+    "storage_bucket": "ats-onework-332dc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:581115815178:android:632b382d826124e25746f3",
+        "android_client_info": {
+          "package_name": "com.example.ats_onework"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "581115815178-5n1kfhq3llrqmo5a01p8g0njam3c3ffd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.ats_onework",
+            "certificate_hash": "f5b644d57b88cbacbadce8307d276aee87f982be"
+          }
+        },
+        {
+          "client_id": "581115815178-dc0ciq2ng5e1oigufqc6spv53r4nmt03.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC1k33h8aA3p-9FkosI-5V2boY5uPig_BM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "581115815178-dc0ciq2ng5e1oigufqc6spv53r4nmt03.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "581115815178-auiduiq0mg0qnshrj1jvbfbjhu123vep.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.atsOnework"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

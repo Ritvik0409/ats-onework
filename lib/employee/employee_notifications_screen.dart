@@ -10,6 +10,61 @@ class EmployeeNotificationsScreen extends StatelessWidget {
   static const Color textFrost = Color(0xFFF3F4F6);
   static const Color textMuted = Color(0xFF9CA3AF);
 
+  Widget _buildNotificationCard(AppNotification notif) {
+    IconData icon;
+    Color iconColor;
+    String title;
+
+    // Matches the title and icon to the specific action
+    if (notif.type == 'approved') {
+      icon = Icons.check_circle_rounded;
+      iconColor = Colors.greenAccent;
+      title = 'Request Approved';
+    } else if (notif.type == 'rejected') {
+      icon = Icons.cancel_rounded;
+      iconColor = Colors.redAccent;
+      title = 'Request Rejected';
+    } else if (notif.type == 'info') {
+      icon = Icons.info_rounded;
+      iconColor = champagneGold;
+      title = 'Additional Info Required';
+    } else {
+      icon = Icons.notifications_rounded;
+      iconColor = champagneGold;
+      title = 'Notification';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: darkCharcoal,
+        borderRadius: BorderRadius.circular(12),
+        // Super subtle border to match the sleek design in your 2nd picture
+        border: Border.all(color: const Color(0xFF262633), width: 1), 
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: iconColor, size: 24),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 6),
+                Text(notif.subtitle, style: const TextStyle(color: textMuted, fontSize: 13)),
+                const SizedBox(height: 10),
+                Text(notif.time, style: TextStyle(color: textMuted.withValues(alpha: 0.5), fontSize: 11)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = ExpenseStore.instance;
@@ -17,68 +72,32 @@ class EmployeeNotificationsScreen extends StatelessWidget {
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) {
-        // Only show notifications relevant to this employee's own expense IDs.
+        // Only grabs notifications that belong to this specific employee's expenses
         final myExpenseIds = store.myExpenses.map((e) => e.id).toSet();
-        final items = store.notifications.where((n) => myExpenseIds.contains(n.expenseId)).toList();
+        final myNotifications = store.notifications.where((n) => myExpenseIds.contains(n.expenseId)).toList();
 
         return Scaffold(
           backgroundColor: obsidianBlack,
           appBar: AppBar(
-            backgroundColor: darkCharcoal,
+            backgroundColor: obsidianBlack,
             elevation: 0,
-            title: const Text('Activity', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
+            title: const Text('Notifications', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 20)),
           ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 600),
-              padding: const EdgeInsets.all(16.0),
-              child: items.isEmpty
-                  ? const Center(child: Text('No activity yet.', style: TextStyle(color: textMuted)))
-                  : ListView.builder(
-                      itemCount: items.length,
+          body: myNotifications.isEmpty
+              ? const Center(child: Text('No activity yet.', style: TextStyle(color: textMuted)))
+              : Center(
+                  child: Container(
+                    // Keeps the cards nicely centered and constrained on larger screens
+                    constraints: const BoxConstraints(maxWidth: 700),
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(24),
+                      itemCount: myNotifications.length,
                       itemBuilder: (context, index) {
-                        final item = items[index];
-                        IconData iconData = Icons.info_rounded;
-                        Color accentColor = champagneGold;
-                        if (item.type == 'approved') {
-                          iconData = Icons.check_circle_rounded;
-                          accentColor = Colors.greenAccent.shade400;
-                        } else if (item.type == 'rejected') {
-                          iconData = Icons.cancel_rounded;
-                          accentColor = Colors.redAccent.shade400;
-                        }
-                        return Container(
-                          margin: const EdgeInsets.symmetric(vertical: 8),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: darkCharcoal,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: champagneGold.withValues(alpha: 0.1)),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(iconData, color: accentColor, size: 24),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(item.type == 'approved' ? 'Request Approved' : item.type == 'rejected' ? 'Request Rejected' : 'Additional Info Required', style: const TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 14)),
-                                    const SizedBox(height: 6),
-                                    Text(item.subtitle, style: TextStyle(color: textMuted.withValues(alpha: 0.85), fontSize: 13)),
-                                    const SizedBox(height: 8),
-                                    Text(item.time, style: TextStyle(color: textMuted.withValues(alpha: 0.5), fontSize: 11)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
+                        return _buildNotificationCard(myNotifications[index]);
                       },
                     ),
-            ),
-          ),
+                  ),
+                ),
         );
       },
     );

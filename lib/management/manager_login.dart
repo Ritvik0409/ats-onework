@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // NEW: Required to check activation status
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ats_onework/management/navigation_shell.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/google_auth_service.dart';
+import 'package:ats_onework/shared/google_sign_in_button.dart';
+
 
 class ManagerLoginScreen extends StatefulWidget {
   const ManagerLoginScreen({super.key});
@@ -15,6 +21,9 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _rememberMe = false;
+  bool _isLoading = false; 
+  bool _isGoogleLoading = false;
+
 
   static const Color obsidianBlack = Color(0xFF0D0D11);
   static const Color darkCharcoal = Color(0xFF16161F);
@@ -22,15 +31,159 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
   static const Color textFrost = Color(0xFFF3F4F6);
   static const Color textMuted = Color(0xFF9CA3AF);
 
-  void _handleLogin() {
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedEmail();
+  }
+
+  Future<void> _loadSavedEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString('saved_manager_email');
+    if (savedEmail != null && savedEmail.isNotEmpty) {
+      setState(() {
+        _emailController.text = savedEmail;
+        _rememberMe = true;
+      });
+    }
+  }
+
+ Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
-      ExpenseStore.instance.setCurrentManager(email: _emailController.text.trim());
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const ManagementNavigationShell(),
-        ),
+      setState(() => _isLoading = true);
+      
+      try {
+        final email = _emailController.text.trim();
+        final password = _passwordController.text.trim();
+
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+
+        // Security Checkpoint
+        final statusDoc = await FirebaseFirestore.instance.collection('employee_status').doc(email).get();
+        if (statusDoc.exists && statusDoc.data()?['isActive'] == false) {
+          await FirebaseAuth.instance.signOut(); 
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Your account has been deactivated. Please contact administration.'), backgroundColor: Colors.redAccent),
+            );
+            // Force the spinner off right here just to be absolutely safe
+            setState(() => _isLoading = false);
+          }
+          return; 
+        }
+
+        final prefs = await SharedPreferences.getInstance();
+        if (_rememberMe) {
+          await prefs.setString('saved_manager_email', email);
+        } else {
+          await prefs.remove('saved_manager_email');
+        }
+
+        ExpenseStore.instance.setCurrentManager(email: email);
+        await ExpenseStore.instance.loadCurrentUserRole(email);
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+           MaterialPageRoute(builder: (context) => const ManagementNavigationShell()),
+          );
+        }
+      } catch (e) {
+        // FIX: Broadened the catch block to intercept EVERY type of error, preventing silent crashes
+        String errorMessage = 'An error occurred. Please try again.';
+        if (e is FirebaseAuthException) {
+          if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+            errorMessage = 'Incorrect email or password.';
+          } else if (e.code == 'user-disabled') {
+            errorMessage = 'Your account has been disabled by an administrator.';
+          } else {
+            errorMessage = e.message ?? errorMessage;
+          }
+        } else {
+          errorMessage = e.toString(); // Catches database permission errors
+        }
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMessage), backgroundColor: Colors.redAccent),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    setState(() => _isGoogleLoading = true);
+    try {
+      final email = await GoogleAuthService.signIn();
+
+      // FIX: Apply the same security checkpoint to Google Logins
+      final statusDoc = await FirebaseFirestore.instance.collection('employee_status').doc(email).get();
+      if (statusDoc.exists && statusDoc.data()?['isActive'] == false) {
+        await FirebaseAuth.instance.signOut(); 
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Your account has been deactivated. Please contact administration.'), backgroundColor: Colors.redAccent),
+          );
+        }
+        return; 
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      if (_rememberMe) {
+        await prefs.setString('saved_manager_email', email);
+      }
+
+      ExpenseStore.instance.setCurrentManager(email: email);
+      await ExpenseStore.instance.loadCurrentUserRole(email);
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const ManagementNavigationShell()),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
+    }
+  }
+
+  Future<void> _handleForgotPassword() async {
+    final email = _emailController.text.trim();
+    
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please type your email address first.'), backgroundColor: Colors.redAccent),
       );
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password reset link sent! Check your inbox.'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error sending link. Verify your email is correct.'), backgroundColor: Colors.redAccent),
+        );
+      }
     }
   }
 
@@ -56,11 +209,7 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: champagneGold.withValues(alpha: 0.15), width: 1),
               boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  blurRadius: 30,
-                  offset: const Offset(0, 15),
-                )
+                BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 30, offset: const Offset(0, 15)),
               ],
             ),
             child: Form(
@@ -75,9 +224,9 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
                         width: 72,
                         height: 72,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0D0D11),
+                          color: obsidianBlack,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2B93B).withValues(alpha: 0.3), width: 1.5),
+                          border: Border.all(color: champagneGold.withValues(alpha: 0.3), width: 1.5),
                         ),
                       ),
                       const Positioned(
@@ -125,18 +274,11 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
                       ),
                     ),
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter your corporate email';
-                      }
+                      if (value == null || value.trim().isEmpty) return 'Please enter your email';
                       final email = value.trim().toLowerCase();
                       final looksLikeEmail = RegExp(r'^[\w.+-]+@[\w-]+\.[a-z]{2,}$').hasMatch(email);
-                      if (!looksLikeEmail) {
-                        return 'Please enter a valid email address';
-                      }
-                      if (!email.endsWith('@company.com')) {
-                        return 'Only @company.com corporate emails are allowed';
-                      }
-                      return null;
+                      if (!looksLikeEmail) return 'Please enter a valid email address';
+                      return null; 
                     },
                   ),
                   const SizedBox(height: 20),
@@ -190,7 +332,7 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
                         ],
                       ),
                       TextButton(
-                        onPressed: () {},
+                        onPressed: _handleForgotPassword, 
                         child: const Text('Forgot Password?', style: TextStyle(color: champagneGold, fontSize: 13, fontWeight: FontWeight.w600)),
                       ),
                     ],
@@ -200,17 +342,26 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      onPressed: _handleLogin,
+                      onPressed: _isLoading ? null : _handleLogin, 
                       style: ElevatedButton.styleFrom(
                         backgroundColor: champagneGold,
                         foregroundColor: obsidianBlack,
                         elevation: 0,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        disabledBackgroundColor: champagneGold.withValues(alpha: 0.5),
                       ),
-                      child: const Text('Login'),
+                      child: _isLoading 
+                          ? const SizedBox(
+                              height: 24, 
+                              width: 24, 
+                              child: CircularProgressIndicator(color: obsidianBlack, strokeWidth: 2.5)
+                            )
+                          : const Text('Login'),
                     ),
                   ),
+                  const OrDivider(),
+                  GoogleSignInButton(isLoading: _isGoogleLoading, onPressed: _handleGoogleSignIn),
                   const SizedBox(height: 24),
                   Text(
                     'Secure access for management only',
@@ -221,6 +372,28 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// Ensure you have your OrDivider component defined either here or imported
+class OrDivider extends StatelessWidget {
+  const OrDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Row(
+        children: [
+          Expanded(child: Divider(color: Colors.grey.withValues(alpha: 0.2))),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text('OR', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(child: Divider(color: Colors.grey.withValues(alpha: 0.2))),
+        ],
       ),
     );
   }

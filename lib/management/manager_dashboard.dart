@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/expense_details.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/management/expense_details.dart';
 
 class ManagerDashboardScreen extends StatefulWidget {
   const ManagerDashboardScreen({super.key});
@@ -10,193 +10,395 @@ class ManagerDashboardScreen extends StatefulWidget {
 }
 
 class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
-  String _searchQuery = '';
-  String _selectedFilter = 'All';
+  String _selectedTimeframe = 'This Month';
 
-  static const Color obsidianBlack = Color(0xFF0D0D11);
-  static const Color darkCharcoal = Color(0xFF16161F);
-  static const Color champagneGold = Color(0xFFE2B93B);
-  static const Color textFrost = Color(0xFFF3F4F6);
-  static const Color textMuted = Color(0xFF9CA3AF);
-
-  final ExpenseStore _store = ExpenseStore.instance;
+  // Professional, subdued color palette (removed the loud pinks and purples)
+  final List<Color> _categoryColors = [
+    Colors.blueAccent,
+    Colors.tealAccent,
+    Colors.amber,
+    Colors.indigoAccent,
+    Colors.deepOrangeAccent,
+    Colors.cyan,
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _store,
-      builder: (context, _) {
-        final filteredExpenses = _store.expenses.where((expense) {
-          final matchesSearch = expense.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              expense.id.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              expense.type.toLowerCase().contains(_searchQuery.toLowerCase());
+    final store = ExpenseStore.instance;
 
-          if (_selectedFilter == 'All') return matchesSearch;
-          if (_selectedFilter == 'Pending') return matchesSearch && expense.status == 'Pending Verification';
-          if (_selectedFilter == 'Approved') return matchesSearch && expense.status == 'Approved';
-          if (_selectedFilter == 'Rejected') return matchesSearch && expense.status == 'Rejected';
-          return matchesSearch;
-        }).toList();
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) {
+        final obsidianBlack = store.bg;
+        final darkCharcoal = store.card;
+        final champagneGold = store.accentGold;
+        final textFrost = store.textFrost;
+        final textMuted = store.textMuted;
+
+        final burnPercentStr = (store.currentMonthBurnPercentage * 100).toStringAsFixed(1);
+        final urgentReqs = store.urgentRequests;
+        final chartData = store.getChartData(_selectedTimeframe);
+        
+        final categorySpend = store.categorySpend;
+
+        final List<BoxShadow> cardShadows = store.isDarkMode
+            ? []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.07),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ];
 
         return Scaffold(
           backgroundColor: obsidianBlack,
-          appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            elevation: 0,
-            title: const Text('All Requests', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 20)),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
-            ),
-          ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 1000),
+          body: SafeArea(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    onChanged: (value) => setState(() => _searchQuery = value),
-                    style: const TextStyle(color: textFrost),
-                    decoration: InputDecoration(
-                      hintText: 'Search by employee name, ID or type...',
-                      hintStyle: const TextStyle(color: textMuted, fontSize: 14),
-                      prefixIcon: const Icon(Icons.search_rounded, color: champagneGold, size: 22),
-                      filled: true,
-                      fillColor: darkCharcoal,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.1)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: champagneGold, width: 1.5),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: ['All', 'Pending', 'Approved', 'Rejected'].map((category) {
-                        final isSelected = _selectedFilter == category;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8.0),
-                          child: ChoiceChip(
-                            label: Text(category),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              if (selected) setState(() => _selectedFilter = category);
-                            },
-                            labelStyle: TextStyle(
-                              color: isSelected ? obsidianBlack : textFrost,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                            selectedColor: champagneGold,
+              child: Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 800),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 28,
                             backgroundColor: darkCharcoal,
-                            disabledColor: darkCharcoal,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                              side: BorderSide(
-                                color: isSelected ? champagneGold : champagneGold.withValues(alpha: 0.15),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: champagneGold.withValues(alpha: 0.3), width: 1.5),
+                                boxShadow: cardShadows,
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(store.getInitials(store.currentManagerName), style: TextStyle(color: champagneGold, fontSize: 18, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Welcome, ${store.currentManagerName}', style: TextStyle(color: textFrost, fontSize: 22, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
+                              Text('${store.currentUserRole.toUpperCase()} Department', style: TextStyle(color: textMuted, fontSize: 13)),
+                            ],
+                          )
+                        ],
+                      ),
+                      const SizedBox(height: 32),
+
+                      Row(
+                        children: [
+                          Expanded(child: _buildKpiCard('MTD Pending', store.pendingCount.toString().padLeft(2, '0'), Icons.hourglass_empty, champagneGold, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
+                          const SizedBox(width: 16),
+                          Expanded(child: _buildKpiCard('MTD Approved', store.approvedCount.toString().padLeft(2, '0'), Icons.check_circle_outline, Colors.greenAccent.shade700, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(child: _buildKpiCard('MTD Rejected', store.rejectedCount.toString().padLeft(2, '0'), Icons.cancel_outlined, Colors.redAccent, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
+                          const SizedBox(width: 16),
+                          Expanded(child: _buildKpiCard('Total Employees', store.allEmployees.length.toString().padLeft(2, '0'), Icons.people_outline, Colors.blueAccent, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
+                        ],
+                      ),
+                      const SizedBox(height: 32),
+
+                      Text('Budget Burn Rate Tracker', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: darkCharcoal,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2)),
+                          boxShadow: cardShadows,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Allocated Limit Used: $burnPercentStr%', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.bold)),
+                                Text('₹${store.currentMonthBurnAmount.toStringAsFixed(0)} / ₹${store.currentMonthBudget.toStringAsFixed(0)}', style: TextStyle(color: champagneGold, fontSize: 14, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            
+                            // Segmented Progress Bar
+                            Container(
+                              height: 12,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: store.isDarkMode ? obsidianBlack : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Row(
+                                  children: [
+                                    ...categorySpend.entries.toList().asMap().entries.map((entry) {
+                                      final index = entry.key;
+                                      final amount = entry.value.value;
+                                      final flex = amount.toInt();
+                                      if (flex <= 0) return const SizedBox.shrink();
+                                      
+                                      return Expanded(
+                                        flex: flex,
+                                        child: Container(color: _categoryColors[index % _categoryColors.length]),
+                                      );
+                                    }),
+                                    
+                                    if (store.currentMonthBudget > store.currentMonthBurnAmount)
+                                      Expanded(
+                                        flex: (store.currentMonthBudget - store.currentMonthBurnAmount).toInt(),
+                                        child: Container(color: Colors.transparent),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
-                            showCheckmark: false,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Expanded(
-                    child: filteredExpenses.isEmpty
-                        ? const Center(child: Text('No matching expense logs found.', style: TextStyle(color: textMuted)))
-                        : ListView.builder(
-                            itemCount: filteredExpenses.length,
-                            itemBuilder: (context, index) {
-                              final expense = filteredExpenses[index];
+                            
+                            // Category Breakdown List
+                            if (categorySpend.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              ...categorySpend.entries.toList().asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final categoryName = entry.value.key;
+                                final amount = entry.value.value;
+                                final dotColor = _categoryColors[index % _categoryColors.length];
 
-                              Color statusColor = champagneGold;
-                              if (expense.status == 'Approved') statusColor = Colors.greenAccent.shade400;
-                              if (expense.status == 'Rejected') statusColor = Colors.redAccent.shade400;
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 14),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: champagneGold.withValues(alpha: 0.1), width: 1),
-                                ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                  leading: CircleAvatar(
-                                    radius: 24,
-                                    backgroundColor: champagneGold.withValues(alpha: 0.1),
-                                    child: Text(
-                                      expense.name.substring(0, 1),
-                                      style: const TextStyle(color: champagneGold, fontWeight: FontWeight.bold, fontSize: 18),
-                                    ),
-                                  ),
-                                  title: Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Text(expense.name, style: const TextStyle(color: textFrost, fontWeight: FontWeight.bold)), 
-            const SizedBox(width: 8),
-            Text('(${expense.id})', style: const TextStyle(color: textMuted)), 
-          ],
-        ),
-                                  subtitle: Padding(
-                                    padding: const EdgeInsets.only(top: 6.0),
-                                    child: Text(
-                                      '${expense.type} Expense • ${expense.date}',
-                                      style: const TextStyle(color: textMuted, fontSize: 13),
-                                    ),
-                                  ),
-                                  trailing: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 14.0),
+                                  child: Row(
                                     children: [
-                                      Text(expense.amountFormatted, style: const TextStyle(color: textFrost, fontWeight: FontWeight.w900, fontSize: 15)),
-                                      const SizedBox(height: 4),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        width: 12,
+                                        height: 12,
                                         decoration: BoxDecoration(
-                                          color: statusColor.withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
+                                          color: dotColor,
+                                          shape: BoxShape.circle,
                                         ),
-                                        child: Text(
-                                          expense.status,
-                                          style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
-                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(categoryName, style: TextStyle(color: textFrost, fontSize: 15)),
+                                      const Spacer(),
+                                      // Calculates the exact percentage relative to TOTAL SPENT (always sums to 100%)
+                                      Text(
+                                        store.currentMonthBurnAmount > 0 
+                                            ? '${((amount / store.currentMonthBurnAmount) * 100).toStringAsFixed(1)}%' 
+                                            : '0.0%', 
+                                        style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.bold)
                                       ),
                                     ],
                                   ),
-                                  onTap: () {
+                                );
+                              }),
+                            ]
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      Text('"Needs Attention" Urgent Items', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      if (urgentReqs.isNotEmpty)
+                        ...urgentReqs.map((urgentItem) {
+                          final req = urgentItem['expense'] as ExpenseRecord;
+                          final reason = urgentItem['reason'] as String;
+                          final isSla = urgentItem['isSla'] as bool;
+                          
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: darkCharcoal,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: isSla ? Colors.redAccent.withValues(alpha: 0.3) : (store.isDarkMode ? champagneGold.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2))),
+                              boxShadow: cardShadows,
+                            ),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: isSla ? Colors.redAccent.withValues(alpha: 0.1) : champagneGold.withValues(alpha: 0.1),
+                                  child: Text(store.getInitials(req.name), style: TextStyle(color: isSla ? Colors.redAccent : champagneGold, fontWeight: FontWeight.bold)),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('${req.name} • ${req.type}', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 6),
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: isSla ? Colors.redAccent.withValues(alpha: 0.1) : Colors.orangeAccent.withValues(alpha: 0.1),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(reason, style: TextStyle(color: isSla ? Colors.redAccent : Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(req.amountFormatted, style: TextStyle(color: textMuted, fontSize: 12)),
+                                        ],
+                                      )
+                                    ],
+                                  ),
+                                ),
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    side: BorderSide(color: champagneGold.withValues(alpha: 0.3)),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  ),
+                                  onPressed: () {
                                     Navigator.push(
                                       context,
-                                      MaterialPageRoute(
-                                        builder: (context) => ExpenseDetailsScreen(expenseId: expense.id),
-                                      ),
+                                      MaterialPageRoute(builder: (_) => ExpenseDetailsScreen(expenseId: req.id)),
                                     );
                                   },
-                                ),
-                              );
-                            },
+                                  child: Text('Review', style: TextStyle(color: champagneGold, fontSize: 12)),
+                                )
+                              ],
+                            ),
+                          );
+                        })
+                      else
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: darkCharcoal,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2)),
+                            boxShadow: cardShadows,
                           ),
+                          child: Center(
+                            child: Text('All caught up! No urgent pending requests.', style: TextStyle(color: textMuted, fontWeight: FontWeight.w500)),
+                          ),
+                        ),
+                      const SizedBox(height: 32),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Requests Overview', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
+                          DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              dropdownColor: darkCharcoal,
+                              value: _selectedTimeframe,
+                              icon: Icon(Icons.arrow_drop_down, color: textMuted.withValues(alpha: 0.8)),
+                              style: TextStyle(color: textMuted.withValues(alpha: 0.8), fontSize: 12),
+                              onChanged: (String? newValue) {
+                                if (newValue != null) {
+                                  setState(() {
+                                    _selectedTimeframe = newValue;
+                                  });
+                                }
+                              },
+                              items: <String>['This Month', 'Last 3 Months', 'Last 6 Months', 'Year to Date']
+                                  .map<DropdownMenuItem<String>>((String value) {
+                                return DropdownMenuItem<String>(
+                                  value: value,
+                                  child: Text(value),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      Container(
+                        height: 200,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: darkCharcoal,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2)),
+                          boxShadow: cardShadows,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: chartData.map((data) {
+                            return _buildBar(data['label'], data['percentage'], store.isDarkMode ? obsidianBlack : Colors.grey.shade100, champagneGold, textMuted);
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildKpiCard(String title, String value, IconData icon, Color iconColor, Color cardBg, Color mutedColor, Color frostColor, List<BoxShadow> shadows, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? Colors.amber.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2)),
+        boxShadow: shadows,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(title, style: TextStyle(color: mutedColor, fontSize: 13, fontWeight: FontWeight.w500)),
+              Icon(icon, color: iconColor, size: 18),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(value, style: TextStyle(color: frostColor, fontSize: 28, fontWeight: FontWeight.w900)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBar(String label, double fillPercentage, Color trackBg, Color barColor, Color textColor) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        Container(
+          width: 32,
+          height: 120,
+          decoration: BoxDecoration(
+            color: trackBg,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              width: 32,
+              height: 120 * fillPercentage,
+              decoration: BoxDecoration(
+                color: barColor,
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(label, style: TextStyle(color: textColor, fontSize: 12)),
+      ],
     );
   }
 }

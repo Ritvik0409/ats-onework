@@ -9,12 +9,6 @@ class NotificationsHubScreen extends StatefulWidget {
 }
 
 class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
-  static const Color obsidianBlack = Color(0xFF0D0D11);
-  static const Color darkCharcoal = Color(0xFF16161F);
-  static const Color champagneGold = Color(0xFFE2B93B);
-  static const Color textFrost = Color(0xFFF3F4F6);
-  static const Color textMuted = Color(0xFF9CA3AF);
-
   static const List<String> _tabs = ['All', 'Pending', 'Approved', 'Rejected'];
 
   final ExpenseStore _store = ExpenseStore.instance;
@@ -60,12 +54,26 @@ class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
     return AnimatedBuilder(
       animation: _store,
       builder: (context, _) {
+        final obsidianBlack = _store.bg;
+        final darkCharcoal = _store.card;
+        final champagneGold = _store.accentGold;
+        final textFrost = _store.textFrost;
+        final textMuted = _store.textMuted;
+        
+        final List<BoxShadow> cardShadows = _store.isDarkMode
+            ? <BoxShadow>[]
+            : [
+                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 4)),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 12), spreadRadius: -4),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
+              ];
+
         return Scaffold(
           backgroundColor: obsidianBlack,
           appBar: AppBar(
             backgroundColor: darkCharcoal,
             foregroundColor: textFrost,
-            title: const Text('Notifications', style: TextStyle(fontWeight: FontWeight.bold, color: textFrost)),
+            title: Text('Notifications', style: TextStyle(fontWeight: FontWeight.bold, color: textFrost)),
             elevation: 0,
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(46),
@@ -116,7 +124,7 @@ class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
                   constraints: const BoxConstraints(maxWidth: 600),
                   padding: const EdgeInsets.all(16.0),
                   child: items.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Text('No notifications here yet.', style: TextStyle(color: textMuted)),
                         )
                       : ListView.builder(
@@ -153,7 +161,8 @@ class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
                                 decoration: BoxDecoration(
                                   color: darkCharcoal,
                                   borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: champagneGold.withValues(alpha: 0.1), width: 1),
+                                  border: Border.all(color: _store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2), width: 1),
+                                  boxShadow: cardShadows,
                                 ),
                                 child: Padding(
                                   padding: const EdgeInsets.all(16.0),
@@ -168,13 +177,11 @@ class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
                                           children: [
                                             Text(
                                               item.title,
-                                              style: const TextStyle(fontWeight: FontWeight.bold, color: textFrost, fontSize: 15),
+                                              style: TextStyle(fontWeight: FontWeight.bold, color: textFrost, fontSize: 15),
                                             ),
                                             const SizedBox(height: 6),
                                             Text(
-                                              item.subtitle,
-                                              style: TextStyle(color: textMuted.withValues(alpha: 0.8), fontSize: 14, height: 1.3),
-                                            ),
+                                              item.subtitle.replaceAll('. Reason:', '.\nReason:'), style: TextStyle(color: textMuted.withValues(alpha: 0.85), fontSize: 13)),
                                             const SizedBox(height: 10),
                                             Text(
                                               item.time,

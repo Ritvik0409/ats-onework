@@ -16,7 +16,7 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
   static const Color darkCharcoal = Color(0xFF16161F);
   static const Color champagneGold = Color(0xFFE2B93B);
   static const Color textFrost = Color(0xFFF3F4F6);
-  static const Color textMuted = Color(0xFF9CA3AF);
+
 
   final ImagePicker _picker = ImagePicker();
   Uint8List? _previewBytes;

@@ -22,7 +22,7 @@ environment:
   sdk: ^3.12.2
 
 # Dependencies specify other packages that your package needs in order to work.
-# To automatically upgrade your package dependencies to the latest versions
+# To automatically upgrade your package dependencPies to the latest versions
 # consider running `flutter pub upgrade --major-versions`. Alternatively,
 # dependencies can be manually updated by changing the version numbers below to
 # the latest version available on pub.dev. To see which dependencies have newer
@@ -30,16 +30,23 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
+  google_sign_in: ^7.2.0
+  flutter_svg: ^2.0.0
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  image_picker: ^1.1.2
+  image_picker: ^1.2.3
+  firebase_core: ^4.13.0
+  firebase_auth: ^6.5.7
+  shared_preferences: ^2.5.5
+  cloud_firestore: ^6.8.0
+  firebase_storage: ^13.4.6
+  intl: ^0.20.3
+  
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
@@ -59,7 +66,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
+  assets:
+    - assets/images/
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
 

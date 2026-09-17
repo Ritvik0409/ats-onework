@@ -1,0 +1,28 @@
+# ATS backend — local development database (PostgreSQL 16)
+# Usage (from backend/):  docker compose up -d
+# The healthcheck gates `docker compose up` dependent services and CI.
+#
+# NOTE: credentials below are for LOCAL DEVELOPMENT ONLY.
+# Production must use a managed database with rotated secrets.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ats-postgres
+    environment:
+      POSTGRES_USER: ats
+      POSTGRES_PASSWORD: ats_dev_password
+      POSTGRES_DB: ats
+    ports:
+      - "5432:5432"
+    volumes:
+      - ats_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ats -d ats"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  ats_pgdata:

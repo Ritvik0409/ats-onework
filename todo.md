@@ -7,13 +7,13 @@
 
 ## Phase 0 — Tooling & Environment
 
-- [ ] Install uv (≥ 0.12.15): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-- [ ] Verify Python 3.13 available: `uv python install 3.13`
-- [ ] Create `backend/` directory layout
-- [ ] `docker-compose.yml` — Postgres 17 (volume, healthcheck, port 5432)
-- [ ] Update root `.gitignore`: `.venv/`, `.env`, `__pycache__/`, `uploads/`, `.ruff_cache/`, `.pytest_cache/`
-- [ ] `backend/migrations/0001_initial.sql` = `schema.sql` verbatim (baseline — never edited afterwards; §18)
-- [ ] `backend/scripts/migrate.py` (ordered SQL runner) + `seed.py` (Org A + Org B)
+- [x] Install uv: **0.12.15** verified (latest)
+- [x] Verify Python 3.13 available: **3.13.14** installed via uv
+- [x] Create `backend/` directory layout (14 packages with `__init__.py`)
+- [x] `docker-compose.yml` — Postgres 16 (volume, healthcheck, port 5432)
+- [x] Update root `.gitignore`: `backend/.venv/`, `.env`, `__pycache__/`, `backend/uploads/`, `.ruff_cache/`, `.pytest_cache/`
+- [x] `backend/migrations/0001_initial.sql` = `schema.sql` verbatim (verified byte-identical via `fc /b`)
+- [x] `backend/scripts/migrate.py` (ordered SQL runner, dollar-quote-aware splitter, `schema_migrations` tracking) + `seed.py` (Org A + Org B, Argon2id-hashed dev passwords, idempotent) — syntax-checked on 3.13; runtime verification happens in Phase 3 once deps are installed
 
 ## Phase 1 — Project Scaffolding (uv)
 

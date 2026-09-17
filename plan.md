@@ -50,7 +50,7 @@ The Flutter app will later consume this API instead of Firebase (out of scope fo
 
 - **uv** ≥ 0.12.15 (standalone installer)
 - **Python 3.13** (target runtime — fully supported by every package above)
-- **PostgreSQL 17** via Docker Compose (local development)
+- **PostgreSQL 16** via Docker Compose (local development)
 
 ### Rejected alternatives (and why)
 
@@ -134,7 +134,7 @@ backend/
 ├── uv.lock                   # locked versions (committed)
 ├── .env.example
 ├── README.md
-├── docker-compose.yml        # Postgres 17 local dev
+├── docker-compose.yml        # Postgres 16 local dev
 ├── migrations/
 │   ├── 0001_initial.sql      # = schema.sql verbatim (baseline, never edited)
 │   └── 0002_...sql           # additive changes only (arch. doc §18)

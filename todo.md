@@ -17,17 +17,17 @@
 
 ## Phase 1 — Project Scaffolding (uv)
 
-- [ ] `pyproject.toml` — project metadata, `requires-python = ">=3.13"`
-- [ ] Runtime deps (pinned): `fastapi==0.141.1`, `uvicorn[standard]==0.53.0`,
+- [x] `pyproject.toml` — project metadata, `requires-python = ">=3.13"` (+ `.python-version` pinned to 3.13)
+- [x] Runtime deps (pinned): `fastapi==0.141.1`, `uvicorn[standard]==0.53.0`,
       `psycopg[binary,pool]==3.3.5`, `pydantic==2.13.5`, `pydantic-settings==2.15.0`,
       `PyJWT==2.14.0`, `pwdlib[argon2]==0.3.1` (Argon2id), `python-multipart==0.0.32`, `email-validator==2.3.0`
-- [ ] Dev deps: `pytest==9.1.1`, `httpx==0.28.1`, `ruff==0.16.8`
-- [ ] Ruff config (line-length 100, target py313, lint + format)
-- [ ] Pytest config (`testpaths`, markers)
-- [ ] `uv lock` + `uv sync`; commit `uv.lock`
-- [ ] `.env.example` (DATABASE_URL, JWT_SECRET, ACCESS_TOKEN_EXPIRE_MINUTES,
-      REFRESH_TOKEN_EXPIRE_DAYS, CORS_ORIGINS, ENVIRONMENT, LOG_LEVEL)
-- [ ] `backend/README.md` (setup, run, test instructions)
+- [x] Dev deps (`[dependency-groups] dev`): `pytest==9.1.1`, `httpx==0.28.1`, `ruff==0.16.8`
+- [x] Ruff config (line-length 100, target py313, `E,F,I,B,UP,SIM,ARG,RUF` — §30)
+- [x] Pytest config (`testpaths=tests`, `-q`, `integration` marker)
+- [x] `uv lock` (44 packages resolved) + `uv sync` (42 installed) on **CPython 3.13.14**; `uv.lock` created — commit it
+- [x] Functional smoke test: Argon2id hash/verify, JWT round-trip, `AsyncConnectionPool` import, Pydantic v2 model + BaseSettings — all green
+- [x] `.env.example` (DATABASE_URL, DB_POOL_*, JWT_SECRET/ALGORITHM/EXPIRE, CORS_ORIGINS, S3_* placeholders — §40)
+- [x] `backend/README.md` (prereqs, setup, migrate, seed, run, test, conventions)
 
 ## Phase 2 — Core Infrastructure
 

@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:ats_onework/management/expense_store.dart';
 
 class ExpenseDetailsScreen extends StatefulWidget {
@@ -14,7 +16,97 @@ class ExpenseDetailsScreen extends StatefulWidget {
 class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
   final ExpenseStore _store = ExpenseStore.instance;
 
-  // --- FIX: Restored synchronous calls to ExpenseStore to fix UI state freezing ---
+  // Custom soft amber color to replace harsh bright yellow snackbars
+  static const Color _softAmber = Color(0xFFD4AF37);
+
+  void _showMarkPaidDialog(BuildContext context, String expenseId, ExpenseStore store) {
+    final txController = TextEditingController();
+    Uint8List? paymentReceiptBytes;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: store.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
+          ),
+          title: Text('Mark Expense as Paid', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Transaction ID is compulsory.', style: TextStyle(color: store.textMuted, fontSize: 13)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: txController,
+                style: TextStyle(color: store.textFrost),
+                decoration: InputDecoration(
+                  labelText: 'Transaction ID *',
+                  labelStyle: TextStyle(color: store.textMuted),
+                  enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold.withValues(alpha: 0.3))),
+                  focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picker = ImagePicker();
+                        final image = await picker.pickImage(source: ImageSource.gallery);
+                        if (image != null) {
+                          final bytes = await image.readAsBytes();
+                          setDialogState(() => paymentReceiptBytes = bytes);
+                        }
+                      },
+                      icon: Icon(Icons.receipt_long_rounded, color: store.accentGold, size: 18),
+                      label: Text(paymentReceiptBytes == null ? 'Attach Receipt (Opt.)' : 'Receipt Attached', style: TextStyle(color: store.accentGold)),
+                      style: OutlinedButton.styleFrom(side: BorderSide(color: store.accentGold.withValues(alpha: 0.3))),
+                    ),
+                  ),
+                  if (paymentReceiptBytes != null) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                      onPressed: () => setDialogState(() => paymentReceiptBytes = null),
+                    ),
+                  ]
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: store.accentGold),
+              onPressed: () async {
+                if (txController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transaction ID is compulsory.'), backgroundColor: Colors.redAccent));
+                  return;
+                }
+                final error = await store.markPaid(
+                  expenseId,
+                  txController.text.trim(),
+                  receiptBytes: paymentReceiptBytes,
+                );
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (error != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Expense marked as Paid!'), backgroundColor: _softAmber));
+                }
+              },
+              child: const Text('Confirm Payment', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _handleApprove() {
     _confirmAction(
       title: 'Approve this expense?',
@@ -109,29 +201,10 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
       onConfirmed: () {
         try {
           _store.requestMoreInfo(widget.expenseId);
-          _showResultSnack('Additional info requested from employee', _store.accentGold);
+          _showResultSnack('Additional info requested from employee', _softAmber);
           if (mounted) Navigator.pop(context);
         } catch (e) {
           _showResultSnack('Error: $e', Colors.redAccent);
-        }
-      },
-    );
-  }
-
-  void _handleMarkPaid() {
-    _confirmAction(
-      title: 'Process Payout?',
-      message: 'This will mark the expense as Paid and notify the employee. Only proceed if funds have been disbursed.',
-      confirmLabel: 'Confirm Payout',
-      confirmColor: _store.accentGold,
-      confirmTextColor: _store.isDarkMode ? _store.bg : Colors.white,
-      onConfirmed: () {
-        try {
-          _store.markPaid(widget.expenseId);
-          _showResultSnack('Payout Processed Successfully!', Colors.greenAccent);
-          if (mounted) Navigator.pop(context);
-        } catch (e) {
-          _showResultSnack('Error processing payout: $e', Colors.redAccent);
         }
       },
     );
@@ -224,6 +297,9 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
         final employeeData = _store.byId(widget.expenseId);
         final isLocked = _store.isLocked(widget.expenseId);
         final isFinance = _store.currentUserRole == 'finance';
+        
+        // --- IDENTITY LOCK IMPLEMENTATION ---
+        final isOwnExpense = employeeData.email.trim().toLowerCase() == _store.currentUserEmail.trim().toLowerCase();
 
         return Scaffold(
           backgroundColor: obsidianBlack,
@@ -338,7 +414,7 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                       SizedBox(
                         width: double.infinity, height: 54,
                         child: ElevatedButton.icon(
-                          onPressed: _handleMarkPaid,
+                          onPressed: () => _showMarkPaidDialog(context, widget.expenseId, _store),
                           icon: Icon(Icons.payments_rounded, size: 22, color: _store.isDarkMode ? obsidianBlack : Colors.white),
                           label: Text('Mark as Paid & Disburse', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: _store.isDarkMode ? obsidianBlack : Colors.white)),
                           style: ElevatedButton.styleFrom(backgroundColor: champagneGold, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
@@ -350,11 +426,15 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                         children: [
                           Text('Approval Action', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textFrost)),
                           if (isLocked)
-                            Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: (employeeData.status == 'Approved' || employeeData.status == 'Paid' ? Colors.greenAccent : Colors.redAccent).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)), child: Text('${employeeData.status} • Locked', style: TextStyle(color: employeeData.status == 'Approved' || employeeData.status == 'Paid' ? Colors.greenAccent : Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold))),
+                            Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: (employeeData.status == 'Approved' || employeeData.status == 'Paid' ? Colors.greenAccent : Colors.redAccent).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)), child: Text('${employeeData.status == 'Approved' ? 'Approved • Payment Pending' : employeeData.status} • Locked', style: TextStyle(color: employeeData.status == 'Approved' || employeeData.status == 'Paid' ? Colors.greenAccent : Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)))
+                          else if (isOwnExpense) // --- IDENTITY LOCK STATUS ---
+                            Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.orangeAccent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)), child: const Text('Self-Submitted • Locked', style: TextStyle(color: Colors.orangeAccent, fontSize: 11, fontWeight: FontWeight.bold))),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      if (!isLocked)
+                      
+                      // --- IDENTITY LOCK CONDITION ---
+                      if (!isLocked && !isOwnExpense)
                         Row(
                           children: [
                             Expanded(child: SizedBox(height: 46, child: ElevatedButton.icon(onPressed: _handleApprove, icon: const Icon(Icons.check_circle_rounded, size: 18, color: Colors.white), label: const Text('Approve', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)), style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)))))),
@@ -363,6 +443,22 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                             const SizedBox(width: 10),
                             Expanded(child: SizedBox(height: 46, child: OutlinedButton.icon(onPressed: _handleRequestInfo, icon: Icon(Icons.info_rounded, size: 18, color: champagneGold), label: Text('Request Info', style: TextStyle(fontWeight: FontWeight.bold, color: champagneGold)), style: OutlinedButton.styleFrom(backgroundColor: darkCharcoal, side: BorderSide(color: champagneGold.withValues(alpha: 0.3)), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)))))),
                           ],
+                        ),
+                      
+                      // --- IDENTITY LOCK FALLBACK UI ---
+                      if (!isLocked && isOwnExpense)
+                        Container(
+                          width: double.infinity, 
+                          padding: const EdgeInsets.symmetric(vertical: 16), 
+                          decoration: BoxDecoration(color: Colors.orangeAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.3))), 
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center, 
+                            children: [
+                              Icon(Icons.lock_person_rounded, color: Colors.orangeAccent), 
+                              SizedBox(width: 8), 
+                              Text('You cannot approve your own expenses.', style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold))
+                            ]
+                          )
                         ),
                     ] else if (isFinance && employeeData.status == 'Paid') ...[
                       Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 16), decoration: BoxDecoration(color: Colors.greenAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.3))), child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.check_circle_rounded, color: Colors.greenAccent), SizedBox(width: 8), Text('Payment Disbursed Successfully', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold))]))

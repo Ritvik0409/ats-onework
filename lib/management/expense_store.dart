@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ProjectRecord {
   final String id;
@@ -114,6 +116,8 @@ class ExpenseStore extends ChangeNotifier {
     _listenToBudget();
     _listenToProjects(); 
     _listenToProjectRequests();
+    _listenToUsers();
+    _listenToExpenseTypes();
   }
 
   static final ExpenseStore instance = ExpenseStore._internal();
@@ -124,17 +128,57 @@ class ExpenseStore extends ChangeNotifier {
   Color get card => isDarkMode ? const Color(0xFF16161F) : const Color(0xFFFFFFFF);
   Color get textFrost => isDarkMode ? const Color(0xFFF3F4F6) : const Color(0xFF1F2937);
   Color get textMuted => isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
-  Color get accentGold => const Color(0xFFE2B93B); 
+  Color get accentGold => const Color(0xFFD4AF37);
   Color get border => isDarkMode ? const Color(0xFFE2B93B).withValues(alpha: 0.15) : const Color(0xFFE5E7EB);
-
+ 
   Future<void> _loadThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
-    // Dynamically grab the correct email based on their role
     final activeEmail = currentUserRole == 'employee' ? currentEmployeeEmail : currentManagerEmail;
-    final key = activeEmail.isNotEmpty ? 'theme_$activeEmail' : 'isDarkMode';
+    
+    final key = activeEmail.isNotEmpty ? 'theme_${activeEmail}_$currentUserRole' : 'isDarkMode_$currentUserRole';
     
     isDarkMode = prefs.getBool(key) ?? true;
     notifyListeners();
+  }
+
+  List<String> customExpenseTypes = [];
+
+  List<String> get availableExpenseTypes {
+    const base = ['Travel', 'Meals', 'Supplies', 'Lodging', 'Software'];
+    final combined = <String>{...base, ...customExpenseTypes};
+    return combined.toList();
+  }
+
+  void _listenToExpenseTypes() {
+    _db.collection('expense_types').snapshots().listen((snapshot) {
+      customExpenseTypes = snapshot.docs.map((doc) => doc.id).toList();
+      notifyListeners();
+    });
+  }
+
+  Future<void> addNewExpenseType(String typeName) async {
+    final clean = typeName.trim();
+    if (clean.isEmpty) return;
+    await _db.collection('expense_types').doc(clean).set({
+      'name': clean,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  List<Map<String, String>> usersList = [];
+
+  void _listenToUsers() {
+    _db.collection('users').snapshots().listen((snapshot) {
+      usersList = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': (data['employeeId'] ?? doc.id).toString(),
+          'name': (data['name'] ?? 'Unknown').toString(),
+          'email': (data['email'] ?? '').toString(),
+        };
+      }).toList();
+      notifyListeners();
+    });
   }
 
   Future<void> toggleTheme() async {
@@ -142,7 +186,8 @@ class ExpenseStore extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     
     final activeEmail = currentUserRole == 'employee' ? currentEmployeeEmail : currentManagerEmail;
-    final key = activeEmail.isNotEmpty ? 'theme_$activeEmail' : 'isDarkMode';
+    
+    final key = activeEmail.isNotEmpty ? 'theme_${activeEmail}_$currentUserRole' : 'isDarkMode_$currentUserRole';
     
     await prefs.setBool(key, isDarkMode);
     notifyListeners();
@@ -159,12 +204,42 @@ class ExpenseStore extends ChangeNotifier {
   String currentEmployeeName = 'Employee';
   String currentEmployeeId = 'E00128';
   String currentUserRole = 'manager';
+  String currentUserName = 'User';
+  String currentUserEmail = '';
+  String currentUserId = '';
   
   bool get isHR => currentUserRole == 'hr';
   final Map<String, bool> employeeActiveStatus = {};
   final FirebaseFirestore _db = FirebaseFirestore.instance; 
 
   double currentMonthBudget = 60000.0;
+
+  List<ProjectRecord> get myProjects {
+    if (currentUserRole == 'employee') {
+      final myId = currentUserId.trim();
+      final myEmail = currentEmployeeEmail.trim().toLowerCase();
+      return projects.where((p) => 
+        p.isActive && 
+        (p.assignedEmails.any((id) => id.trim().toLowerCase() == myId || id.trim().toLowerCase() == myEmail))
+      ).toList();
+    }
+    return projects;
+  }
+
+  List<ExpenseRecord> get myExpenses =>
+      expenses.where((e) => e.email.trim().toLowerCase() == currentEmployeeEmail.trim().toLowerCase()).toList();
+
+  int get myPendingCount => myExpenses.where((e) => e.status == 'Pending Verification').length;
+  int get myApprovedCount => myExpenses.where((e) => e.status == 'Approved').length;
+  int get myRejectedCount => myExpenses.where((e) => e.status == 'Rejected').length;
+  int get myTotalUploads => myExpenses.length;
+
+  ExpenseRecord byId(String id) => expenses.firstWhere((e) => e.id == id);
+
+  bool isLocked(String id) {
+    final status = byId(id).status;
+    return status == 'Approved' || status == 'Rejected' || status == 'Paid';
+  }
 
   DateTime? _parseDate(String dateStr) {
     try {
@@ -242,10 +317,47 @@ class ExpenseStore extends ChangeNotifier {
     });
   }
 
-  // --- BULLETPROOF MANAGEMENT METHODS ---
+  // --- UPDATED: CREATES CREDENTIALS WITHOUT AUTO-GENERATING A PROJECT REQUEST ---
+  Future<void> assignEmployeeCredentials({
+    required String employeeId,
+    required String email,
+    required String password,
+    required String name,
+    required String role,
+  }) async {
+    final cleanId = employeeId.trim();
+    final cleanEmail = email.trim().toLowerCase();
+    final cleanPassword = password.trim();
+    final cleanName = name.trim();
+
+    // Saves user record exclusively in the 'users' collection. 
+    // It will NOT push a document into 'project_requests' until the user logs in and requests access.
+    await _db.collection('users').doc(cleanId).set({
+      'employeeId': cleanId,
+      'email': cleanEmail,
+      'password': cleanPassword,
+      'name': cleanName,
+      'role': role,
+      'assignedProjects': [],
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    FirebaseApp tempApp = await Firebase.initializeApp(
+      name: 'TempApp_${DateTime.now().millisecondsSinceEpoch}',
+      options: Firebase.app().options,
+    );
+
+    try {
+      await FirebaseAuth.instanceFor(app: tempApp).createUserWithEmailAndPassword(
+        email: cleanEmail,
+        password: cleanPassword,
+      );
+    } finally {
+      await tempApp.delete();
+    }
+  }
 
   Future<void> updateProjectBudget(String projectId, double newBudget) async {
-    // 1. Optimistic UI Update (Forces instant screen change)
     final pIndex = projects.indexWhere((p) => p.id == projectId);
     String pName = '';
     if (pIndex != -1) {
@@ -261,7 +373,6 @@ class ExpenseStore extends ChangeNotifier {
       notifyListeners();
     }
 
-    // 2. Bulletproof Firestore Update (Failsafe by name if ID misses)
     try {
       var docRef = _db.collection('projects').doc(projectId);
       var docSnap = await docRef.get();
@@ -276,19 +387,29 @@ class ExpenseStore extends ChangeNotifier {
     }
   }
 
-  Future<void> addMembersToProject(String projectId, List<String> emails) async {
+  Future<void> addMembersToProject(String projectId, List<String> newEmployeeIds) async {
     final pIndex = projects.indexWhere((p) => p.id == projectId);
-    String pName = '';
     if (pIndex != -1) {
-      pName = projects[pIndex].name;
-      final old = projects[pIndex];
-      final newEmails = List<String>.from(old.assignedEmails);
-      for (var email in emails) {
-        if (!newEmails.contains(email)) newEmails.add(email);
+      if (!projects[pIndex].isActive) {
+        debugPrint('Cannot add members to a deactivated project.');
+        return;
       }
+
+      final currentProj = projects[pIndex];
+      final updatedEmails = List<String>.from(currentProj.assignedEmails);
+      
+      for (var id in newEmployeeIds) {
+        if (!updatedEmails.contains(id)) {
+          updatedEmails.add(id);
+        }
+      }
+
       projects[pIndex] = ProjectRecord(
-        id: old.id, name: old.name, budget: old.budget,
-        assignedEmails: newEmails, isActive: old.isActive,
+        id: currentProj.id,
+        name: currentProj.name,
+        budget: currentProj.budget,
+        assignedEmails: updatedEmails,
+        isActive: currentProj.isActive,
       );
       notifyListeners();
     }
@@ -296,13 +417,23 @@ class ExpenseStore extends ChangeNotifier {
     try {
       var docRef = _db.collection('projects').doc(projectId);
       var docSnap = await docRef.get();
-      if (!docSnap.exists && pName.isNotEmpty) {
-        final query = await _db.collection('projects').where('name', isEqualTo: pName).limit(1).get();
+      if (!docSnap.exists) {
+        final query = await _db.collection('projects').where('id', isEqualTo: projectId).limit(1).get();
         if (query.docs.isNotEmpty) docRef = query.docs.first.reference;
       }
-      await docRef.update({'assignedEmails': FieldValue.arrayUnion(emails)});
+      
+      final docData = docSnap.data() as Map<String, dynamic>? ?? {};
+      final List<dynamic> existingEmails = docData['assignedEmails'] ?? [];
+      
+      for (var id in newEmployeeIds) {
+        if (!existingEmails.contains(id)) {
+          existingEmails.add(id);
+        }
+      }
+
+      await docRef.update({'assignedEmails': existingEmails});
     } catch (e) {
-      debugPrint('Error adding members: $e');
+      debugPrint('Error adding members to project: $e');
     }
   }
 
@@ -335,6 +466,11 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> approveProjectAccess(String requestEmail, String projectId) async {
     final pIndex = projects.indexWhere((p) => p.id == projectId);
+    if (pIndex != -1 && !projects[pIndex].isActive) {
+      debugPrint('Cannot assign members to a deactivated project.');
+      return; 
+    }
+    
     String pName = '';
     if (pIndex != -1) {
       pName = projects[pIndex].name;
@@ -366,13 +502,21 @@ class ExpenseStore extends ChangeNotifier {
     }
   }
 
-  Future<void> closeProject(String projectId) async {
+  Future<void> toggleProjectActiveStatus(String projectId, bool makeActive) async {
     final pIndex = projects.indexWhere((p) => p.id == projectId);
     String pName = '';
-    if (pIndex != -1) pName = projects[pIndex].name;
-    
-    projects.removeWhere((p) => p.id == projectId);
-    notifyListeners();
+    if (pIndex != -1) {
+      pName = projects[pIndex].name;
+      final old = projects[pIndex];
+      projects[pIndex] = ProjectRecord(
+        id: old.id,
+        name: old.name,
+        budget: old.budget,
+        assignedEmails: old.assignedEmails,
+        isActive: makeActive, 
+      );
+      notifyListeners();
+    }
 
     try {
       var docRef = _db.collection('projects').doc(projectId);
@@ -381,47 +525,45 @@ class ExpenseStore extends ChangeNotifier {
         final query = await _db.collection('projects').where('name', isEqualTo: pName).limit(1).get();
         if (query.docs.isNotEmpty) docRef = query.docs.first.reference;
       }
-      await docRef.delete();
+      await docRef.update({'isActive': makeActive});
     } catch (e) {
-      debugPrint('Error closing project: $e');
+      debugPrint('Error updating project status: $e');
     }
   }
 
-  // --- FIX: SMART PROJECT FILTERING ---
-  List<ProjectRecord> get myProjects {
-    // 1. If it's a standard employee, strictly filter by their assigned email
-    if (currentUserRole == 'employee') {
-      final myEmail = currentEmployeeEmail.trim().toLowerCase();
-      return projects.where((p) => 
-        p.isActive && 
-        p.assignedEmails.any((email) => email.trim().toLowerCase() == myEmail)
-      ).toList();
+  bool isEmployeeAssignedToAnyProject(String identifier) {
+    final cleanId = identifier.trim().toLowerCase();
+    for (var project in projects) {
+      for (var assignedId in project.assignedEmails) {
+        if (assignedId.trim().toLowerCase() == cleanId) {
+          return true;
+        }
+      }
     }
-    
-    // 2. For Management/HR/Admin (God Mode), return all active projects
-    return projects.where((p) => p.isActive).toList();
+    return false;
   }
+
   double getProjectBurnAmount(String projectName) {
     return expenses
         .where((e) => e.projectName == projectName && (e.status == 'Approved' || e.status == 'Paid'))
         .fold(0.0, (totalAmount, e) => totalAmount + e.amount);
   }
 
-  Future<void> createProject(String name, double budget, List<String> emails) async {
+  Future<void> createProject(String name, double budget, List<String> employeeIds) async {
     try {
-      final docRef = await _db.collection('projects').add({
+      await _db.collection('projects').doc(name).set({
         'name': name,
         'budget': budget,
-        'assignedEmails': emails,
+        'assignedEmails': employeeIds,
         'isActive': true,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
       final instantProject = ProjectRecord(
-        id: docRef.id,
+        id: name,
         name: name,
         budget: budget,
-        assignedEmails: emails, 
+        assignedEmails: employeeIds, 
         isActive: true,
       );
       
@@ -591,7 +733,7 @@ class ExpenseStore extends ChangeNotifier {
   void setCurrentEmployee({required String email}) {
     currentEmployeeEmail = email;
     currentEmployeeName = _deriveName(email, fallback: 'Employee');   
-    _loadThemePreference(); // <-- FIX: Load the employee's personal theme choice!
+    _loadThemePreference();
     notifyListeners();
   }
 
@@ -608,25 +750,30 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   Future<void> updateName(String newName, bool isManager) async {
-    final email = isManager ? currentManagerEmail : currentEmployeeEmail;
     try {
-      await _db.collection('users').doc(email).set({
-        'name': newName,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      if (isManager) {
-        currentManagerName = newName;
+      if (currentUserId.isNotEmpty) {
+        await _db.collection('users').doc(currentUserId).update({
+          'name': newName,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       } else {
-        currentEmployeeName = newName;
+         final email = isManager ? currentManagerEmail : currentEmployeeEmail;
+         final snap = await _db.collection('users').where('email', isEqualTo: email.toLowerCase()).limit(1).get();
+         if (snap.docs.isNotEmpty) {
+           await snap.docs.first.reference.update({'name': newName});
+         }
       }
+
+      currentUserName = newName;
+      currentManagerName = newName;
+      currentEmployeeName = newName;
+      
       notifyListeners();
     } catch (e) {
-      if (isManager) {
-        currentManagerName = newName;
-      } else {
-        currentEmployeeName = newName;
-      }
+      debugPrint('Name update error: $e');
+      currentUserName = newName;
+      currentManagerName = newName;
+      currentEmployeeName = newName;
       notifyListeners();
     }
   }
@@ -662,6 +809,8 @@ class ExpenseStore extends ChangeNotifier {
     } catch (_) {
       currentUserRole = 'manager';
     }
+    
+    await _loadThemePreference();
     notifyListeners();
   }
 
@@ -696,7 +845,13 @@ class ExpenseStore extends ChangeNotifier {
 
   bool isEmployeeActive(String email) => employeeActiveStatus[email] ?? true;
 
+  @override
   List<Map<String, String>> get allEmployees {
+    if (usersList.isNotEmpty) {
+      final sorted = List<Map<String, String>>.from(usersList);
+      sorted.sort((a, b) => a['name']!.compareTo(b['name']!));
+      return sorted;
+    }
     final map = <String, Map<String, String>>{};
     for (final e in expenses) {
       map[e.email] = {'email': e.email, 'name': e.name, 'id': e.id};
@@ -724,6 +879,15 @@ class ExpenseStore extends ChangeNotifier {
     Uint8List? receiptBytes, 
     String? projectName, 
   }) async {
+    if (projectName != null && projectName.isNotEmpty) {
+      final targetProject = projects.firstWhere(
+        (p) => p.name == projectName, 
+        orElse: () => ProjectRecord(id: '', name: '', budget: 0, assignedEmails: [], isActive: true)
+      );
+      if (!targetProject.isActive) {
+        return 'Cannot submit expenses to a deactivated project.';
+      }
+    }
     if (type.trim().isEmpty) return 'Please select an expense type.';
     if (description.trim().isEmpty) return 'Please enter a description.';
     if (amount <= 0) return 'Amount must be a positive, non-zero value.';
@@ -776,45 +940,15 @@ class ExpenseStore extends ChangeNotifier {
         'receiptBase64': base64Image, 
         'projectName': projectName, 
         'uploaderRole': currentUserRole, 
-      }).timeout(const Duration(seconds: 10)); 
+      }); 
       
       return null; 
     } catch (e) {
       expenses.removeWhere((expense) => expense.id == trackingId);
       notifyListeners();
-      return 'Upload failed or timed out. Please check your internet or try a smaller image.';
+      debugPrint('Detailed Expense Upload Error: $e');
+      return 'Upload failed: $e';
     }
-  }
-
-  List<ExpenseRecord> get myExpenses =>
-      expenses.where((e) => e.email.trim().toLowerCase() == currentEmployeeEmail.trim().toLowerCase()).toList();
-
-  int get myPendingCount => myExpenses.where((e) => e.status == 'Pending Verification').length;
-  int get myApprovedCount => myExpenses.where((e) => e.status == 'Approved').length;
-  int get myRejectedCount => myExpenses.where((e) => e.status == 'Rejected').length;
-  int get myTotalUploads => myExpenses.length;
-
-  ExpenseRecord byId(String id) => expenses.firstWhere((e) => e.id == id);
-
-  bool isLocked(String id) {
-    final status = byId(id).status;
-    return status == 'Approved' || status == 'Rejected' || status == 'Paid';
-  }
-
-  void _addNotification(String expenseId, String title, String subtitle, String type) {
-    final now = DateTime.now();
-    final ampm = now.hour >= 12 ? 'PM' : 'AM';
-    int hr = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
-    final timeString = 'Today, $hr:${now.minute.toString().padLeft(2, '0')} $ampm';
-
-    notifications.insert(0, AppNotification(
-      expenseId: expenseId,
-      title: title,
-      subtitle: subtitle,
-      time: timeString,
-      type: type,
-    ));
-    notifyListeners();
   }
 
   void approve(String id) {
@@ -868,17 +1002,36 @@ class ExpenseStore extends ChangeNotifier {
     _addNotification(expense.id, expense.name, 'Additional details requested for ${expense.amountFormatted}.', 'info');
   }
 
-  void markPaid(String id) {
+  Future<String?> markPaid(String id, String transactionId, {Uint8List? receiptBytes}) async {
+    final cleanTxId = transactionId.trim();
+    if (cleanTxId.isEmpty) {
+      return 'Transaction ID is compulsory to mark an expense as paid.';
+    }
+
     final expense = byId(id);
-    
+    if (expense == null) return 'Expense not found.';
+
     expense.status = 'Paid';
     notifyListeners();
-    
-    _safeUpdate(expense, {
+
+    Map<String, dynamic> updateData = {
       'status': 'Paid',
-      'paidAt': FieldValue.serverTimestamp()
-    });
-    _addNotification(expense.id, expense.name, 'Payment for ${expense.amountFormatted} has been disbursed.', 'paid');
+      'transactionId': cleanTxId,
+      'paidAt': FieldValue.serverTimestamp(),
+    };
+
+    if (receiptBytes != null) {
+      try {
+        String base64Image = base64Encode(receiptBytes);
+        if (base64Image.length <= 800000) {
+          updateData['paymentReceiptUrl'] = base64Image;
+        }
+      } catch (_) {}
+    }
+
+    _safeUpdate(expense, updateData);
+    _addNotification(expense.id, expense.name, 'Payment for \$${expense.amount} has been processed.', 'paid');
+    return null;
   }
 
   Future<void> _safeUpdate(ExpenseRecord expense, Map<String, dynamic> data) async {
@@ -899,6 +1052,22 @@ class ExpenseStore extends ChangeNotifier {
   void toggleDecrypt(String id) {
     final expense = byId(id);
     expense.decrypted = !expense.decrypted;
+    notifyListeners();
+  }
+
+  void _addNotification(String expenseId, String title, String subtitle, String type) {
+    final now = DateTime.now();
+    final ampm = now.hour >= 12 ? 'PM' : 'AM';
+    int hr = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
+    final timeString = 'Today, $hr:${now.minute.toString().padLeft(2, '0')} $ampm';
+
+    notifications.insert(0, AppNotification(
+      expenseId: expenseId,
+      title: title,
+      subtitle: subtitle,
+      time: timeString,
+      type: type,
+    ));
     notifyListeners();
   }
 

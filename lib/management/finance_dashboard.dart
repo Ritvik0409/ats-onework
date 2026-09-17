@@ -1,4 +1,6 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/expense_details.dart';
 
@@ -17,6 +19,94 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     if (status == 'Approved') return Colors.orangeAccent;
     if (status == 'Rejected') return Colors.redAccent;
     return Colors.grey;
+  }
+
+  void _showMarkPaidDialog(BuildContext context, ExpenseRecord expense, ExpenseStore store) {
+    final txController = TextEditingController();
+    Uint8List? paymentReceiptBytes;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: store.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
+          ),
+          title: Text('Mark Expense as Paid', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Transaction ID is compulsory.', style: TextStyle(color: store.textMuted, fontSize: 13)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: txController,
+                style: TextStyle(color: store.textFrost),
+                decoration: InputDecoration(
+                  labelText: 'Transaction ID *',
+                  labelStyle: TextStyle(color: store.textMuted),
+                  enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold.withValues(alpha: 0.3))),
+                  focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picker = ImagePicker();
+                        final image = await picker.pickImage(source: ImageSource.gallery);
+                        if (image != null) {
+                          final bytes = await image.readAsBytes();
+                          setDialogState(() => paymentReceiptBytes = bytes);
+                        }
+                      },
+                      icon: Icon(Icons.receipt_long_rounded, color: store.accentGold, size: 18),
+                      label: Text(paymentReceiptBytes == null ? 'Attach Receipt (Opt.)' : 'Receipt Attached', style: TextStyle(color: store.accentGold)),
+                      style: OutlinedButton.styleFrom(side: BorderSide(color: store.accentGold.withValues(alpha: 0.3))),
+                    ),
+                  ),
+                  if (paymentReceiptBytes != null) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                      onPressed: () => setDialogState(() => paymentReceiptBytes = null),
+                    ),
+                  ]
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: store.accentGold),
+              onPressed: () async {
+                if (txController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transaction ID is compulsory.'), backgroundColor: Colors.redAccent));
+                  return;
+                }
+                final error = await store.markPaid(
+                  expense.id,
+                  txController.text.trim(),
+                  receiptBytes: paymentReceiptBytes,
+                );
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (error != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Expense marked as Paid!'), backgroundColor: store.accentGold));
+                }
+              },
+              child: const Text('Confirm Payment', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -79,7 +169,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Welcome, ${store.currentManagerName}', 
+                                'Welcome, ${store.currentUserName}', 
                                 style: TextStyle(color: textFrost, fontSize: 22, fontWeight: FontWeight.bold)
                               ),
                               const SizedBox(height: 4),
@@ -189,21 +279,39 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                 padding: const EdgeInsets.only(top: 6.0),
                                 child: Text('${expense.type} Expense • ${expense.date}', style: TextStyle(color: textMuted, fontSize: 13)),
                               ),
-                              trailing: Column(
+                              trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
-                                  Text(expense.amountFormatted, style: TextStyle(color: textFrost, fontWeight: FontWeight.w900, fontSize: 15)),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: statusColor.withValues(alpha: 0.1),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
+                                  Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(expense.amountFormatted, style: TextStyle(color: textFrost, fontWeight: FontWeight.w900, fontSize: 15)),
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
+                                        ),
+                                      child: Text(
+  expense.status == 'Approved' ? 'Approved • Payment Pending' : expense.status,
+  style: TextStyle(color: _getStatusColor(expense.status), fontSize: 11, fontWeight: FontWeight.bold),
+),  
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 12),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: champagneGold,
+                                      foregroundColor: store.isDarkMode ? store.bg : Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                     ),
-                                    child: Text(expense.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                                    onPressed: () => _showMarkPaidDialog(context, expense, store),
+                                    child: const Text('Mark Paid', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                                   ),
                                 ],
                               ),
@@ -225,9 +333,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                           Row(
                             children: [
                               TextButton.icon(
-                                onPressed: () {
-                                  // Add routing if needed for PaidReportsScreen
-                                },
+                                onPressed: () {},
                                 icon: Icon(Icons.file_upload_outlined, color: champagneGold, size: 18),
                                 label: Text('Export MTD', style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold)),
                               ),
@@ -338,7 +444,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     required String count,
     required String amount,
     required IconData icon,
-    required Color iconColor,
+    required Color iconColor, // Note: kept to match parameter signature if needed or used as Color type below
     required ExpenseStore store,
     required List<BoxShadow> cardShadows,
   }) {
@@ -357,7 +463,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(title, style: TextStyle(color: store.textMuted, fontSize: 13, fontWeight: FontWeight.w500)),
-              Icon(icon, color: iconColor, size: 20),
+              Icon(icon, color: iconColor as Color?, size: 20),
             ],
           ),
           const SizedBox(height: 16),

@@ -22,7 +22,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   Uint8List? _receiptBytes;
   bool _isSubmitting = false;
 
-  final List<String> _expenseTypes = ['Travel', 'Meals', 'Supplies', 'Lodging', 'Software', 'Other'];
   String? _selectedProject;
 
   @override
@@ -237,7 +236,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                           enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300)),
                           focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
                         ),
-                        items: _expenseTypes.map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
+                        items: store.availableExpenseTypes.map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
                         onChanged: (value) => setState(() => _selectedExpenseType = value),
                         validator: (value) => value == null ? 'Please select a type' : null,
                       ),
@@ -274,7 +273,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                                 TextFormField(
                                   controller: _amountController,
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  // FIX: Strict regex lock added here to block letters
                                   inputFormatters: [
                                     FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
                                   ],

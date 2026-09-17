@@ -12,7 +12,6 @@ class ManagerDashboardScreen extends StatefulWidget {
 class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
   String _selectedTimeframe = 'This Month';
 
-  // Professional, subdued color palette (removed the loud pinks and purples)
   final List<Color> _categoryColors = [
     Colors.blueAccent,
     Colors.tealAccent,
@@ -21,6 +20,203 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
     Colors.deepOrangeAccent,
     Colors.cyan,
   ];
+
+  // Helper method to determine if an expense is in the current month
+  bool _isCurrentMonth(String dateStr) {
+    try {
+      DateTime? d;
+      if (dateStr.contains(RegExp(r'[a-zA-Z]'))) {
+        final parts = dateStr.trim().split(RegExp(r'\s+'));
+        if (parts.length >= 3) {
+          int day = int.parse(parts[0]);
+          String mStr = parts[1].toLowerCase().substring(0, 3);
+          int y = int.parse(parts[2]);
+          const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+          int m = months.indexOf(mStr) + 1;
+          if (m > 0) d = DateTime(y, m, day);
+        }
+      } else if (dateStr.contains('-')) {
+        final parts = dateStr.split('-');
+        if (parts.length >= 3) {
+          if (parts[0].length == 4) d = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+          else if (parts[2].length == 4) d = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+        }
+      } else if (dateStr.contains('/')) {
+        final parts = dateStr.split('/');
+        if (parts.length >= 3) {
+          if (parts[2].length == 4) {
+            int m = int.parse(parts[0]);
+            int day = int.parse(parts[1]);
+            if (m > 12) { m = int.parse(parts[1]); day = int.parse(parts[0]); }
+            d = DateTime(int.parse(parts[2]), m, day);
+          }
+        }
+      }
+      if (d != null) {
+        final now = DateTime.now();
+        return d.month == now.month && d.year == now.year;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  // Generate Project Spend Breakdown dynamically based on expenses
+  Map<String, double> _getProjectSpend(ExpenseStore store) {
+    Map<String, double> breakdown = {};
+    for (var e in store.expenses) {
+      if ((e.status == 'Approved' || e.status == 'Paid') && _isCurrentMonth(e.date)) {
+        final pName = (e.projectName != null && e.projectName!.trim().isNotEmpty) ? e.projectName! : 'General / Unassigned';
+        breakdown[pName] = (breakdown[pName] ?? 0) + e.amount;
+      }
+    }
+    var sortedKeys = breakdown.keys.toList()..sort((a, b) => breakdown[b]!.compareTo(breakdown[a]!));
+    Map<String, double> sortedBreakdown = {};
+    for (var k in sortedKeys) {
+      sortedBreakdown[k] = breakdown[k]!;
+    }
+    return sortedBreakdown;
+  }
+
+  void _showAssignEmployeeDialog(BuildContext context) {
+    final store = ExpenseStore.instance; 
+    final idController = TextEditingController();
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    String selectedRole = 'employee';
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: store.card,
+          title: Text('Assign Credentials', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: idController,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Employee ID (e.g., EMP101)',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Full Name',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Email Address',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordController,
+                  obscureText: true,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Assign Password',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                DropdownButtonFormField<String>(
+                  value: selectedRole,
+                  dropdownColor: store.card,
+                  decoration: InputDecoration(
+                    labelText: 'Assign System Role',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                  style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+                  icon: Icon(Icons.arrow_drop_down, color: store.accentGold),
+                  items: const [
+                    DropdownMenuItem(value: 'employee', child: Text('Employee')),
+                    DropdownMenuItem(value: 'hr', child: Text('HR')),
+                    DropdownMenuItem(value: 'manager', child: Text('Manager')),
+                    DropdownMenuItem(value: 'finance', child: Text('Finance')),
+                    DropdownMenuItem(value: 'director', child: Text('Director')),
+                    DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                  ],
+                  onChanged: (String? newValue) {
+                    if (newValue != null) {
+                      setState(() {
+                        selectedRole = newValue;
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: store.accentGold),
+              onPressed: () async {
+                if (idController.text.trim().isEmpty || passwordController.text.trim().isEmpty || emailController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please fill all required fields')),
+                  );
+                  return;
+                }
+                try {
+                  await store.assignEmployeeCredentials(
+                    employeeId: idController.text.trim(),
+                    email: emailController.text.trim(),
+                    password: passwordController.text.trim(),
+                    name: nameController.text.trim(),
+                    role: selectedRole, 
+                  );
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Successfully created ${selectedRole.toUpperCase()} account!', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        backgroundColor: store.accentGold,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.redAccent),
+                    );
+                  }
+                }
+              },
+              child: Text('Save to Records', style: TextStyle(color: store.bg, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,21 +235,13 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
         final urgentReqs = store.urgentRequests;
         final chartData = store.getChartData(_selectedTimeframe);
         
-        final categorySpend = store.categorySpend;
+        final projectSpend = _getProjectSpend(store);
 
         final List<BoxShadow> cardShadows = store.isDarkMode
             ? []
             : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.07),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 4,
-                  offset: const Offset(0, 1),
-                ),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 16, offset: const Offset(0, 6)),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 4, offset: const Offset(0, 1)),
               ];
 
         return Scaffold(
@@ -86,7 +274,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Welcome, ${store.currentManagerName}', style: TextStyle(color: textFrost, fontSize: 22, fontWeight: FontWeight.bold)),
+                              Text('Welcome, ${store.currentUserName}', style: TextStyle(color: textFrost, fontSize: 22, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 4),
                               Text('${store.currentUserRole.toUpperCase()} Department', style: TextStyle(color: textMuted, fontSize: 13)),
                             ],
@@ -110,6 +298,46 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                           Expanded(child: _buildKpiCard('Total Employees', store.allEmployees.length.toString().padLeft(2, '0'), Icons.people_outline, Colors.blueAccent, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
                         ],
                       ),
+                      const SizedBox(height: 24),
+
+                      InkWell(
+                        onTap: () => _showAssignEmployeeDialog(context),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                          decoration: BoxDecoration(
+                            color: darkCharcoal,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: champagneGold.withValues(alpha: 0.4)),
+                            boxShadow: cardShadows,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: champagneGold.withValues(alpha: 0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(Icons.person_add_alt_1_rounded, color: champagneGold, size: 22),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Create Employee ID & Credentials', style: TextStyle(color: textFrost, fontSize: 15, fontWeight: FontWeight.bold)),
+                                    const SizedBox(height: 2),
+                                    Text('Register new staff accounts and login credentials', style: TextStyle(color: textMuted, fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.arrow_forward_ios_rounded, color: textMuted, size: 16),
+                            ],
+                          ),
+                        ),
+                      ),
+                      
                       const SizedBox(height: 32),
 
                       Text('Budget Burn Rate Tracker', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
@@ -134,7 +362,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             ),
                             const SizedBox(height: 12),
                             
-                            // Segmented Progress Bar
+                            // Dynamic Project Segmented Progress Bar
                             Container(
                               height: 12,
                               width: double.infinity,
@@ -146,7 +374,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                 borderRadius: BorderRadius.circular(10),
                                 child: Row(
                                   children: [
-                                    ...categorySpend.entries.toList().asMap().entries.map((entry) {
+                                    ...projectSpend.entries.toList().asMap().entries.map((entry) {
                                       final index = entry.key;
                                       final amount = entry.value.value;
                                       final flex = amount.toInt();
@@ -168,12 +396,12 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                               ),
                             ),
                             
-                            // Category Breakdown List
-                            if (categorySpend.isNotEmpty) ...[
+                            // Dynamic Project Breakdown List
+                            if (projectSpend.isNotEmpty) ...[
                               const SizedBox(height: 24),
-                              ...categorySpend.entries.toList().asMap().entries.map((entry) {
+                              ...projectSpend.entries.toList().asMap().entries.map((entry) {
                                 final index = entry.key;
-                                final categoryName = entry.value.key;
+                                final projectName = entry.value.key;
                                 final amount = entry.value.value;
                                 final dotColor = _categoryColors[index % _categoryColors.length];
 
@@ -184,15 +412,11 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                       Container(
                                         width: 12,
                                         height: 12,
-                                        decoration: BoxDecoration(
-                                          color: dotColor,
-                                          shape: BoxShape.circle,
-                                        ),
+                                        decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
                                       ),
                                       const SizedBox(width: 12),
-                                      Text(categoryName, style: TextStyle(color: textFrost, fontSize: 15)),
+                                      Text(projectName, style: TextStyle(color: textFrost, fontSize: 15)),
                                       const Spacer(),
-                                      // Calculates the exact percentage relative to TOTAL SPENT (always sums to 100%)
                                       Text(
                                         store.currentMonthBurnAmount > 0 
                                             ? '${((amount / store.currentMonthBurnAmount) * 100).toStringAsFixed(1)}%' 

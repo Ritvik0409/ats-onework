@@ -12,6 +12,7 @@ import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/download_web.dart'; 
 import 'package:ats_onework/management/management_projects_screen.dart';
 import 'package:ats_onework/employee/add_expense_screen.dart';
+import 'package:ats_onework/admin/admin_dashboard.dart';
 
 class ManagementNavigationShell extends StatefulWidget {
   const ManagementNavigationShell({super.key});
@@ -41,42 +42,57 @@ class _ManagementNavigationShellState extends State<ManagementNavigationShell> {
         final bool isDirector = (currentRole == 'director');
         final bool isFinance = (currentRole == 'finance'); 
 
-        final List<Widget> screens = [
-          if (isDirector) const DirectorDashboard()
-          else if (isFinance) const FinanceDashboard()
-          else const ManagerDashboardScreen(),
+        List<Widget> screens;
+        List<BottomNavigationBarItem> navItems;
 
-          if (isFinance) const FinanceToPayScreen() 
-          else const ManagerRequestsScreen(),
-
-          if (!isFinance) const AddExpenseScreen(),
-
-          if (!isFinance) const ManagementProjectsScreen(),
-
-          if (isDirector || isFinance) const PaidReimbursementsScreen(),
-          
-          const ManagerProfileScreen(),
-        ];
-
-        final List<BottomNavigationBarItem> navItems = [
-          const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-          
-          if (isFinance)
-            const BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet_rounded), label: 'To Pay')
-          else
-            const BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
-          
-          if (!isFinance)
-            const BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
-          
-          if (!isFinance)
-            const BottomNavigationBarItem(icon: Icon(Icons.business_center_rounded), label: 'Projects'),
-            
-          if (isDirector || isFinance) 
-            const BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
-            
-          const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
-        ];
+        // Explicit Role-Based Navigation Routing to prevent index mismatch offsets
+        if (isDirector) {
+          screens = [
+            const DirectorDashboard(),
+            const ManagerRequestsScreen(),
+            const AddExpenseScreen(),
+            const ManagementProjectsScreen(),
+            const PaidReimbursementsScreen(),
+            const ManagerProfileScreen(),
+          ];
+          navItems = const [
+            BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
+            BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
+            BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
+            BottomNavigationBarItem(icon: Icon(Icons.business_center_rounded), label: 'Projects'),
+            BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
+            BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
+          ];
+        } else if (isFinance) {
+          screens = [
+            const FinanceDashboard(),
+            const FinanceToPayScreen(),
+            const PaidReimbursementsScreen(),
+            const ManagerProfileScreen(),
+          ];
+          navItems = const [
+            BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
+            BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet_rounded), label: 'To Pay'),
+            BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
+            BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
+          ];
+        } else {
+          // Standard Manager
+          screens = [
+            const ManagerDashboardScreen(),
+            const ManagerRequestsScreen(),
+            const AddExpenseScreen(),
+            const ManagementProjectsScreen(),
+            const ManagerProfileScreen(),
+          ];
+          navItems = const [
+            BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
+            BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
+            BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
+            BottomNavigationBarItem(icon: Icon(Icons.business_center_rounded), label: 'Projects'),
+            BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
+          ];
+        }
 
         if (_selectedIndex >= screens.length) {
           _selectedIndex = 0;
@@ -231,27 +247,23 @@ class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
                         child: TextField(
                           onChanged: (value) => setState(() => _searchQuery = value),
                           style: TextStyle(color: textFrost),
-                          // CHANGE THIS:
-// decoration: const InputDecoration(
-
-// TO THIS (remove const):
-decoration: InputDecoration(
-  hintText: 'Search approved requests by name, ID or type...',
-  hintStyle: TextStyle(color: textMuted, fontSize: 14),
-  prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
-  filled: true,
-  fillColor: darkCharcoal,
-  contentPadding: const EdgeInsets.symmetric(vertical: 16),
-  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-  enabledBorder: OutlineInputBorder(
-    borderRadius: BorderRadius.circular(12),
-    borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
-  ),
-  focusedBorder: OutlineInputBorder(
-    borderRadius: BorderRadius.circular(12),
-    borderSide: BorderSide(color: champagneGold, width: 1.5),
-  ),
-),
+                          decoration: InputDecoration(
+                            hintText: 'Search approved requests by name, ID or type...',
+                            hintStyle: TextStyle(color: textMuted, fontSize: 14),
+                            prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
+                            filled: true,
+                            fillColor: darkCharcoal,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: champagneGold, width: 1.5),
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -913,27 +925,23 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                   TextField(
                     onChanged: (value) => setState(() => _searchQuery = value),
                     style: TextStyle(color: textFrost),
-                   // CHANGE THIS:
-// decoration: const InputDecoration(
-
-// TO THIS (remove const):
-decoration: InputDecoration(
-  hintText: 'Search by employee name, ID or type...',
-  hintStyle: TextStyle(color: textMuted, fontSize: 14),
-  prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
-  filled: true,
-  fillColor: darkCharcoal,
-  contentPadding: const EdgeInsets.symmetric(vertical: 16),
-  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-  enabledBorder: OutlineInputBorder(
-    borderRadius: BorderRadius.circular(12),
-    borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
-  ),
-  focusedBorder: OutlineInputBorder(
-    borderRadius: BorderRadius.circular(12),
-    borderSide: BorderSide(color: champagneGold, width: 1.5),
-  ),
-),
+                    decoration: InputDecoration(
+                      hintText: 'Search by employee name, ID or type...',
+                      hintStyle: TextStyle(color: textMuted, fontSize: 14),
+                      prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
+                      filled: true,
+                      fillColor: darkCharcoal,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: champagneGold, width: 1.5),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Row(

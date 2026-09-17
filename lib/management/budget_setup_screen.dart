@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
 
 class BudgetSetupScreen extends StatefulWidget {
-  // --- NEW: Accept the employee's email from the previous screen ---
   final String? initialEmployeeEmail;
   const BudgetSetupScreen({super.key, this.initialEmployeeEmail});
 
@@ -19,7 +18,6 @@ class _BudgetSetupScreenState extends State<BudgetSetupScreen> {
   String _searchQuery = ''; 
   bool _isSaving = false;
 
-  // --- NEW: Automatically select the employee if their email was passed ---
   @override
   void initState() {
     super.initState();

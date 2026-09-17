@@ -38,18 +38,7 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
               ];
 
         final filteredExpenses = _store.expenses.where((expense) {
-          // STRICT ANTI-SELF APPROVAL
-          final uploaderEmail = expense.email.trim().toLowerCase();
-          final myEmployeeEmail = _store.currentEmployeeEmail.trim().toLowerCase();
-          final myManagerEmail = _store.currentManagerEmail.trim().toLowerCase();
-          
-          if (uploaderEmail == myEmployeeEmail || uploaderEmail == myManagerEmail) {
-            return false;
-          }
-
-          // FIX: Date filter completely removed. You will now see the full history 
-          // of everything you have Approved, Rejected, or Paid, regardless of age.
-          
+          // SHOW ALL EXPENSES INCLUDING OWN UPLOADS
           final matchesSearch = expense.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
               expense.id.toLowerCase().contains(_searchQuery.toLowerCase()) ||
               expense.type.toLowerCase().contains(_searchQuery.toLowerCase());
@@ -209,7 +198,7 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
                                     radius: 24,
                                     backgroundColor: isHighValue ? Colors.redAccent.withValues(alpha: 0.1) : champagneGold.withValues(alpha: 0.1),
                                     child: Text(
-                                      expense.name.substring(0, 1),
+                                      expense.name.isNotEmpty ? expense.name.substring(0, 1) : 'E',
                                       style: TextStyle(
                                         color: isHighValue ? Colors.redAccent : champagneGold, 
                                         fontWeight: FontWeight.bold, 
@@ -275,7 +264,7 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
                                           borderRadius: BorderRadius.circular(6),
                                           border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
                                         ),
-                                        child: Text(expense.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                                      child: Text(expense.status == 'Approved' ? 'Approved • Payment Pending' : expense.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
                                       ),
                                     ],
                                   ),

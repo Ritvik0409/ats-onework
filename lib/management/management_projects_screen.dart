@@ -105,6 +105,17 @@ class _ManagementProjectsScreenState extends State<ManagementProjectsScreen> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(child: Text(project.name, style: TextStyle(color: textFrost, fontSize: 18, fontWeight: FontWeight.bold))),
+                                    if (!project.isActive) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.redAccent.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Text('Deactivated', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                       decoration: BoxDecoration(
@@ -214,26 +225,39 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
     );
   } 
 
-  void _confirmCloseProject(BuildContext context, ProjectRecord currentProj, ExpenseStore store) {
+  void _confirmToggleProjectStatus(BuildContext context, ProjectRecord currentProj, ExpenseStore store) {
+    final bool willBeActive = !currentProj.isActive;
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: store.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.3))),
-        title: Text('Close & Remove Project?', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-        content: Text('Are you sure you want to close ${currentProj.name}? This will remove the project permanently.', style: TextStyle(color: store.textMuted, fontSize: 13)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: willBeActive ? store.accentGold.withValues(alpha: 0.3) : Colors.redAccent.withValues(alpha: 0.3))),
+        title: Text(willBeActive ? 'Resume Project?' : 'Deactivate Project?', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+        content: Text(
+          willBeActive 
+              ? 'Are you sure you want to resume ${currentProj.name}? This will re-enable budget modifications, member additions, and expense submissions.' 
+              : 'Are you sure you want to close ${currentProj.name}? This will mark the project as deactivated.',
+          style: TextStyle(color: store.textMuted, fontSize: 13),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: willBeActive ? store.accentGold : Colors.redAccent, 
+              foregroundColor: willBeActive && store.isDarkMode ? store.bg : Colors.white, 
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () async {
               Navigator.pop(dialogContext); 
               Navigator.pop(context); 
-              await store.closeProject(currentProj.id);
+              await store.toggleProjectActiveStatus(currentProj.id, willBeActive);
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Project closed and removed successfully.'), backgroundColor: Colors.redAccent));
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(willBeActive ? 'Project successfully resumed!' : 'Project marked as deactivated.'), 
+                backgroundColor: willBeActive ? store.accentGold : Colors.redAccent,
+              ));
             },
-            child: const Text('Close Project', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text(willBeActive ? 'Resume' : 'Deactivate', style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -295,12 +319,12 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                           alignment: WrapAlignment.end,
                           children: [
                             OutlinedButton.icon(
-                              onPressed: () => _showUpdateBudgetDialog(context, currentProject, store),
-                              icon: Icon(Icons.account_balance_wallet_rounded, color: champagneGold, size: 16),
-                              label: const Text('Budget', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              onPressed: currentProject.isActive ? () => _showUpdateBudgetDialog(context, currentProject, store) : null,
+                              icon: Icon(Icons.account_balance_wallet_rounded, color: currentProject.isActive ? champagneGold : textMuted, size: 16),
+                              label: Text('Budget', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: currentProject.isActive ? champagneGold : textMuted)),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: champagneGold,
-                                side: BorderSide(color: champagneGold.withValues(alpha: 0.5)),
+                                side: BorderSide(color: currentProject.isActive ? champagneGold.withValues(alpha: 0.5) : textMuted.withValues(alpha: 0.2)),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                               ),
@@ -319,12 +343,19 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                               ),
                             ),
                             OutlinedButton.icon(
-                              onPressed: () => _confirmCloseProject(context, currentProject, store),
-                              icon: const Icon(Icons.lock_outline_rounded, color: Colors.redAccent, size: 16),
-                              label: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.redAccent)),
+                              onPressed: () => _confirmToggleProjectStatus(context, currentProject, store),
+                              icon: Icon(
+                                currentProject.isActive ? Icons.lock_outline_rounded : Icons.lock_open_rounded, 
+                                color: currentProject.isActive ? Colors.redAccent : champagneGold, 
+                                size: 16
+                              ),
+                              label: Text(
+                                currentProject.isActive ? 'Close' : 'Resume', 
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: currentProject.isActive ? Colors.redAccent : champagneGold)
+                              ),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.redAccent,
-                                side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5)),
+                                foregroundColor: currentProject.isActive ? Colors.redAccent : champagneGold,
+                                side: BorderSide(color: (currentProject.isActive ? Colors.redAccent : champagneGold).withValues(alpha: 0.5)),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                               ),
@@ -441,7 +472,10 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                               children: [
                                 Text(expense.amountFormatted, style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold, fontSize: 15)),
                                 const SizedBox(height: 4),
-                                Text(expense.status, style: TextStyle(color: _getStatusColor(expense.status), fontSize: 11, fontWeight: FontWeight.bold)),
+                                Text(
+                                  expense.status == 'Approved' ? 'Payment Pending' : expense.status,
+                                  style: TextStyle(color: _getStatusColor(expense.status), fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
                               ],
                             ),
                           ),
@@ -477,7 +511,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   final _searchCtrl = TextEditingController();
   
   String _searchQuery = '';
-  final Set<String> _selectedEmails = {};
+  final Set<String> _selectedEmployeeIds = {};
   bool _isSubmitting = false;
 
   @override
@@ -505,9 +539,9 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
 
     setState(() => _isSubmitting = true);
 
-    final finalEmails = _selectedEmails.toList();
+    final finalIds = _selectedEmployeeIds.toList();
 
-    await ExpenseStore.instance.createProject(name, budget, finalEmails);
+    await ExpenseStore.instance.createProject(name, budget, finalIds);
     
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Project created successfully!'), backgroundColor: ExpenseStore.instance.accentGold));
@@ -539,7 +573,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
         final allEmployees = store.allEmployees;
         final filteredEmployees = allEmployees.where((emp) {
           final q = _searchQuery.toLowerCase();
-          return emp['name']!.toLowerCase().contains(q) || emp['email']!.toLowerCase().contains(q);
+          return emp['name']!.toLowerCase().contains(q) || emp['id']!.toLowerCase().contains(q);
         }).toList();
 
         return Scaffold(
@@ -551,147 +585,150 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
               icon: Icon(Icons.arrow_back_rounded, color: textFrost),
               onPressed: () => Navigator.pop(context),
             ),
-            title: Text('Create Project Budget', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 20)),
+            title: Text('Create Project', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 20)),
           ),
           body: Align(
             alignment: Alignment.topCenter,
             child: Container(
               constraints: const BoxConstraints(maxWidth: 600),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Project Name', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _nameCtrl,
-                      style: TextStyle(color: textFrost),
-                      decoration: InputDecoration(
-                        hintText: 'e.g. Project Alpha',
-                        hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
-                        filled: true,
-                        fillColor: darkCharcoal,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
-                      ),
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Project Name', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _nameCtrl,
+                    style: TextStyle(color: textFrost),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Project Alpha',
+                      hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
+                      filled: true,
+                      fillColor: darkCharcoal,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
                     ),
-                    const SizedBox(height: 24),
-                    
-                    Text('Allocated Budget (₹)', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _budgetCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: TextStyle(color: textFrost),
-                      decoration: InputDecoration(
-                        hintText: '0.00',
-                        hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
-                        filled: true,
-                        fillColor: darkCharcoal,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
-                      ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  Text('Allocated Budget (₹)', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _budgetCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: TextStyle(color: textFrost),
+                    decoration: InputDecoration(
+                      hintText: '0.00',
+                      hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
+                      filled: true,
+                      fillColor: darkCharcoal,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
                     ),
-                    const SizedBox(height: 32),
-                    
-                    Text('Assign Employees', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  Text('Assign Employees', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
 
-                    if (_selectedEmails.isNotEmpty) ...[
-                      Wrap(
-                        spacing: 8.0,
-                        runSpacing: 8.0,
-                        children: _selectedEmails.map((email) {
-                          final empData = allEmployees.firstWhere((e) => e['email'] == email, orElse: () => {'name': email});
-                          return Chip(
-                            backgroundColor: champagneGold,
-                            deleteIconColor: Colors.black,
-                            labelStyle: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12),
-                            label: Text(empData['name'] ?? email),
-                            onDeleted: () {
-                              setState(() => _selectedEmails.remove(email));
-                            },
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    TextField(
-                      controller: _searchCtrl,
-                      onChanged: (val) => setState(() => _searchQuery = val),
-                      style: TextStyle(color: textFrost),
-                      decoration: InputDecoration(
-                        hintText: 'Search by name or email...',
-                        hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
-                        prefixIcon: Icon(Icons.search_rounded, color: champagneGold),
-                        filled: true,
-                        fillColor: darkCharcoal,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                      ),
+                  if (_selectedEmployeeIds.isNotEmpty) ...[
+                    Wrap(
+                      spacing: 8.0,
+                      runSpacing: 8.0,
+                      children: _selectedEmployeeIds.map((empId) {
+                        final empData = allEmployees.firstWhere((e) => e['id'] == empId, orElse: () => {'name': empId, 'id': empId});
+                        return Chip(
+                          backgroundColor: champagneGold,
+                          deleteIconColor: Colors.black,
+                          labelStyle: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12),
+                          label: Text('${empData['name']} (${empData['id']})'),
+                          onDeleted: () {
+                            setState(() => _selectedEmployeeIds.remove(empId));
+                          },
+                        );
+                      }).toList(),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+                  ],
 
-                    Container(
+                  TextField(
+                    controller: _searchCtrl,
+                    onChanged: (val) => setState(() => _searchQuery = val),
+                    style: TextStyle(color: textFrost),
+                    decoration: InputDecoration(
+                      hintText: 'Search by name or Employee ID...',
+                      hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
+                      prefixIcon: Icon(Icons.search_rounded, color: champagneGold),
+                      filled: true,
+                      fillColor: darkCharcoal,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    height: 220,
+                    child: Container(
                       decoration: BoxDecoration(
                         color: darkCharcoal,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
                         boxShadow: cardShadows,
                       ),
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: filteredEmployees.length,
-                        separatorBuilder: (context, index) => Divider(color: store.isDarkMode ? const Color(0xFF262633) : Colors.grey.shade200, height: 1),
-                        itemBuilder: (context, index) {
-                          final emp = filteredEmployees[index];
-                          final isChecked = _selectedEmails.contains(emp['email']);
-                          
-                          return CheckboxListTile(
-                            value: isChecked,
-                            activeColor: champagneGold,
-                            checkColor: store.isDarkMode ? Colors.black : Colors.white,
-                            side: BorderSide(color: textMuted.withValues(alpha: 0.5)),
-                            title: Text(emp['name'] ?? '', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                            subtitle: Text(emp['email'] ?? '', style: TextStyle(color: textMuted, fontSize: 12)),
-                            onChanged: (val) {
-                              setState(() {
-                                if (val == true) {
-                                  _selectedEmails.add(emp['email']!);
-                                } else {
-                                  _selectedEmails.remove(emp['email']!);
-                                }
-                              });
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 32),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: _isSubmitting ? null : _submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: champagneGold,
-                          foregroundColor: store.isDarkMode ? Colors.black : Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: Scrollbar(
+                        thumbVisibility: true,
+                        child: ListView.separated(
+                          shrinkWrap: false,
+                          itemCount: filteredEmployees.length,
+                          separatorBuilder: (context, index) => Divider(color: store.isDarkMode ? const Color(0xFF262633) : Colors.grey.shade200, height: 1),
+                          itemBuilder: (context, index) {
+                            final emp = filteredEmployees[index];
+                            final empId = emp['id']!;
+                            final isChecked = _selectedEmployeeIds.contains(empId);
+                            
+                            return CheckboxListTile(
+                              value: isChecked,
+                              activeColor: champagneGold,
+                              checkColor: store.isDarkMode ? Colors.black : Colors.white,
+                              side: BorderSide(color: textMuted.withValues(alpha: 0.5)),
+                              title: Text(emp['name'] ?? '', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
+                              subtitle: Text('ID: $empId • ${emp['email'] ?? ''}', style: TextStyle(color: textMuted, fontSize: 12)),
+                              onChanged: (val) {
+                                setState(() {
+                                  if (val == true) {
+                                    _selectedEmployeeIds.add(empId);
+                                  } else {
+                                    _selectedEmployeeIds.remove(empId);
+                                  }
+                                });
+                              },
+                            );
+                          },
                         ),
-                        child: _isSubmitting 
-                            ? SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: store.isDarkMode ? Colors.black : Colors.white, strokeWidth: 2))
-                            : const Text('Create Project Budget', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                       ),
                     ),
-                    const SizedBox(height: 32),
-                  ],
-                ),
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: _isSubmitting ? null : _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: champagneGold,
+                        foregroundColor: store.isDarkMode ? Colors.black : Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: _isSubmitting 
+                          ? SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: store.isDarkMode ? Colors.black : Colors.white, strokeWidth: 2))
+                          : const Text('Create Project', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -711,8 +748,13 @@ class ProjectMembersScreen extends StatefulWidget {
 
 class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
   void _showAddMemberDialog(BuildContext context, ProjectRecord project, ExpenseStore store) {
-    final available = store.allEmployees.where((e) => !project.assignedEmails.contains(e['email'])).toList();
-    final selectedEmails = <String>{};
+    if (!project.isActive) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cannot add members to a deactivated project.'), backgroundColor: Colors.redAccent));
+      return;
+    }
+
+    final available = store.allEmployees.where((e) => !project.assignedEmails.contains(e['id'])).toList();
+    final selectedIds = <String>{};
 
     showDialog(
       context: context,
@@ -727,44 +769,54 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: store.accentGold.withValues(alpha: 0.2))),
                   title: Text('Add Members', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
                   content: SizedBox(
-                    width: double.maxFinite,
-                    child: available.isEmpty
-                        ? Padding(padding: const EdgeInsets.all(16), child: Text('No new employees available.', style: TextStyle(color: store.textMuted)))
-                        : ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: available.length,
-                            separatorBuilder: (_, _) => Divider(color: store.accentGold.withValues(alpha: 0.1), height: 1),
-                            itemBuilder: (context, index) {
-                              final emp = available[index];
-                              final isChecked = selectedEmails.contains(emp['email']);
-                              
-                              return CheckboxListTile(
-                                activeColor: store.accentGold,
-                                checkColor: store.isDarkMode ? store.bg : Colors.white,
-                                side: BorderSide(color: store.textMuted.withValues(alpha: 0.5)),
-                                title: Text(emp['name'] ?? '', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-                                subtitle: Text('${emp['email']} • ${emp['id']}', style: TextStyle(color: store.textMuted, fontSize: 12)),
-                                value: isChecked,
-                                onChanged: (val) {
-                                  setDialogState(() {
-                                    if (val == true) {
-                                      selectedEmails.add(emp['email']!);
-                                    } else {
-                                      selectedEmails.remove(emp['email']!);
-                                    }
-                                  });
+                    width: 500,
+                    // FIX: Changed from fixed 300 to dynamic BoxConstraints to handle longer lists properly.
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.5,
+                      ),
+                      child: available.isEmpty
+                          ? Center(child: Text('No new employees available.', style: TextStyle(color: store.textMuted)))
+                          : Scrollbar(
+                              thumbVisibility: true,
+                              child: ListView.separated(
+                                shrinkWrap: true, // FIX: Enabled shrinkWrap so it scrolls within constraints
+                                itemCount: available.length,
+                                separatorBuilder: (_, _) => Divider(color: store.accentGold.withValues(alpha: 0.1), height: 1),
+                                itemBuilder: (context, index) {
+                                  final emp = available[index];
+                                  final empId = emp['id']!;
+                                  final isChecked = selectedIds.contains(empId);
+                                  
+                                  return CheckboxListTile(
+                                    activeColor: store.accentGold,
+                                    checkColor: store.isDarkMode ? store.bg : Colors.white,
+                                    side: BorderSide(color: store.textMuted.withValues(alpha: 0.5)),
+                                    title: Text(emp['name'] ?? '', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+                                    subtitle: Text('ID: $empId • ${emp['email']}', style: TextStyle(color: store.textMuted, fontSize: 12)),
+                                    value: isChecked,
+                                    onChanged: (val) {
+                                      setDialogState(() {
+                                        if (val == true) {
+                                          selectedIds.add(empId);
+                                        } else {
+                                          selectedIds.remove(empId);
+                                        }
+                                      });
+                                    },
+                                  );
                                 },
-                              );
-                            },
-                          ),
+                              ),
+                            ),
+                    ),
                   ),
                   actions: [
                     TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: store.accentGold, foregroundColor: store.isDarkMode ? store.bg : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                       onPressed: () async {
-                        if (selectedEmails.isNotEmpty) {
-                          await store.addMembersToProject(project.id, selectedEmails.toList());
+                        if (selectedIds.isNotEmpty) {
+                          await store.addMembersToProject(project.id, selectedIds.toList());
                           if (!dialogContext.mounted) return;
                           Navigator.pop(dialogContext);
                           
@@ -784,7 +836,7 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
     );
   }
 
-  void _confirmRemoveMember(BuildContext context, ProjectRecord project, ExpenseStore store, String email, String empName) {
+  void _confirmRemoveMember(BuildContext context, ProjectRecord project, ExpenseStore store, String empId, String empName) {
     showDialog(
       context: context,
       builder: (dialogContext) => AnimatedBuilder(
@@ -801,7 +853,7 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                 onPressed: () async {
                   Navigator.pop(dialogContext);
-                  await store.removeMemberFromProject(project.id, email);
+                  await store.removeMemberFromProject(project.id, empId);
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$empName removed from project.'), backgroundColor: Colors.redAccent));
                 },
@@ -864,12 +916,19 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('${project.assignedEmails.length} Team Members', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
-                      TextButton.icon(
-                        onPressed: () => _showAddMemberDialog(context, project, store),
-                        icon: Icon(Icons.person_add_alt_1_rounded, size: 16, color: champagneGold),
-                        label: Text('Add Members', style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold)),
-                        style: TextButton.styleFrom(backgroundColor: champagneGold.withValues(alpha: 0.1)),
-                      ),
+                      if (project.isActive)
+                        TextButton.icon(
+                          onPressed: () => _showAddMemberDialog(context, project, store),
+                          icon: Icon(Icons.person_add_alt_1_rounded, size: 16, color: champagneGold),
+                          label: Text('Add Members', style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold)),
+                          style: TextButton.styleFrom(backgroundColor: champagneGold.withValues(alpha: 0.1)),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(color: Colors.redAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                          child: const Text('Project Deactivated', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -886,14 +945,14 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                         itemCount: project.assignedEmails.length,
                         separatorBuilder: (_, _) => Divider(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.shade200, height: 1),
                         itemBuilder: (context, index) {
-                          final email = project.assignedEmails[index];
+                          final empId = project.assignedEmails[index];
                           
                           final empData = store.allEmployees.firstWhere(
-                            (e) => e['email'] == email, 
-                            orElse: () => {'name': email, 'email': email, 'id': 'EMP-UNKNOWN'}
+                            (e) => e['id'] == empId, 
+                            orElse: () => {'name': empId, 'email': '', 'id': empId}
                           );
                           
-                          final isSelf = email == store.currentManagerEmail;
+                          final isSelf = empId == store.currentUserId;
 
                           return ListTile(
                             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -901,11 +960,11 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                               backgroundColor: champagneGold.withValues(alpha: 0.2),
                               child: Text(store.getInitials(empData['name'] ?? 'U'), style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold)),
                             ),
-                            title: Text(empData['name'] ?? email, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                            subtitle: Text('${empData['email']} • ${empData['id']}', style: TextStyle(color: textMuted, fontSize: 12)),
-                            trailing: isSelf ? const SizedBox.shrink() : IconButton(
+                            title: Text(empData['name'] ?? empId, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
+                            subtitle: Text('ID: ${empData['id']} • ${empData['email']}', style: TextStyle(color: textMuted, fontSize: 12)),
+                            trailing: (!project.isActive || isSelf) ? const SizedBox.shrink() : IconButton(
                               icon: const Icon(Icons.person_remove_rounded, color: Colors.redAccent, size: 20),
-                              onPressed: () => _confirmRemoveMember(context, project, store, email, empData['name'] ?? email),
+                              onPressed: () => _confirmRemoveMember(context, project, store, empId, empData['name'] ?? empId),
                             ),
                           );
                         },

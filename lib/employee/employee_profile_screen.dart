@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:ats_onework/employee/employee_login.dart';
 import 'package:ats_onework/management/expense_store.dart';
 
@@ -191,8 +192,29 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                         );
                         await user.reauthenticateWithCredential(credential);
 
-                        // 2. Lock in new password
+                        // 2. Lock in new password in Firebase Auth
                         await user.updatePassword(newCtrl.text);
+
+                        // 3. Sync password update into Firestore database
+                        try {
+                          final db = FirebaseFirestore.instance;
+                          if (store.currentEmployeeId.isNotEmpty) {
+                            await db.collection('users').doc(store.currentEmployeeId).update({
+                              'password': newCtrl.text.trim(),
+                              'updatedAt': FieldValue.serverTimestamp(),
+                            });
+                          } else {
+                            final userQuery = await db.collection('users').where('email', isEqualTo: user.email!.trim().toLowerCase()).limit(1).get();
+                            if (userQuery.docs.isNotEmpty) {
+                              await userQuery.docs.first.reference.update({
+                                'password': newCtrl.text.trim(),
+                                'updatedAt': FieldValue.serverTimestamp(),
+                              });
+                            }
+                          }
+                        } catch (firestoreErr) {
+                          debugPrint('Firestore password sync warning: $firestoreErr');
+                        }
 
                         if (!dialogContext.mounted) return;
                         Navigator.pop(dialogContext);

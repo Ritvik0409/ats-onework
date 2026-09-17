@@ -270,7 +270,10 @@ class EmployeeProjectDetailsScreen extends StatelessWidget {
                               children: [
                                 Text(expense.amountFormatted, style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold, fontSize: 15)),
                                 const SizedBox(height: 4),
-                                Text(expense.status, style: TextStyle(color: _getStatusColor(expense.status), fontSize: 11, fontWeight: FontWeight.bold)),
+                                Text(
+                                  expense.status == 'Approved' ? 'Payment Pending' : expense.status,
+                                  style: TextStyle(color: _getStatusColor(expense.status), fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
                               ],
                             ),
                           ),

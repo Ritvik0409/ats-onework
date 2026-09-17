@@ -178,7 +178,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                                             borderRadius: BorderRadius.circular(6),
                                             border: Border.all(color: _statusColor(e.status, champagneGold).withValues(alpha: 0.3)),
                                           ),
-                                          child: Text(e.status, style: TextStyle(color: _statusColor(e.status, champagneGold), fontSize: 10, fontWeight: FontWeight.bold)),
+                                          child: Text(e.status == 'Approved' ? 'Approved • Payment Pending' : e.status, style: TextStyle(color: _statusColor(e.status, champagneGold), fontSize: 10, fontWeight: FontWeight.bold)),
                                         ),
                                       ],
                                     ),

@@ -51,6 +51,148 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
+  void _showAssignEmployeeDialog(BuildContext context) {
+    final store = ExpenseStore.instance; 
+    final idController = TextEditingController();
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    String selectedRole = 'employee';
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: store.card,
+          title: Text('Assign Credentials', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: idController,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Employee ID (e.g., EMP101)',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Full Name',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Email Address',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordController,
+                  obscureText: true,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Assign Password',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // --- UNIVERSAL ROLE DROPDOWN ---
+                DropdownButtonFormField<String>(
+                  value: selectedRole,
+                  dropdownColor: store.card,
+                  decoration: InputDecoration(
+                    labelText: 'Assign System Role',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                  style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+                  icon: Icon(Icons.arrow_drop_down, color: store.accentGold),
+                  items: const [
+                    DropdownMenuItem(value: 'employee', child: Text('Employee')),
+                    DropdownMenuItem(value: 'hr', child: Text('HR')),
+                    DropdownMenuItem(value: 'manager', child: Text('Manager')),
+                    DropdownMenuItem(value: 'finance', child: Text('Finance')),
+                    DropdownMenuItem(value: 'director', child: Text('Director')),
+                    DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                  ],
+                  onChanged: (String? newValue) {
+                    if (newValue != null) {
+                      setState(() {
+                        selectedRole = newValue;
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: store.accentGold),
+              onPressed: () async {
+                if (idController.text.trim().isEmpty || passwordController.text.trim().isEmpty || emailController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please fill all required fields')),
+                  );
+                  return;
+                }
+                try {
+                  await store.assignEmployeeCredentials(
+                    employeeId: idController.text.trim(),
+                    email: emailController.text.trim(),
+                    password: passwordController.text.trim(),
+                    name: nameController.text.trim(),
+                    role: selectedRole, 
+                  );
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Successfully created ${selectedRole.toUpperCase()} account!', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        backgroundColor: store.accentGold,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.redAccent),
+                    );
+                  }
+                }
+              },
+              child: Text('Save to Records', style: TextStyle(color: store.bg, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _toolCard(BuildContext context, String title, IconData icon, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
@@ -90,6 +232,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add_alt_1_rounded, color: champagneGold),
+            tooltip: 'Assign Credentials',
+            onPressed: () => _showAssignEmployeeDialog(context),
+          ),
           IconButton(
             icon: const Icon(Icons.logout, color: champagneGold),
             tooltip: 'Logout',
@@ -166,6 +313,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: [
+                          _toolCard(context, 'Assign Credentials', Icons.person_add_rounded, 
+                            () => _showAssignEmployeeDialog(context)),
+                          const SizedBox(width: 12),
                           _toolCard(context, 'Full Request Logs', Icons.receipt_long_rounded, 
                             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ManagerRequestsScreen()))),
                           const SizedBox(width: 12),
@@ -440,7 +590,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                         borderRadius: BorderRadius.circular(6),
                                         border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
                                       ),
-                                      child: Text(expense.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                                      child: Text(expense.status == 'Approved' ? 'Approved • Payment Pending' : expense.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
                                     ),
                                   ],
                                 ),

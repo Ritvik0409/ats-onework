@@ -41,46 +41,57 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyD9AptVG8R9lNHZulr313-DN62WkFA2q4A',
-    appId: '1:581115815178:web:887a0dda6a6a866d5746f3',
-    messagingSenderId: '581115815178',
-    projectId: 'ats-onework-332dc',
-    authDomain: 'ats-onework-332dc.firebaseapp.com',
-    storageBucket: 'ats-onework-332dc.firebasestorage.app',
+    
+  apiKey: "AIzaSyD9AptVG8R9lNHZulr313-DN62WkFA2q4A",
+  authDomain: "ats-onework-332dc.firebaseapp.com",
+  projectId: "ats-onework-332dc",
+  storageBucket: "ats-onework-332dc.firebasestorage.app",
+  messagingSenderId: "581115815178",
+  appId: "1:581115815178:web:887a0dda6a6a866d5746f3"
+
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyC1k33h8aA3p-9FkosI-5V2boY5uPig_BM',
-    appId: '1:581115815178:android:632b382d826124e25746f3',
-    messagingSenderId: '581115815178',
-    projectId: 'ats-onework-332dc',
-    storageBucket: 'ats-onework-332dc.firebasestorage.app',
+    
+  apiKey: "AIzaSyD9AptVG8R9lNHZulr313-DN62WkFA2q4A",
+  authDomain: "ats-onework-332dc.firebaseapp.com",
+  projectId: "ats-onework-332dc",
+  storageBucket: "ats-onework-332dc.firebasestorage.app",
+  messagingSenderId: "581115815178",
+  appId: "1:581115815178:web:887a0dda6a6a866d5746f3"
+
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCGZpfzeS1S1x4_238iRH7XNRUGeQ_qDJ8',
-    appId: '1:581115815178:ios:a3a0e849c9a9d3c65746f3',
-    messagingSenderId: '581115815178',
-    projectId: 'ats-onework-332dc',
-    storageBucket: 'ats-onework-332dc.firebasestorage.app',
-    iosBundleId: 'com.example.atsOnework',
+    
+  apiKey: "AIzaSyD9AptVG8R9lNHZulr313-DN62WkFA2q4A",
+  authDomain: "ats-onework-332dc.firebaseapp.com",
+  projectId: "ats-onework-332dc",
+  storageBucket: "ats-onework-332dc.firebasestorage.app",
+  messagingSenderId: "581115815178",
+  appId: "1:581115815178:web:887a0dda6a6a866d5746f3"
+
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyCGZpfzeS1S1x4_238iRH7XNRUGeQ_qDJ8',
-    appId: '1:581115815178:ios:a3a0e849c9a9d3c65746f3',
-    messagingSenderId: '581115815178',
-    projectId: 'ats-onework-332dc',
-    storageBucket: 'ats-onework-332dc.firebasestorage.app',
-    iosBundleId: 'com.example.atsOnework',
+    
+  apiKey: "AIzaSyD9AptVG8R9lNHZulr313-DN62WkFA2q4A",
+  authDomain: "ats-onework-332dc.firebaseapp.com",
+  projectId: "ats-onework-332dc",
+  storageBucket: "ats-onework-332dc.firebasestorage.app",
+  messagingSenderId: "581115815178",
+  appId: "1:581115815178:web:887a0dda6a6a866d5746f3"
+
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyD9AptVG8R9lNHZulr313-DN62WkFA2q4A',
-    appId: '1:581115815178:web:2412a77b4a0cfd7d5746f3',
-    messagingSenderId: '581115815178',
-    projectId: 'ats-onework-332dc',
-    authDomain: 'ats-onework-332dc.firebaseapp.com',
-    storageBucket: 'ats-onework-332dc.firebasestorage.app',
+    
+  apiKey: "AIzaSyD9AptVG8R9lNHZulr313-DN62WkFA2q4A",
+  authDomain: "ats-onework-332dc.firebaseapp.com",
+  projectId: "ats-onework-332dc",
+  storageBucket: "ats-onework-332dc.firebasestorage.app",
+  messagingSenderId: "581115815178",
+  appId: "1:581115815178:web:887a0dda6a6a866d5746f3"
+
   );
 }

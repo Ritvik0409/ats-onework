@@ -11,10 +11,71 @@ class DirectorDashboard extends StatefulWidget {
 
 class _DirectorDashboardState extends State<DirectorDashboard> {
   String _selectedTimeframe = 'This Month';
-  
-  // NEW: State variables for the integrated feed
-  String _searchQuery = '';
-  String _selectedFilter = 'All';
+
+  final List<Color> _categoryColors = [
+    Colors.blueAccent,
+    Colors.tealAccent,
+    Colors.amber,
+    Colors.indigoAccent,
+    Colors.deepOrangeAccent,
+    Colors.cyan,
+  ];
+
+  // Helper method to determine if an expense is in the current month
+  bool _isCurrentMonth(String dateStr) {
+    try {
+      DateTime? d;
+      if (dateStr.contains(RegExp(r'[a-zA-Z]'))) {
+        final parts = dateStr.trim().split(RegExp(r'\s+'));
+        if (parts.length >= 3) {
+          int day = int.parse(parts[0]);
+          String mStr = parts[1].toLowerCase().substring(0, 3);
+          int y = int.parse(parts[2]);
+          const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+          int m = months.indexOf(mStr) + 1;
+          if (m > 0) d = DateTime(y, m, day);
+        }
+      } else if (dateStr.contains('-')) {
+        final parts = dateStr.split('-');
+        if (parts.length >= 3) {
+          if (parts[0].length == 4) d = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+          else if (parts[2].length == 4) d = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+        }
+      } else if (dateStr.contains('/')) {
+        final parts = dateStr.split('/');
+        if (parts.length >= 3) {
+          if (parts[2].length == 4) {
+            int m = int.parse(parts[0]);
+            int day = int.parse(parts[1]);
+            if (m > 12) { m = int.parse(parts[1]); day = int.parse(parts[0]); }
+            d = DateTime(int.parse(parts[2]), m, day);
+          }
+        }
+      }
+      if (d != null) {
+        final now = DateTime.now();
+        return d.month == now.month && d.year == now.year;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  // Generate Project Spend Breakdown dynamically based on expenses
+  Map<String, double> _getProjectSpend(ExpenseStore store) {
+    Map<String, double> breakdown = {};
+    for (var e in store.expenses) {
+      if ((e.status == 'Approved' || e.status == 'Paid') && _isCurrentMonth(e.date)) {
+        final pName = (e.projectName != null && e.projectName!.trim().isNotEmpty) ? e.projectName! : 'General / Unassigned';
+        breakdown[pName] = (breakdown[pName] ?? 0) + e.amount;
+      }
+    }
+    var sortedKeys = breakdown.keys.toList()..sort((a, b) => breakdown[b]!.compareTo(breakdown[a]!));
+    Map<String, double> sortedBreakdown = {};
+    for (var k in sortedKeys) {
+      sortedBreakdown[k] = breakdown[k]!;
+    }
+    return sortedBreakdown;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +105,8 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
             final urgentReqs = store.urgentRequests;
             final chartData = store.getChartData(_selectedTimeframe);
             
-            // STRICT IDENTITY LOCK: Hides the Director's own uploads from the "Recently Paid" widget
+            final projectSpend = _getProjectSpend(store);
+
             final myEmployeeEmail = store.currentEmployeeEmail.trim().toLowerCase();
             final myManagerEmail = store.currentManagerEmail.trim().toLowerCase();
             
@@ -55,25 +117,6 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
             }).toList();
 
             final displayName = store.currentManagerName == 'Manager' ? 'Director' : store.currentManagerName;
-
-            // NEW: Integrated Feed Logic (No date limits, hides own uploads)
-            final filteredFeedExpenses = store.expenses.where((expense) {
-              final uploaderEmail = expense.email.trim().toLowerCase();
-              if (uploaderEmail == myEmployeeEmail || uploaderEmail == myManagerEmail) {
-                return false;
-              }
-
-              final matchesSearch = expense.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                  expense.id.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                  expense.type.toLowerCase().contains(_searchQuery.toLowerCase());
-
-              if (_selectedFilter == 'All') return matchesSearch;
-              if (_selectedFilter == 'Pending') return matchesSearch && expense.status == 'Pending Verification';
-              if (_selectedFilter == 'Approved') return matchesSearch && expense.status == 'Approved';
-              if (_selectedFilter == 'Paid') return matchesSearch && expense.status == 'Paid';
-              if (_selectedFilter == 'Rejected') return matchesSearch && expense.status == 'Rejected';
-              return matchesSearch;
-            }).toList();
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
@@ -110,7 +153,7 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Welcome, $displayName', 
+                                    'Welcome, ${store.currentUserName}', 
                                     style: TextStyle(color: textFrost, fontSize: 22, fontWeight: FontWeight.bold)
                                   ),
                                   const SizedBox(height: 4),
@@ -227,15 +270,73 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
                               ],
                             ),
                             const SizedBox(height: 12),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: LinearProgressIndicator(
-                                value: store.currentMonthBurnPercentage,
-                                minHeight: 8,
-                                backgroundColor: store.isDarkMode ? obsidianBlack : Colors.grey.shade200,
-                                valueColor: AlwaysStoppedAnimation<Color>(champagneGold),
+                            
+                            // Segmented Project Tracker
+                            Container(
+                              height: 12,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: store.isDarkMode ? obsidianBlack : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Row(
+                                  children: [
+                                    ...projectSpend.entries.toList().asMap().entries.map((entry) {
+                                      final index = entry.key;
+                                      final amount = entry.value.value;
+                                      final flex = amount.toInt();
+                                      if (flex <= 0) return const SizedBox.shrink();
+                                      
+                                      return Expanded(
+                                        flex: flex,
+                                        child: Container(color: _categoryColors[index % _categoryColors.length]),
+                                      );
+                                    }),
+                                    
+                                    if (store.currentMonthBudget > store.currentMonthBurnAmount)
+                                      Expanded(
+                                        flex: (store.currentMonthBudget - store.currentMonthBurnAmount).toInt(),
+                                        child: Container(color: Colors.transparent),
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
+                            
+                            // Dynamic Project Breakdown List
+                            if (projectSpend.isNotEmpty) ...[
+                              const SizedBox(height: 24),
+                              ...projectSpend.entries.toList().asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final projectName = entry.value.key;
+                                final amount = entry.value.value;
+                                final dotColor = _categoryColors[index % _categoryColors.length];
+
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 14.0),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 12,
+                                        height: 12,
+                                        decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(projectName, style: TextStyle(color: textFrost, fontSize: 15)),
+                                      const Spacer(),
+                                      Text(
+                                        store.currentMonthBurnAmount > 0 
+                                            ? '${((amount / store.currentMonthBurnAmount) * 100).toStringAsFixed(1)}%' 
+                                            : '0.0%', 
+                                        style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.bold)
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            ]
                           ],
                         ),
                       ),
@@ -396,192 +497,7 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
                           }).toList(),
                         ),
                       ),
-                      const SizedBox(height: 40),
-                      Divider(color: champagneGold.withValues(alpha: 0.2), thickness: 1),
                       const SizedBox(height: 32),
-
-                      // --- NEW: INTEGRATED REQUEST FEED ---
-                      Text('Approval Feed', style: TextStyle(color: textFrost, fontSize: 20, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 16),
-                      TextField(
-                        onChanged: (value) => setState(() => _searchQuery = value),
-                        style: TextStyle(color: textFrost),
-                        decoration: InputDecoration(
-                          hintText: 'Search by employee name, ID or type...',
-                          hintStyle: TextStyle(color: textMuted, fontSize: 14),
-                          prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
-                          filled: true,
-                          fillColor: darkCharcoal,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.1)),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: champagneGold, width: 1.5),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: ['All', 'Pending', 'Approved', 'Paid', 'Rejected'].map((category) {
-                            final isSelected = _selectedFilter == category;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8.0),
-                              child: ChoiceChip(
-                                label: Text(category),
-                                selected: isSelected,
-                                onSelected: (selected) {
-                                  if (selected) setState(() => _selectedFilter = category);
-                                },
-                                labelStyle: TextStyle(
-                                  // FIX: Changed _store to store to resolve the undefined variable error
-                                  color: isSelected ? (store.isDarkMode ? obsidianBlack : Colors.white) : textFrost,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                                selectedColor: champagneGold,
-                                backgroundColor: darkCharcoal,
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  side: BorderSide(color: isSelected ? champagneGold : champagneGold.withValues(alpha: 0.15)),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      
-                      filteredFeedExpenses.isEmpty
-                        ? Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(40),
-                            decoration: BoxDecoration(
-                              color: darkCharcoal,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
-                            ),
-                            child: Center(child: Text('No matching expense logs found.', style: TextStyle(color: textMuted))),
-                          )
-                        : ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: filteredFeedExpenses.length,
-                            itemBuilder: (context, index) {
-                              final expense = filteredFeedExpenses[index];
-
-                              Color statusColor = champagneGold;
-                              if (expense.status == 'Approved') statusColor = Colors.orangeAccent;
-                              if (expense.status == 'Paid') statusColor = Colors.greenAccent.shade400;
-                              if (expense.status == 'Rejected') statusColor = Colors.redAccent.shade400;
-
-                              final isHighValue = expense.amount > 30000;
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 14),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: isHighValue ? Colors.redAccent.shade700.withValues(alpha: 0.6) : champagneGold.withValues(alpha: 0.1), 
-                                    width: isHighValue ? 1.5 : 1
-                                  ),
-                                  boxShadow: isHighValue 
-                                    ? [BoxShadow(color: Colors.redAccent.withValues(alpha: 0.05), blurRadius: 10, spreadRadius: 1), ...cardShadows]
-                                    : cardShadows,
-                                ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                  leading: CircleAvatar(
-                                    radius: 24,
-                                    backgroundColor: isHighValue ? Colors.redAccent.withValues(alpha: 0.1) : champagneGold.withValues(alpha: 0.1),
-                                    child: Text(
-                                      expense.name.substring(0, 1),
-                                      style: TextStyle(
-                                        color: isHighValue ? Colors.redAccent : champagneGold, 
-                                        fontWeight: FontWeight.bold, 
-                                        fontSize: 18
-                                      ),
-                                    ),
-                                  ),
-                                  title: Wrap(
-                                    crossAxisAlignment: WrapCrossAlignment.center,
-                                    children: [
-                                      Text(expense.name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                                      const SizedBox(width: 8),
-                                      Text('(${expense.id})', style: TextStyle(color: textMuted)),
-                                      
-                                      if (expense.projectName != null && expense.projectName!.isNotEmpty) ...[
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: champagneGold.withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: champagneGold.withValues(alpha: 0.5)),
-                                          ),
-                                          child: Text(
-                                            expense.projectName!,
-                                            style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold),
-                                          ),
-                                        ),
-                                      ]
-                                    ],
-                                  ),
-                                  subtitle: Padding(
-                                    padding: const EdgeInsets.only(top: 6.0),
-                                    child: Text('${expense.type} Expense • ${expense.date}', style: TextStyle(color: textMuted, fontSize: 13)),
-                                  ),
-                                  trailing: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          if (isHighValue) 
-                                            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 16),
-                                          if (isHighValue) 
-                                            const SizedBox(width: 4),
-                                          Text(
-                                            expense.amountFormatted, 
-                                            style: TextStyle(
-                                              color: isHighValue ? Colors.redAccent.shade100 : textFrost, 
-                                              fontWeight: FontWeight.w900, 
-                                              fontSize: 15
-                                            )
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: statusColor.withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
-                                        ),
-                                        child: Text(expense.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ],
-                                  ),
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => ExpenseDetailsScreen(expenseId: expense.id)),
-                                    );
-                                  },
-                                ),
-                              );
-                            },
-                          ),
                     ],
                   ),
                 ),

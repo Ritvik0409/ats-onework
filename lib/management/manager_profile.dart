@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:ats_onework/employee/employee_login.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/budget_allocation_screen.dart';
@@ -72,7 +74,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
   void _showUpdateName(bool isManager) {
     final formKey = GlobalKey<FormState>();
     final store = ExpenseStore.instance;
-    final nameCtrl = TextEditingController(text: isManager ? store.currentManagerName : store.currentEmployeeName);
+    final nameCtrl = TextEditingController(text: isManager ? store.currentUserName : store.currentEmployeeName);
 
     showDialog(
       context: context,
@@ -164,42 +166,72 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
           ),
           TextButton(
             onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                try {
-                  final user = FirebaseAuth.instance.currentUser;
-                  if (user != null && user.email != null) {
-                    // 1. Re-authenticate to verify they know the current password
-                    final credential = EmailAuthProvider.credential(
-                      email: user.email!,
-                      password: currentCtrl.text,
-                    );
-                    await user.reauthenticateWithCredential(credential);
+              if (!formKey.currentState!.validate()) return;
 
-                    // 2. Push the new password to Firebase
-                    await user.updatePassword(newCtrl.text);
+              try {
+                final db = FirebaseFirestore.instance;
+                final identifier = store.currentUserId.isNotEmpty ? store.currentUserId : store.currentUserEmail;
 
-                    if (!dialogContext.mounted) return;
-                    Navigator.pop(dialogContext);
-                    _showSnack('Password securely updated!');
-                  }
-                } on FirebaseAuthException catch (e) {
-                  String errorMessage = 'Failed to update password.';
-                  if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
-                    errorMessage = 'The current password you entered is incorrect.';
-                  } else if (e.code == 'weak-password') {
-                    errorMessage = 'The new password is too weak.';
-                  } else {
-                    errorMessage = e.message ?? errorMessage;
-                  }
-                  
-                  if (!context.mounted) return;
+                if (identifier.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(errorMessage, style: const TextStyle(fontWeight: FontWeight.bold)), 
-                      backgroundColor: Colors.redAccent
-                    ),
+                    const SnackBar(content: Text('Error: User identifier missing.'), backgroundColor: Colors.redAccent),
                   );
+                  return;
                 }
+
+                DocumentReference userRef;
+                if (store.currentUserId.isNotEmpty) {
+                  userRef = db.collection('users').doc(store.currentUserId);
+                } else {
+                  final query = await db.collection('users').where('email', isEqualTo: store.currentUserEmail.trim().toLowerCase()).limit(1).get();
+                  if (query.docs.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('User record not found in database.'), backgroundColor: Colors.redAccent),
+                    );
+                    return;
+                  }
+                  userRef = query.docs.first.reference;
+                }
+
+                final docSnap = await userRef.get();
+                if (!docSnap.exists) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('User document does not exist.'), backgroundColor: Colors.redAccent),
+                  );
+                  return;
+                }
+
+                final data = docSnap.data() as Map<String, dynamic>? ?? {};
+                final dbPassword = data['password']?.toString();
+
+                if (dbPassword != null && dbPassword != currentCtrl.text.trim()) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('The current password you entered is incorrect.'), backgroundColor: Colors.redAccent),
+                  );
+                  return;
+                }
+
+                await userRef.update({
+                  'password': newCtrl.text.trim(),
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+
+                try {
+                  final authUser = FirebaseAuth.instance.currentUser;
+                  if (authUser != null && authUser.email != null) {
+                    await authUser.updatePassword(newCtrl.text.trim());
+                  }
+                } catch (_) {}
+
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                _showSnack('Password securely updated!');
+
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to update password: $e', style: const TextStyle(fontWeight: FontWeight.bold)), backgroundColor: Colors.redAccent),
+                );
               }
             },
             child: Text('Update', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
@@ -394,6 +426,45 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
     );
   }
 
+  void _showAddExpenseTypeDialog(ExpenseStore store) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: store.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
+        ),
+        title: Text('Add Expense Type', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          style: TextStyle(color: store.textFrost),
+          decoration: InputDecoration(
+            labelText: 'Expense Type Name',
+            labelStyle: TextStyle(color: store.textMuted),
+            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold.withValues(alpha: 0.3))),
+            focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: store.accentGold),
+            onPressed: () async {
+              if (controller.text.trim().isNotEmpty) {
+                await store.addNewExpenseType(controller.text.trim());
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                _showSnack('Expense type added successfully!');
+              }
+            },
+            child: const Text('Add', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = ExpenseStore.instance;
@@ -428,7 +499,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
                           ),
                           alignment: Alignment.center,
                           child: Text(
-                            store.getInitials(store.currentManagerName),
+                            store.getInitials(store.currentUserName),
                             style: TextStyle(color: store.accentGold, fontSize: 26, fontWeight: FontWeight.bold),
                           ),
                         ),
@@ -438,12 +509,12 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                store.currentManagerName,
+                                store.currentUserName,
                                 style: TextStyle(color: store.textFrost, fontSize: 19, fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                store.currentManagerEmail,
+                                store.currentUserEmail,
                                 style: TextStyle(color: store.textMuted, fontSize: 13),
                               ),
                               const SizedBox(height: 6),
@@ -456,7 +527,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
-                                      isFinance ? 'FINANCE' : 'MANAGER',
+                                      store.currentUserRole.toUpperCase(),
                                       style: TextStyle(color: store.accentGold, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                                     ),
                                   ),
@@ -464,7 +535,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                                     decoration: BoxDecoration(color: subtleBgColor, borderRadius: BorderRadius.circular(6)),
-                                    child: Text('MGR-2026-001', style: TextStyle(color: store.textMuted, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                                    child: Text(store.currentUserId, style: TextStyle(color: store.textMuted, fontSize: 10, fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               )
@@ -526,24 +597,32 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
                       ),
                     ),
 
-                    if (store.isHR) ...[
-                      const SizedBox(height: 24),
-                      Text('HR Tools', style: TextStyle(color: store.textFrost, fontSize: 15, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      _settingsGroup([
-                        _SettingsItemData(Icons.account_balance_wallet_rounded, 'Budget Allocation', 'Set monthly budget for the team',
-                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BudgetAllocationScreen()))),
-                        _SettingsItemData(Icons.person_add_rounded, 'Pending Employee Approvals', 'Review and assign new employees to projects',
-                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PendingApprovalsScreen()))),
-                      ], store, dividerColor),
-                    ] else ...[
-                      const SizedBox(height: 24),
-                      Text('Tools', style: TextStyle(color: store.textFrost, fontSize: 15, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      _settingsGroup([
-                        _SettingsItemData(Icons.person_add_rounded, 'Pending Employee Approvals', 'Review and assign new employees to projects',
-                            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PendingApprovalsScreen()))),
-                      ], store, dividerColor),
+                    if (!isFinance) ...[
+                      if (store.isHR) ...[
+                        const SizedBox(height: 24),
+                        Text('HR Tools', style: TextStyle(color: store.textFrost, fontSize: 15, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 12),
+                        _settingsGroup([
+                          _SettingsItemData(Icons.account_balance_wallet_rounded, 'Budget Allocation', 'Set monthly budget for the team',
+                              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BudgetAllocationScreen()))),
+                          // --- UPDATED TOOL NAME AND ICON HERE ---
+                          _SettingsItemData(Icons.mark_email_unread_rounded, 'Project Access Requests', 'Review and assign new employees to projects',
+                              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PendingApprovalsScreen()))),
+                          _SettingsItemData(Icons.category_rounded, 'Manage Expense Types', 'Add custom expense categories for the organization',
+                              () => _showAddExpenseTypeDialog(store)),
+                        ], store, dividerColor),
+                      ] else ...[
+                        const SizedBox(height: 24),
+                        Text('Tools', style: TextStyle(color: store.textFrost, fontSize: 15, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 12),
+                        _settingsGroup([
+                          // --- UPDATED TOOL NAME AND ICON HERE ---
+                          _SettingsItemData(Icons.mark_email_unread_rounded, 'Project Access Requests', 'Review and assign new employees to projects',
+                              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PendingApprovalsScreen()))),
+                          _SettingsItemData(Icons.category_rounded, 'Manage Expense Types', 'Add custom expense categories for the organization',
+                              () => _showAddExpenseTypeDialog(store)),
+                        ], store, dividerColor),
+                      ],
                     ],
 
                     const SizedBox(height: 24),

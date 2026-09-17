@@ -85,19 +85,29 @@
 
 ## Phase 3 — Shared Plumbing & Fixtures (before any domain module)
 
-- [x] `app/api/v1/deps.py` — verified (partial): `get_current_user` (CurrentUser: employee_id,
-      organization_id, is_admin), `require_admin`; remaining for Phase 3:
-      `require_membership` + `require_permission` /
-      `RequirePermission[...]` (§10)
+- [x] `app/api/v1/deps.py` — `require_membership` (DB-backed auth context
+      rebuild; 401 no-membership) + `require_admin`; `RequirePermission`
+      factory in `app/common/permissions.py` (§10)
 - [ ] Verify `scripts/migrate.py`: fresh DB → `0001_initial.sql` applies cleanly;
       `scripts/seed.py` seeds Org A + Org B users (deterministic, no secrets)
-- [ ] `app/common/object_storage.py` — `ObjectStorage` interface + local-disk
+- [x] `app/common/object_storage.py` — `ObjectStorage` interface + local-disk
       dev implementation (S3/MinIO swap later, §15)
-- [ ] `app/notifications/` feature module — DB-backed notification creation +
-      `BackgroundTasks` dispatch hook (§38)
-- [ ] `tests/conftest.py` fixtures FIRST (§29): `postgres_db`, `db_connection`,
-      `test_client`, `user`, `admin_user`, `organization`, `membership`,
-      `expense`, `project`, `auth_token` — composable, minimal
+- [x] `app/common/audit.py` — `AuditService.log` DRY helper (§37)
+- [x] `app/notifications/` feature module — DB-backed notification creation
+      (`schemas`/`repository`/`service`) + `BackgroundTasks` dispatch hook
+      (`dispatch.py`, §38)
+- [x] `tests/conftest.py` fixtures FIRST (§29): `db_connection`, `seeded_orgs`
+      `test_client`, `admin_token`/`member_token`/`other_org_admin_token`
+      (Org A/B tenant-isolation layout), `truncate_all` helper —
+      integration fixtures skip cleanly when `TEST_DATABASE_URL` is unset
+- [x] Phase 3 quality gates — `ruff check .`: All checks passed;
+      `ruff format --check .`: 44 files already formatted;
+      `pytest -m "not integration"`: no tests ran (expected — first DB tests
+      land in Phase 4); all Phase 3 modules import cleanly
+- [ ] Docker/Postgres pending (daemon unreachable from this shell —
+      `docker ps` fails on `dockerDesktopLinuxEngine` pipe): start Docker
+      Desktop, then `docker compose up -d --wait`, `migrate.py`, `seed.py`,
+      `uvicorn app.main:app` boot + `/health`→200 + `/ready` DB ping
 
 ## Phase 4 — Feature Modules (each: router + schemas + repository + service)
 

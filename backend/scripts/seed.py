@@ -198,14 +198,16 @@ def main() -> int:
     args = parser.parse_args()
     dsn = args.dsn or os.environ.get("DATABASE_URL") or DEFAULT_DSN
 
-    with psycopg.connect(dsn, row_factory=dict_row) as conn:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                seed_organizations(cur)
-                seed_users_and_memberships(cur)
-                seed_roles(cur)
-                seed_budgets_and_projects(cur)
-                seed_expense_types(cur)
+    with (
+        psycopg.connect(dsn, row_factory=dict_row) as conn,
+        conn.transaction(),
+        conn.cursor() as cur,
+    ):
+        seed_organizations(cur)
+        seed_users_and_memberships(cur)
+        seed_roles(cur)
+        seed_budgets_and_projects(cur)
+        seed_expense_types(cur)
 
     print(
         "Seed complete: "
@@ -217,4 +219,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -31,38 +31,64 @@
 
 ## Phase 2 — Core Infrastructure
 
-- [ ] `app/core/config.py` — pydantic-settings, cached `get_settings()`
+- [x] `app/core/config.py` — pydantic-settings, cached `get_settings()`
       (DATABASE_URL, JWT_SECRET, JWT_ALGORITHM, JWT_*_EXPIRE, CORS_ORIGINS,
       S3_* placeholders, ENVIRONMENT, LOG_LEVEL — §40)
-- [ ] `app/core/constants.py` — StrEnums mirroring every CHECK constraint
-      (ExpenseStatus, AccountStatus, ReimbursementStatus, TokenPurpose,
-      EmployeeStatus, ApprovalAction) + status transition maps (§36)
-- [ ] `app/core/exceptions.py` — AppException tree (AuthenticationError,
-      AuthorizationError, NotFoundError, ConflictError, ValidationError) +
-      global handlers → error envelope (§22); psycopg3 exception mapping (§50)
-- [ ] `app/core/security/passwords.py` — pwdlib[argon2]; async
-      `hash_password`/`verify_password` via `asyncio.to_thread` (§48)
-- [ ] `app/core/security/jwt.py` — PyJWT, explicit alg allow-list (HS256),
-      claims `sub`/`org`/`admin`/`exp`/`iat` (ADR-001, §51)
-- [ ] `app/core/security/tokens.py` — `secrets.token_urlsafe` generation,
-      SHA-256 hashing, expiry checks, expired-token cleanup helper (§14)
-- [ ] `app/core/logging.py` — structured logging (request_id, employee_id,
-      organization_id, duration_ms) + request-ID middleware; never-log list (§23)
-- [ ] `app/db/pool.py` — `AsyncConnectionPool` (min/max from settings,
-      `row_factory=dict_row`, `open=False` → opened in lifespan, closed on shutdown)
-- [ ] `app/db/connection.py` — `get_connection` dependency (auto commit/rollback)
-- [ ] `app/db/transaction.py` + `app/db/types.py`
-- [ ] `app/common/` — `pagination.py` (cursor + offset, `Page[T]`), `responses.py`
-      (error envelope), `permissions.py`, `utils.py`
-- [ ] `app/main.py` — `create_app()` factory, middleware, exception handlers,
-      `/health`, `/ready` (§24)
-- [ ] Verify: `uv run uvicorn app.main:app --reload` boots; `/ready` pings DB
+- [x] `app/core/constants.py` — StrEnums mirroring every CHECK constraint
+      (ExpenseStatus [incl. `reimbursed` per schema], AccountStatus
+      [`users.status`], ReimbursementStatus, TokenPurpose,
+      EmployeeStatus [service-layer lifecycle], ApprovalAction) + status
+      transition maps incl. `failed → processing` retry (§36)
+- [x] `app/core/exceptions.py` — AppException tree (AuthenticationError,
+      AuthorizationError, NotFoundError, ConflictError, ValidationError,
+      TransientError→503) + global handlers → error envelope (§22);
+      `to_app_exception` psycopg3 mapping incl. constraint-specific 409s (§50)
+- [x] `app/core/security/passwords.py` — pwdlib[argon2]; async
+      `hash_password`/`verify_password`/`verify_and_update_password`
+      via `asyncio.to_thread` (argon2 verify true/false §48)
+- [x] `app/core/security/jwt.py` — PyJWT, explicit alg allow-list (HS256),
+      claims `sub`/`org`/`admin`/`exp`/`iat` (ADR-001, §51) —
+      verified round-trip `sub=7, org=3, admin=True`
+- [x] `app/core/security/tokens.py` — `secrets.token_urlsafe` generation,
+      SHA-256 hashing (64-hex), expiry checks, expired-token cleanup helper
+      (§14) — verified hash length + refresh expiry
+- [x] `app/core/logging.py` — structured logging (request_id, employee_id,
+      organization_id, duration_ms) + request-ID middleware; never-log list
+      (§23) — verified (no `redact` helper in this codebase; exclusion is by
+      review per module docstring — follow-up: consider a `redact()` helper)
+- [x] `app/db/pool.py` — `AsyncConnectionPool` (min/max from settings,
+      `row_factory=dict_row`, `open=False` → opened in lifespan, closed on
+      shutdown) — verified pool settings (min=2, max=10 from `.env.example`
+      defaults)
+- [x] `app/db/connection.py` — verified: yields from `pool.connection()`
+      (commit on clean exit, rollback on exception); `transaction()` helper in
+      `transaction.py` scopes multi-write workflows explicitly
+- [x] `app/db/transaction.py` + `app/db/types.py` (`Conn = AsyncConnection[dict]`,
+      `Row = dict`; dict_row decision documented)
+- [x] `app/common/` — `pagination.py` (cursor + offset, `Page[T]` — verified
+      success models returned directly — no data envelope), `permissions.py`
+      (verified: `RequirePermission` factory, admin-bypass until Phase 4.3
+      AuthorizationService), `utils.py` (verified: `utc_now`, `slugify`)
+- [x] `app/main.py` — verified: `create_app()` factory, CORS middleware,
+      `/health`, `/ready` (§24) — verified factory constructs; health router
+      exposes both routes (app-level list shows `_IncludedRouter` because
+      FastAPI expands `include_router` at startup/request time)
+- [x] Phase 2 quality gates — `ruff check .`: All checks passed;
+      `ruff format --check .`: 37 files already formatted;
+      `pytest`: no tests ran (expected — tests land in Phase 3);
+      `create_app()` factory constructs (verified); exception mapping
+      (`to_app_exception`: UniqueViolation→409, FK→400, Check→422),
+      Argon2id hash/verify, JWT create/decode, tokens, pagination cursor
+      round-trip — all verified live
+- [ ] Boot check (Phase 3 DB needed): `uvicorn app.main:app` boots;
+      `/health`→200; `/ready` pings DB after `migrate`+`seed`
 
 ## Phase 3 — Shared Plumbing & Fixtures (before any domain module)
 
-- [ ] `app/api/v1/deps.py` — `get_current_user` (CurrentUser: employee_id,
-      organization_id, is_admin), `require_membership`, `require_admin`,
-      `require_permission` / `RequirePermission[...]` (§10)
+- [x] `app/api/v1/deps.py` — verified (partial): `get_current_user` (CurrentUser: employee_id,
+      organization_id, is_admin), `require_admin`; remaining for Phase 3:
+      `require_membership` + `require_permission` /
+      `RequirePermission[...]` (§10)
 - [ ] Verify `scripts/migrate.py`: fresh DB → `0001_initial.sql` applies cleanly;
       `scripts/seed.py` seeds Org A + Org B users (deterministic, no secrets)
 - [ ] `app/common/object_storage.py` — `ObjectStorage` interface + local-disk

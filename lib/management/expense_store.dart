@@ -824,13 +824,25 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<String?> setBudgetForMonth(DateTime month, double amount) async {
     if (amount <= 0) return 'Budget must be greater than zero.';
-    await _db.collection('budgets').doc(_monthKey(month)).set({
-      'amount': amount,
-      'setByEmail': currentManagerEmail,
-      'setByName': currentManagerName,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    return null;
+    
+    try {
+      await _db.collection('budgets').doc(_monthKey(month)).set({
+        'amount': amount,
+        'setByEmail': currentManagerEmail,
+        'setByName': currentManagerName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // NEW: Instantly update the local state so the Dashboard redraws immediately without a reload
+      if (_monthKey(month) == _monthKey(DateTime.now())) {
+        currentMonthBudget = amount;
+        notifyListeners(); 
+      }
+      
+      return null;
+    } catch (e) {
+      return 'Failed to save budget: $e';
+    }
   }
 
   void _listenToEmployeeStatus() {

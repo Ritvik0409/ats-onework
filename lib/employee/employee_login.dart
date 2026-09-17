@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/ats_logo.dart';
 
 class UniversalLoginScreen extends StatefulWidget {
   const UniversalLoginScreen({super.key});
@@ -204,27 +205,7 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         // --- CUSTOM 'A' LOGO ICON ---
-                        Center(
-                          child: Container(
-                            width: 64,
-                            height: 64,
-                            decoration: BoxDecoration(
-                              color: _goldColor.withValues(alpha: 0.12),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: _goldColor, width: 1.5),
-                            ),
-                            alignment: Alignment.center,
-                            child: const Text(
-                              'A',
-                              style: TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w900,
-                                color: _goldColor,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ),
-                        ),
+                        const Center(child: ATSLogo(size: 60, showText: false)),
                         const SizedBox(height: 16),
                         const Text(
                           'ATS OneWork',

@@ -46,17 +46,31 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
 
   Future<void> _loadBudgets() async {
     setState(() => _loading = true);
-    final current = await store.getBudgetForMonth(_currentMonth);
-    final next = await store.getBudgetForMonth(_nextMonth);
     
-    if (!mounted) return;
-    
-    setState(() {
-      _currentMonthBudget = current;
-      _nextMonthBudget = next;
-      _loading = false;
-      _updateTextFieldForSelectedMonth();
-    });
+    try {
+      final current = await store.getBudgetForMonth(_currentMonth);
+      final next = await store.getBudgetForMonth(_nextMonth);
+      
+      if (!mounted) return;
+      
+      setState(() {
+        _currentMonthBudget = current;
+        _nextMonthBudget = next;
+        _loading = false;
+        _updateTextFieldForSelectedMonth();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      
+      setState(() => _loading = false);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Database Error: Your Firestore rules may have expired. ($e)', style: const TextStyle(fontWeight: FontWeight.w600)), 
+          backgroundColor: Colors.redAccent
+        ),
+      );
+    }
   }
   
   void _updateTextFieldForSelectedMonth() {
@@ -72,7 +86,7 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
     });
   }
 
-  // --- UPDATED: Actually ADDS the amount and AUTO-SAVES instantly ---
+  // --- UPDATED: Removes auto-save. Now it only updates the text field. ---
   void _applyQuickSelect(double amountToAdd) {
     final currentText = _amountController.text.replaceAll(',', '').trim();
     double currentAmount = 0.0;
@@ -86,9 +100,6 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
     setState(() {
       _amountController.text = _formatWithCommas(newAmount);
     });
-    
-    // Automatically trigger the save logic for seamless UX
-    _handleSave();
   }
 
   bool get _isNearMonthEnd {
@@ -97,7 +108,6 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
     return now.day >= lastDay - 2;
   }
 
-  // --- UPDATED: Wrapped in a robust try/catch to prevent silent failures ---
   Future<void> _handleSave() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);

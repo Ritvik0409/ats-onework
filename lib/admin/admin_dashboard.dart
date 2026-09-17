@@ -8,6 +8,7 @@ import 'package:ats_onework/management/pending_approvals_screen.dart';
 import 'package:ats_onework/management/manager_requests_screen.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/expense_details.dart';
+import 'package:ats_onework/shared/ats_logo.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -224,13 +225,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
       appBar: AppBar(
         backgroundColor: darkCharcoal,
         elevation: 0,
-        title: const Row(
-          children: [
-            Icon(Icons.admin_panel_settings, color: champagneGold),
-            SizedBox(width: 10),
-            Text('Admin Portal', style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold)),
-          ],
-        ),
+  title: const Row(
+  children: [
+    ATSLogo(size: 32, showText: false),
+    SizedBox(width: 12),
+    Text('Admin Portal', style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold)),
+  ],
+),
         actions: [
           IconButton(
             icon: const Icon(Icons.person_add_alt_1_rounded, color: champagneGold),

@@ -13,6 +13,7 @@ import 'package:ats_onework/management/download_web.dart';
 import 'package:ats_onework/management/management_projects_screen.dart';
 import 'package:ats_onework/employee/add_expense_screen.dart';
 import 'package:ats_onework/admin/admin_dashboard.dart';
+import 'package:ats_onework/shared/ats_logo.dart'; // NEW: Added logo import
 
 class ManagementNavigationShell extends StatefulWidget {
   const ManagementNavigationShell({super.key});
@@ -138,9 +139,10 @@ class _ManagementNavigationShellState extends State<ManagementNavigationShell> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('ATS OneWork', style: TextStyle(color: textFrost, fontSize: 24, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      Text('Access Level: ${currentRole.toUpperCase()}', style: TextStyle(color: champagneGold, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+                      // NEW: Using the premium ATS logo instead of plain text
+                      const ATSLogo(size: 48, showText: true),
+                      const SizedBox(height: 12),
+                      Text('Access Level: ${currentRole.toUpperCase()}', style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                     ],
                   ),
                 ),

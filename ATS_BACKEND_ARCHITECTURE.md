@@ -1681,10 +1681,14 @@ Handled centrally in exception handlers (§22) — never per-repository:
 | `CheckViolation` (23514) | ValidationError | 422 |
 | `NotNullViolation` (23502) | ValidationError | 422 |
 | `ExclusionViolation` (23P01) | ConflictError | 409 |
+| `RaiseException` (P0001, PL/pgSQL `RAISE`) with `Cross-tenant violation` prefix | NotFoundError ("Resource not found.") | 404 (never reveal other orgs' rows) |
+| `RaiseException` (P0001) with any other message | ValidationError | 422 |
 | `LockNotAvailable`, `QueryCanceled` (statement_timeout) | TransientError | 503 (logged; retriable) |
 | anything else | InternalError | 500 (full detail logged with `request_id`, never returned) |
 
 Constraint names are stable identifiers — map specific violations (e.g., `users_email_key`) to precise error codes/messages where a better client experience is warranted. Raw PostgreSQL messages must never reach API clients.
+
+Trigger messages are part of the API contract: `RAISE EXCEPTION` texts are routed by prefix (see `RAISE_MESSAGE_ROUTES` in `app/core/exceptions.py`), and the server text itself is never returned — only the mapped status code and a generic message. New triggers must reuse the `Cross-tenant violation` prefix for tenant-mismatch errors so they read as 404.
 
 ---
 

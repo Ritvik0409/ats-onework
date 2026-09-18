@@ -117,34 +117,42 @@
 > request model, success code, error codes). All code is async (§48).
 
 ### 4.1 auth/ (reference module)
-- [ ] `schemas.py`: UserCreate, LoginRequest, TokenPair, RefreshRequest,
+- [x] `schemas.py`: UserCreate, LoginRequest, TokenPair, RefreshRequest,
       OrganizationSwitchRequest, UserResponse
-- [ ] `repository.py`: user lookup by email, insert, token insert/revoke
+- [x] `repository.py`: user lookup by email, insert, token insert/revoke
       (hashed, expiry-checked), update `last_login_at`
-- [ ] `service.py`: register (Argon2id), login (verify + issue pair + org list),
+- [x] `service.py`: register (Argon2id), login (verify + issue pair + org list),
       refresh (rotation — old token invalidated), logout (revoke),
       switch-organization (ADR-001: server-side membership re-validation)
-- [ ] `router.py`: `POST /auth/register|login|refresh|logout|switch-organization`
-- [ ] Tests: happy path, wrong password → 401, suspended/locked → 403,
+- [x] `router.py`: `POST /auth/register|login|refresh|logout|switch-organization`
+- [x] Tests: happy path, wrong password → 401, suspended/locked → 403,
       expired/unknown refresh → 401, rotation invalidates old token,
       switch to non-member org → 403
+      (verified: `tests/unit/test_auth_service.py` + `tests/api/test_phase43_contract.py`
+      + `tests/integration/test_phase43_tenant_isolation.py`; `ruff check` clean)
 
 ### 4.2 users/
-- [ ] `schemas.py`: UserResponse (never exposes password_hash), UserListItem,
+- [x] `schemas.py`: UserResponse (never exposes password_hash), UserListItem,
       UserUpdate, EmployeeStatusCreate/Response
-- [ ] Endpoints (§49 #8–12): `GET /users/me`, `GET /users` (admin),
+- [x] Endpoints (§49 #8–12): `GET /users/me`, `GET /users` (admin),
       `PATCH /users/{id}` (admin), employee-status log GET/POST
       (single-active constraint → 409 on conflict)
-- [ ] Tests: field-exposure audit (no sensitive fields), non-admin → 403,
+- [x] Tests: field-exposure audit (no sensitive fields), non-admin → 403,
       active-status conflict → 409
+      (verified: `tests/unit/test_users_organizations_service.py` + contract tests;
+      admin gate is router-level `require_admin`, existence/409 are service-level)
 
 ### 4.3 organizations/ (+ memberships + roles)
-- [ ] Create org (creator becomes admin member), list own, get (member),
+- [x] Create org (creator becomes admin member), list own, get (member),
       patch (admin) — §49 #13–20
-- [ ] Members: add/remove with admin guard + last-admin guard → 409;
+- [x] Members: add/remove with admin guard + last-admin guard → 409;
       roles CRUD (org-scoped, `UNIQUE(name, organization_id)` → 409)
-- [ ] Tenant scoping: `WHERE organization_id = %s` in every query (§8)
-- [ ] Tests: cross-org access → 404, non-admin → 403, duplicate slug → 409
+- [x] Tenant scoping: `WHERE organization_id = %s` in every query (§8)
+      (path-org membership enforced in service: non-member → 404, member-non-admin → 403)
+- [x] Tests: cross-org access → 404, non-admin → 403, duplicate slug → 409
+      (verified: unit + contract + integration tests; `ruff check` /
+      `ruff format --check` clean; `pytest -m "not integration"`: 59 passed;
+      `-m integration` deselected — needs live Postgres + `TEST_DATABASE_URL`)
 
 ### 4.4 projects/ (projects, budgets, expense types)
 - [ ] Schemas + CRUD for budgets/projects/expense types (admin), member list

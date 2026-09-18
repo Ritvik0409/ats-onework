@@ -6,6 +6,12 @@ Token ``org``/``admin`` claims are never trusted beyond validation —
 context from the database. Full role/permission evaluation lands with the
 organizations module's AuthorizationService (§35); until then an active admin
 membership grants all permissions.
+
+Scope note (§8, §49): these dependencies validate the **token's** org —
+correct for collection routes, but resource routes (``/expenses/{id}``,
+``/organizations/{id}``, …) must 404 cross-tenant probes instead of 403.
+Services behind such paths enforce the **path** org via
+``app.common.tenant.require_path_member`` / ``require_path_admin``.
 """
 
 from __future__ import annotations

@@ -94,6 +94,28 @@ CONSTRAINT_MESSAGES: dict[str, str] = {
 }
 
 
+def _server_message(exc: PsycopgError) -> str:
+    """Best-effort server message without ever leaking it to clients.
+
+    Live server errors carry ``diag.message_primary`` (e.g. the text of a
+    PL/pgSQL ``RAISE EXCEPTION``); client-constructed errors only have
+    ``str(exc)``. Used solely for prefix routing below — the returned
+    string never leaves the server.
+    """
+    primary = getattr(getattr(exc, "diag", None), "message_primary", None)
+    return primary or str(exc) or ""
+
+
+# Prefix → HTTP mapping for PL/pgSQL RAISE EXCEPTION texts (arch. doc §50).
+# Trigger messages are part of the API contract: the prefix decides the
+# status code, and the server text itself is NEVER returned to clients.
+RAISE_MESSAGE_ROUTES: tuple[tuple[str, type[AppException]], ...] = (
+    # Cross-tenant trigger violations must not reveal whether the probed
+    # row exists — they read as 404, exactly like a missing own-org row.
+    ("Cross-tenant violation", NotFoundError),
+)
+
+
 def to_app_exception(exc: PsycopgError) -> AppException:
     """Map a psycopg3 exception to an AppException (§50). Never leaks SQL text."""
     constraint = getattr(exc.diag, "constraint_name", None)
@@ -109,6 +131,12 @@ def to_app_exception(exc: PsycopgError) -> AppException:
         return ValidationError("The request violates a data constraint.")
     if isinstance(exc, pg_errors.ExclusionViolation):
         return ConflictError("The request conflicts with an existing resource.")
+    if isinstance(exc, pg_errors.RaiseException):
+        server_message = _server_message(exc)
+        for prefix, app_error in RAISE_MESSAGE_ROUTES:
+            if server_message.startswith(prefix):
+                return app_error()
+        return ValidationError("The request violates a data constraint.")
     if isinstance(exc, (pg_errors.LockNotAvailable, pg_errors.QueryCanceled)):
         return TransientError("The database is busy; please retry shortly.")
     return AppException("A database error occurred.")

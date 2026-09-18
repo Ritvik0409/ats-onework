@@ -102,8 +102,8 @@ async def seeded_orgs(db_connection: AsyncConnection[dict]) -> dict[str, dict]:
     return orgs
 
 
-@pytest.fixture
-def admin_token(seeded_orgs: dict[str, dict]) -> str:
+@pytest_asyncio.fixture
+async def admin_token(seeded_orgs: dict[str, dict]) -> str:
     admin = seeded_orgs["a"]["users"]["admin"]
     return create_access_token(
         employee_id=admin["employee_id"],
@@ -112,8 +112,8 @@ def admin_token(seeded_orgs: dict[str, dict]) -> str:
     )
 
 
-@pytest.fixture
-def member_token(seeded_orgs: dict[str, dict]) -> str:
+@pytest_asyncio.fixture
+async def member_token(seeded_orgs: dict[str, dict]) -> str:
     member = seeded_orgs["a"]["users"]["member"]
     return create_access_token(
         employee_id=member["employee_id"],
@@ -122,8 +122,8 @@ def member_token(seeded_orgs: dict[str, dict]) -> str:
     )
 
 
-@pytest.fixture
-def other_org_admin_token(seeded_orgs: dict[str, dict]) -> str:
+@pytest_asyncio.fixture
+async def other_org_admin_token(seeded_orgs: dict[str, dict]) -> str:
     """Org B admin JWT — the cross-tenant caller in §27 isolation tests."""
     admin = seeded_orgs["b"]["users"]["admin"]
     return create_access_token(

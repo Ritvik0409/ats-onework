@@ -11,14 +11,16 @@ from enum import StrEnum
 
 
 class AccountStatus(StrEnum):
-    """users.status CHECK constraint."""
+    """users.account_status CHECK constraint."""
 
     ACTIVE = "active"
+    SUSPENDED = "suspended"
+    LOCKED = "locked"
     INACTIVE = "inactive"
 
 
 class EmployeeStatus(StrEnum):
-    """employee_status.status — service-layer lifecycle, no DB CHECK."""
+    """employee_status.status CHECK constraint (temporal lifecycle log)."""
 
     ACTIVE = "active"
     INACTIVE = "inactive"

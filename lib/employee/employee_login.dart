@@ -1,5 +1,8 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart'; 
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
 
@@ -67,58 +70,33 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
     });
 
     try {
-      final firestore = FirebaseFirestore.instance;
-      Map<String, dynamic>? userData;
+      // NOTE: 10.0.2.2 is the address Android Emulators use to connect to your computer's localhost.
+      // If you are using iOS simulator or Web, change this to 127.0.0.1
+      final url = Uri.parse('http://10.0.2.2:8000/auth/login');
+      
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'username': input, 
+          'password': enteredPassword,
+        }),
+      );
 
-      try {
-        final doc = await firestore.collection('users').doc(input).get();
-        if (doc.exists && doc.data() != null) {
-          userData = doc.data();
-        }
-      } catch (_) {}
+      if (response.statusCode == 200) {
+        // Successfully authenticated with the Python backend
+        final userData = json.decode(response.body);
 
-      if (userData == null) {
-        try {
-          final query = await firestore
-              .collection('users')
-              .where('employeeId', isEqualTo: input)
-              .limit(1)
-              .get();
-          if (query.docs.isNotEmpty) {
-            userData = query.docs.first.data();
-          }
-        } catch (_) {}
-      }
+        final userRole = userData['role']?.toString() ?? 'employee';
+        final empId = userData['employeeId']?.toString() ?? input;
+        final userName = userData['name']?.toString() ?? 'User';
+        final userEmail = userData['email']?.toString() ?? '';
+        final token = userData['access_token']?.toString() ?? '';
 
-      if (userData == null) {
-        try {
-          final query = await firestore
-              .collection('users')
-              .where('email', isEqualTo: input)
-              .limit(1)
-              .get();
-          if (query.docs.isNotEmpty) {
-            userData = query.docs.first.data();
-          }
-        } catch (_) {}
-      }
+        // Store the Auth Token securely using SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('auth_token', token);
 
-      if (userData == null) {
-        if (!mounted) return;
-        setState(() {
-          _errorMessage = 'Invalid ID or Email. Access restricted to authorized database users only.';
-          _isLoading = false;
-        });
-        return;
-      }
-
-      final dbPassword = userData['password']?.toString();
-      final userRole = userData['role']?.toString() ?? 'employee';
-      final empId = userData['employeeId']?.toString() ?? input;
-      final userName = userData['name']?.toString() ?? 'User';
-      final userEmail = userData['email']?.toString() ?? '';
-
-      if (dbPassword == enteredPassword) {
         ExpenseStore.instance.currentUserRole = userRole.toLowerCase();
         ExpenseStore.instance.currentUserName = userName;
         ExpenseStore.instance.currentUserEmail = userEmail;
@@ -130,10 +108,28 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         ExpenseStore.instance.currentManagerName = userName;
         ExpenseStore.instance.currentManagerEmail = userEmail;
 
+        // Fetch Projects from Python FastAPI Backend
         try {
-          final snapshot = await FirebaseFirestore.instance.collection('projects').get();
-          ExpenseStore.instance.projects = snapshot.docs.map((doc) => ProjectRecord.fromFirestore(doc)).toList();
-        } catch (_) {}
+          final projectsUrl = Uri.parse('http://10.0.2.2:8000/projects');
+          final projectsResponse = await http.get(
+            projectsUrl,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token', 
+            },
+          );
+
+          if (projectsResponse.statusCode == 200) {
+            final List<dynamic> projectsJson = json.decode(projectsResponse.body);
+            ExpenseStore.instance.projects = projectsJson
+                .map((data) => ProjectRecord.fromJson(data))
+                .toList();
+          } else {
+            print('Failed to load projects: ${projectsResponse.statusCode}');
+          }
+        } catch (e) {
+          print('Network error fetching projects: $e');
+        }
 
         if (!mounted) return;
 
@@ -162,19 +158,29 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
 
         final targetRoute = _getRouteForRole(userRole);
         Navigator.pushReplacementNamed(context, targetRoute);
+
+      } else if (response.statusCode == 401 || response.statusCode == 404) {
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = 'Invalid ID or Password. Access denied by backend API.';
+        });
       } else {
         if (!mounted) return;
         setState(() {
-          _errorMessage = 'Invalid password entered. Please check your credentials.';
-          _isLoading = false;
+          _errorMessage = 'Server error. Please try again later.';
         });
       }
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Database permission denied or network error. Please verify Firebase Security Rules.';
-        _isLoading = false;
+        _errorMessage = 'Network error: Cannot connect to the local Python server.';
       });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

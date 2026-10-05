@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http; // Added for FastAPI backend requests
 
 class ProjectRecord {
   final String id;
@@ -30,6 +31,16 @@ class ProjectRecord {
       budget: (data['budget'] ?? 0.0).toDouble(),
       assignedEmails: List<String>.from(data['assignedEmails'] ?? []),
       isActive: data['isActive'] ?? true,
+    );
+  }
+
+  factory ProjectRecord.fromJson(Map<String, dynamic> json) {
+    return ProjectRecord(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? 'Unnamed Project',
+      budget: (json['budget'] ?? 0.0).toDouble(),
+      assignedEmails: List<String>.from(json['assignedEmails'] ?? []),
+      isActive: json['isActive'] ?? true,
     );
   }
 }
@@ -90,6 +101,25 @@ class ExpenseRecord {
       uploaderRole: data['uploaderRole'] ?? 'employee', 
     );
   }
+
+  factory ExpenseRecord.fromJson(Map<String, dynamic> json) {
+    return ExpenseRecord(
+      firestoreDocId: json['id']?.toString() ?? '',
+      id: json['employeeId']?.toString() ?? json['id']?.toString() ?? 'EMP-UNKNOWN',
+      name: json['employeeName']?.toString() ?? json['name']?.toString() ?? 'Unknown Employee',
+      email: json['email']?.toString() ?? 'employee@company.com',
+      type: json['type']?.toString() ?? 'General',
+      amount: (json['amount'] ?? 0.0).toDouble(),
+      date: json['date']?.toString() ?? 'Unknown Date',
+      description: json['description']?.toString() ?? 'No description provided',
+      status: json['status']?.toString() ?? 'Pending Verification',
+      rejectionReason: json['rejectionReason']?.toString(),
+      receiptBase64: json['receiptBase64']?.toString() ?? json['receiptUrl']?.toString(),
+      processedBy: json['processedBy']?.toString(),
+      projectName: json['projectName']?.toString(),
+      uploaderRole: json['uploaderRole']?.toString() ?? 'employee',
+    );
+  }
 }
 
 class AppNotification {
@@ -111,13 +141,13 @@ class AppNotification {
 class ExpenseStore extends ChangeNotifier {
   ExpenseStore._internal() {
     _loadThemePreference();
-    _listenToDatabase();
-    _listenToEmployeeStatus();
-    _listenToBudget();
-    _listenToProjects(); 
-    _listenToProjectRequests();
-    _listenToUsers();
-    _listenToExpenseTypes();
+    fetchExpensesFromBackend(); 
+    fetchBudgetFromBackend();   
+    fetchProjectsFromBackend();
+    fetchProjectRequestsFromBackend();
+    fetchUsersFromBackend();
+    fetchEmployeeStatusFromBackend();
+    fetchExpenseTypesFromBackend();
   }
 
   static final ExpenseStore instance = ExpenseStore._internal();
@@ -149,36 +179,85 @@ class ExpenseStore extends ChangeNotifier {
     return combined.toList();
   }
 
-  void _listenToExpenseTypes() {
-    _db.collection('expense_types').snapshots().listen((snapshot) {
-      customExpenseTypes = snapshot.docs.map((doc) => doc.id).toList();
-      notifyListeners();
-    });
+  Future<void> fetchExpenseTypesFromBackend() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/expense_types');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        customExpenseTypes = data.map((item) => item['name'].toString()).toList();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Network error fetching expense types: $e');
+    }
   }
 
   Future<void> addNewExpenseType(String typeName) async {
     final clean = typeName.trim();
     if (clean.isEmpty) return;
-    await _db.collection('expense_types').doc(clean).set({
-      'name': clean,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/expense_types');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'name': clean}),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        await fetchExpenseTypesFromBackend();
+      }
+    } catch (e) {
+      debugPrint('Error adding expense type: $e');
+    }
   }
 
   List<Map<String, String>> usersList = [];
 
-  void _listenToUsers() {
-    _db.collection('users').snapshots().listen((snapshot) {
-      usersList = snapshot.docs.map((doc) {
-        final data = doc.data();
-        return {
-          'id': (data['employeeId'] ?? doc.id).toString(),
-          'name': (data['name'] ?? 'Unknown').toString(),
-          'email': (data['email'] ?? '').toString(),
-        };
-      }).toList();
-      notifyListeners();
-    });
+  Future<void> fetchUsersFromBackend() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/users');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        usersList = data.map((user) {
+          return {
+            'id': (user['employeeId'] ?? user['id'] ?? '').toString(),
+            'name': (user['name'] ?? 'Unknown').toString(),
+            'email': (user['email'] ?? '').toString(),
+          };
+        }).toList();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Network error fetching users: $e');
+    }
   }
 
   Future<void> toggleTheme() async {
@@ -282,42 +361,106 @@ class ExpenseStore extends ChangeNotifier {
     return d.month == now.month && d.year == now.year;
   }
 
-  void _listenToBudget() {
-    final monthKey = _monthKey(DateTime.now());
-    _db.collection('budgets').doc(monthKey).snapshots().listen((doc) {
-      if (doc.exists) {
-        currentMonthBudget = (doc.data()?['amount'] as num?)?.toDouble() ?? 60000.0;
+  Future<void> fetchBudgetFromBackend() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final monthKey = _monthKey(DateTime.now());
+
+      final url = Uri.parse('http://10.0.2.2:8000/budgets/$monthKey');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        currentMonthBudget = (data['amount'] as num?)?.toDouble() ?? 60000.0;
+        notifyListeners();
       } else {
         currentMonthBudget = 60000.0;
       }
-      notifyListeners();
-    });
+    } catch (e) {
+      debugPrint('Network error fetching budget: $e');
+      currentMonthBudget = 60000.0;
+    }
   }
 
-  void _listenToProjects() {
-    _db.collection('projects').snapshots().listen((snapshot) {
-      projects = snapshot.docs.map((doc) => ProjectRecord.fromFirestore(doc)).toList();
-      notifyListeners();
-    });
+  Future<void> fetchProjectsFromBackend() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/projects');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> projectsJson = json.decode(response.body);
+        projects = projectsJson.map((data) => ProjectRecord.fromJson(data)).toList();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Network error fetching projects: $e');
+    }
   }
 
-  void _listenToProjectRequests() {
-    _db.collection('project_requests').snapshots().listen((snapshot) {
-      projectRequests = snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
-      notifyListeners();
-    });
+  Future<void> fetchProjectRequestsFromBackend() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/project_requests');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        projectRequests = data.cast<Map<String, dynamic>>();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Network error fetching project requests: $e');
+    }
   }
 
   Future<void> submitProjectAccessRequest() async {
-    await _db.collection('project_requests').doc(currentEmployeeEmail).set({
-      'email': currentEmployeeEmail,
-      'name': currentEmployeeName,
-      'status': 'Pending Assignment',
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/project_requests');
+      await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'email': currentEmployeeEmail,
+          'name': currentEmployeeName,
+          'status': 'Pending Assignment',
+        }),
+      );
+      await fetchProjectRequestsFromBackend();
+    } catch (e) {
+      debugPrint('Error submitting project access request: $e');
+    }
   }
 
-  // --- UPDATED: CREATES CREDENTIALS WITHOUT AUTO-GENERATING A PROJECT REQUEST ---
   Future<void> assignEmployeeCredentials({
     required String employeeId,
     required String email,
@@ -330,202 +473,148 @@ class ExpenseStore extends ChangeNotifier {
     final cleanPassword = password.trim();
     final cleanName = name.trim();
 
-    // Saves user record exclusively in the 'users' collection. 
-    // It will NOT push a document into 'project_requests' until the user logs in and requests access.
-    await _db.collection('users').doc(cleanId).set({
-      'employeeId': cleanId,
-      'email': cleanEmail,
-      'password': cleanPassword,
-      'name': cleanName,
-      'role': role,
-      'assignedProjects': [],
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    FirebaseApp tempApp = await Firebase.initializeApp(
-      name: 'TempApp_${DateTime.now().millisecondsSinceEpoch}',
-      options: Firebase.app().options,
-    );
-
     try {
-      await FirebaseAuth.instanceFor(app: tempApp).createUserWithEmailAndPassword(
-        email: cleanEmail,
-        password: cleanPassword,
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/users');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'employeeId': cleanId,
+          'email': cleanEmail,
+          'password': cleanPassword,
+          'name': cleanName,
+          'role': role,
+        }),
       );
-    } finally {
-      await tempApp.delete();
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        await fetchUsersFromBackend();
+      }
+    } catch (e) {
+      debugPrint('Error assigning employee credentials: $e');
     }
   }
 
   Future<void> updateProjectBudget(String projectId, double newBudget) async {
-    final pIndex = projects.indexWhere((p) => p.id == projectId);
-    String pName = '';
-    if (pIndex != -1) {
-      pName = projects[pIndex].name;
-      final old = projects[pIndex];
-      projects[pIndex] = ProjectRecord(
-        id: old.id,
-        name: old.name,
-        budget: newBudget, 
-        assignedEmails: old.assignedEmails,
-        isActive: old.isActive,
-      );
-      notifyListeners();
-    }
-
     try {
-      var docRef = _db.collection('projects').doc(projectId);
-      var docSnap = await docRef.get();
-      
-      if (!docSnap.exists && pName.isNotEmpty) {
-        final query = await _db.collection('projects').where('name', isEqualTo: pName).limit(1).get();
-        if (query.docs.isNotEmpty) docRef = query.docs.first.reference;
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/projects/$projectId');
+      final response = await http.patch(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'budget': newBudget}),
+      );
+
+      if (response.statusCode == 200) {
+        await fetchProjectsFromBackend();
       }
-      await docRef.update({'budget': newBudget});
     } catch (e) {
       debugPrint('Error updating project budget: $e');
     }
   }
 
   Future<void> addMembersToProject(String projectId, List<String> newEmployeeIds) async {
-    final pIndex = projects.indexWhere((p) => p.id == projectId);
-    if (pIndex != -1) {
-      if (!projects[pIndex].isActive) {
-        debugPrint('Cannot add members to a deactivated project.');
-        return;
-      }
-
-      final currentProj = projects[pIndex];
-      final updatedEmails = List<String>.from(currentProj.assignedEmails);
-      
-      for (var id in newEmployeeIds) {
-        if (!updatedEmails.contains(id)) {
-          updatedEmails.add(id);
-        }
-      }
-
-      projects[pIndex] = ProjectRecord(
-        id: currentProj.id,
-        name: currentProj.name,
-        budget: currentProj.budget,
-        assignedEmails: updatedEmails,
-        isActive: currentProj.isActive,
-      );
-      notifyListeners();
-    }
-
     try {
-      var docRef = _db.collection('projects').doc(projectId);
-      var docSnap = await docRef.get();
-      if (!docSnap.exists) {
-        final query = await _db.collection('projects').where('id', isEqualTo: projectId).limit(1).get();
-        if (query.docs.isNotEmpty) docRef = query.docs.first.reference;
-      }
-      
-      final docData = docSnap.data() as Map<String, dynamic>? ?? {};
-      final List<dynamic> existingEmails = docData['assignedEmails'] ?? [];
-      
-      for (var id in newEmployeeIds) {
-        if (!existingEmails.contains(id)) {
-          existingEmails.add(id);
-        }
-      }
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
 
-      await docRef.update({'assignedEmails': existingEmails});
+      final url = Uri.parse('http://10.0.2.2:8000/projects/$projectId/members');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'employeeIds': newEmployeeIds}),
+      );
+
+      if (response.statusCode == 200) {
+        await fetchProjectsFromBackend();
+      }
     } catch (e) {
       debugPrint('Error adding members to project: $e');
     }
   }
 
   Future<void> removeMemberFromProject(String projectId, String email) async {
-    final pIndex = projects.indexWhere((p) => p.id == projectId);
-    String pName = '';
-    if (pIndex != -1) {
-      pName = projects[pIndex].name;
-      final old = projects[pIndex];
-      final newEmails = List<String>.from(old.assignedEmails)..remove(email);
-      projects[pIndex] = ProjectRecord(
-        id: old.id, name: old.name, budget: old.budget,
-        assignedEmails: newEmails, isActive: old.isActive,
-      );
-      notifyListeners();
-    }
-
     try {
-      var docRef = _db.collection('projects').doc(projectId);
-      var docSnap = await docRef.get();
-      if (!docSnap.exists && pName.isNotEmpty) {
-        final query = await _db.collection('projects').where('name', isEqualTo: pName).limit(1).get();
-        if (query.docs.isNotEmpty) docRef = query.docs.first.reference;
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/projects/$projectId/members');
+      final response = await http.delete(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'email': email}),
+      );
+
+      if (response.statusCode == 200) {
+        await fetchProjectsFromBackend();
       }
-      await docRef.update({'assignedEmails': FieldValue.arrayRemove([email])});
     } catch (e) {
       debugPrint('Error removing member: $e');
     }
   }
 
   Future<void> approveProjectAccess(String requestEmail, String projectId) async {
-    final pIndex = projects.indexWhere((p) => p.id == projectId);
-    if (pIndex != -1 && !projects[pIndex].isActive) {
-      debugPrint('Cannot assign members to a deactivated project.');
-      return; 
-    }
-    
-    String pName = '';
-    if (pIndex != -1) {
-      pName = projects[pIndex].name;
-      final old = projects[pIndex];
-      if (!old.assignedEmails.contains(requestEmail)) {
-        final newEmails = List<String>.from(old.assignedEmails)..add(requestEmail);
-        projects[pIndex] = ProjectRecord(
-          id: old.id, name: old.name, budget: old.budget,
-          assignedEmails: newEmails, isActive: old.isActive,
-        );
-        notifyListeners();
-      }
-    }
-
-    projectRequests.removeWhere((r) => r['email'] == requestEmail);
-    notifyListeners();
-
     try {
-      var docRef = _db.collection('projects').doc(projectId);
-      var docSnap = await docRef.get();
-      if (!docSnap.exists && pName.isNotEmpty) {
-        final query = await _db.collection('projects').where('name', isEqualTo: pName).limit(1).get();
-        if (query.docs.isNotEmpty) docRef = query.docs.first.reference;
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/project_requests/approve');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'email': requestEmail,
+          'projectId': projectId,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        await fetchProjectsFromBackend();
+        await fetchProjectRequestsFromBackend();
       }
-      await docRef.update({'assignedEmails': FieldValue.arrayUnion([requestEmail])});
-      await _db.collection('project_requests').doc(requestEmail).delete();
     } catch (e) {
       debugPrint('Error approving project access: $e');
     }
   }
 
   Future<void> toggleProjectActiveStatus(String projectId, bool makeActive) async {
-    final pIndex = projects.indexWhere((p) => p.id == projectId);
-    String pName = '';
-    if (pIndex != -1) {
-      pName = projects[pIndex].name;
-      final old = projects[pIndex];
-      projects[pIndex] = ProjectRecord(
-        id: old.id,
-        name: old.name,
-        budget: old.budget,
-        assignedEmails: old.assignedEmails,
-        isActive: makeActive, 
-      );
-      notifyListeners();
-    }
-
     try {
-      var docRef = _db.collection('projects').doc(projectId);
-      var docSnap = await docRef.get();
-      if (!docSnap.exists && pName.isNotEmpty) {
-        final query = await _db.collection('projects').where('name', isEqualTo: pName).limit(1).get();
-        if (query.docs.isNotEmpty) docRef = query.docs.first.reference;
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/projects/$projectId');
+      final response = await http.patch(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'isActive': makeActive}),
+      );
+
+      if (response.statusCode == 200) {
+        await fetchProjectsFromBackend();
       }
-      await docRef.update({'isActive': makeActive});
     } catch (e) {
       debugPrint('Error updating project status: $e');
     }
@@ -551,24 +640,27 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> createProject(String name, double budget, List<String> employeeIds) async {
     try {
-      await _db.collection('projects').doc(name).set({
-        'name': name,
-        'budget': budget,
-        'assignedEmails': employeeIds,
-        'isActive': true,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
 
-      final instantProject = ProjectRecord(
-        id: name,
-        name: name,
-        budget: budget,
-        assignedEmails: employeeIds, 
-        isActive: true,
+      final url = Uri.parse('http://10.0.2.2:8000/projects');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'name': name,
+          'budget': budget,
+          'assignedEmails': employeeIds,
+          'isActive': true,
+        }),
       );
-      
-      projects.insert(0, instantProject);
-      notifyListeners(); 
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        await fetchProjectsFromBackend();
+      }
     } catch (e) {
       debugPrint('Error creating project: $e');
     }
@@ -751,18 +843,18 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> updateName(String newName, bool isManager) async {
     try {
-      if (currentUserId.isNotEmpty) {
-        await _db.collection('users').doc(currentUserId).update({
-          'name': newName,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      } else {
-         final email = isManager ? currentManagerEmail : currentEmployeeEmail;
-         final snap = await _db.collection('users').where('email', isEqualTo: email.toLowerCase()).limit(1).get();
-         if (snap.docs.isNotEmpty) {
-           await snap.docs.first.reference.update({'name': newName});
-         }
-      }
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/users/profile');
+      await http.patch(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'name': newName}),
+      );
 
       currentUserName = newName;
       currentManagerName = newName;
@@ -790,19 +882,51 @@ class ExpenseStore extends ChangeNotifier {
     return 'EMP-2026-$uniqueSuffix';
   }
 
-  void _listenToDatabase() {
-    _db.collection('expenses').snapshots().listen((snapshot) {
-      expenses = snapshot.docs.map((doc) => ExpenseRecord.fromFirestore(doc)).toList();
-      notifyListeners(); 
-    });
+  Future<void> fetchExpensesFromBackend() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/expenses');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> expensesJson = json.decode(response.body);
+        expenses = expensesJson
+            .map((data) => ExpenseRecord.fromJson(data))
+            .toList();
+        notifyListeners();
+      } else {
+        debugPrint('Failed to load expenses: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Network error fetching expenses: $e');
+    }
   }
 
   Future<void> loadCurrentUserRole(String email) async {
     try {
-      final doc = await _db.collection('users').doc(email).get();
-      if (doc.exists) {
-        final data = doc.data();
-        currentUserRole = (data?['role'] as String?) ?? 'manager';
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/users/role');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        currentUserRole = (data['role'] as String?) ?? 'manager';
       } else {
         currentUserRole = 'manager';
       }
@@ -817,42 +941,92 @@ class ExpenseStore extends ChangeNotifier {
   String _monthKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
   Future<double?> getBudgetForMonth(DateTime month) async {
-    final doc = await _db.collection('budgets').doc(_monthKey(month)).get();
-    if (!doc.exists) return null;
-    return (doc.data()?['amount'] as num?)?.toDouble();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final monthKey = _monthKey(month);
+
+      final url = Uri.parse('http://10.0.2.2:8000/budgets/$monthKey');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return (data['amount'] as num?)?.toDouble();
+      }
+    } catch (e) {
+      debugPrint('Error getting budget for month: $e');
+    }
+    return null;
   }
 
   Future<String?> setBudgetForMonth(DateTime month, double amount) async {
     if (amount <= 0) return 'Budget must be greater than zero.';
     
     try {
-      await _db.collection('budgets').doc(_monthKey(month)).set({
-        'amount': amount,
-        'setByEmail': currentManagerEmail,
-        'setByName': currentManagerName,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      final monthKey = _monthKey(month);
 
-      // NEW: Instantly update the local state so the Dashboard redraws immediately without a reload
-      if (_monthKey(month) == _monthKey(DateTime.now())) {
-        currentMonthBudget = amount;
-        notifyListeners(); 
+      final url = Uri.parse('http://10.0.2.2:8000/budgets');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'month': monthKey,
+          'amount': amount,
+          'setByEmail': currentManagerEmail,
+          'setByName': currentManagerName,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (monthKey == _monthKey(DateTime.now())) {
+          currentMonthBudget = amount;
+          notifyListeners(); 
+        }
+        return null;
+      } else {
+        return 'Server error setting budget: ${response.statusCode}';
       }
-      
-      return null;
     } catch (e) {
       return 'Failed to save budget: $e';
     }
   }
 
-  void _listenToEmployeeStatus() {
-    _db.collection('employee_status').snapshots().listen((snapshot) {
-      employeeActiveStatus.clear();
-      for (final doc in snapshot.docs) {
-        employeeActiveStatus[doc.id] = doc.data()['isActive'] ?? true;
+  Future<void> fetchEmployeeStatusFromBackend() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/employee_status');
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        employeeActiveStatus.clear();
+        for (var item in data) {
+          employeeActiveStatus[item['email']] = item['isActive'] ?? true;
+        }
+        notifyListeners();
       }
-      notifyListeners();
-    });
+    } catch (e) {
+      debugPrint('Network error fetching employee statuses: $e');
+    }
   }
 
   bool isEmployeeActive(String email) => employeeActiveStatus[email] ?? true;
@@ -874,12 +1048,31 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   Future<void> setEmployeeActive(String email, bool isActive) async {
-    await _db.collection('employee_status').doc(email).set({
-      'email': email,
-      'isActive': isActive,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'updatedBy': currentManagerEmail,
-    }, SetOptions(merge: true));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/employee_status');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'email': email,
+          'isActive': isActive,
+          'updatedBy': currentManagerEmail,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        employeeActiveStatus[email] = isActive;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error setting employee active status: $e');
+    }
   }
 
   Future<String?> submitExpense({
@@ -923,47 +1116,59 @@ class ExpenseStore extends ChangeNotifier {
     }
 
     try {
-      final instantExpense = ExpenseRecord(
-        id: trackingId,
-        name: currentEmployeeName,
-        email: currentEmployeeEmail,
-        type: type,
-        amount: amount,
-        date: date,
-        description: description,
-        status: 'Pending Verification',
-        receiptBase64: base64Image,
-        projectName: projectName,
-        uploaderRole: currentUserRole,
-      );
-      
-      expenses.insert(0, instantExpense);
-      notifyListeners(); 
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
 
-      await _db.collection('expenses').add({
-        'employeeId': trackingId,
-        'employeeName': currentEmployeeName,
-        'email': currentEmployeeEmail,
-        'type': type,
-        'amount': amount,
-        'date': date,
-        'description': description,
-        'status': 'Pending Verification',
-        'receiptBase64': base64Image, 
-        'projectName': projectName, 
-        'uploaderRole': currentUserRole, 
-      }); 
-      
-      return null; 
+      final url = Uri.parse('http://10.0.2.2:8000/expenses');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'employeeId': trackingId,
+          'employeeName': currentEmployeeName,
+          'email': currentEmployeeEmail,
+          'type': type,
+          'amount': amount,
+          'date': date,
+          'description': description,
+          'status': 'Pending Verification',
+          'receiptBase64': base64Image,
+          'projectName': projectName,
+          'uploaderRole': currentUserRole,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final instantExpense = ExpenseRecord(
+          id: trackingId,
+          name: currentEmployeeName,
+          email: currentEmployeeEmail,
+          type: type,
+          amount: amount,
+          date: date,
+          description: description,
+          status: 'Pending Verification',
+          receiptBase64: base64Image,
+          projectName: projectName,
+          uploaderRole: currentUserRole,
+        );
+        
+        expenses.insert(0, instantExpense);
+        notifyListeners();
+        return null; 
+      } else {
+        return 'Server error during submission: ${response.statusCode}';
+      }
     } catch (e) {
-      expenses.removeWhere((expense) => expense.id == trackingId);
-      notifyListeners();
       debugPrint('Detailed Expense Upload Error: $e');
       return 'Upload failed: $e';
     }
   }
 
-  void approve(String id) {
+  Future<void> approve(String id) async {
     final expense = byId(id);
     if (isLocked(id)) return;
     
@@ -975,14 +1180,15 @@ class ExpenseStore extends ChangeNotifier {
     expense.processedBy = processedStr; 
     notifyListeners();
     
-    _safeUpdate(expense, {
+    await _updateExpenseBackend(id, {
       'status': 'Approved',
       'processedBy': processedStr 
     });
+    
     _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} has been approved.', 'approved');
   }
 
-  void reject(String id, {required String reason}) {
+  Future<void> reject(String id, {required String reason}) async {
     final expense = byId(id);
     if (isLocked(id)) return;
     
@@ -995,11 +1201,12 @@ class ExpenseStore extends ChangeNotifier {
     expense.processedBy = processedStr; 
     notifyListeners();
     
-    _safeUpdate(expense, {
+    await _updateExpenseBackend(id, {
       'status': 'Rejected',
       'rejectionReason': reason,
       'processedBy': processedStr 
     });
+    
     _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} was rejected.', 'rejected');
   }
 
@@ -1010,7 +1217,7 @@ class ExpenseStore extends ChangeNotifier {
     expense.status = 'Info Requested';
     notifyListeners();
     
-    _safeUpdate(expense, {'status': 'Info Requested'});
+    _updateExpenseBackend(id, {'status': 'Info Requested'});
     _addNotification(expense.id, expense.name, 'Additional details requested for ${expense.amountFormatted}.', 'info');
   }
 
@@ -1021,15 +1228,12 @@ class ExpenseStore extends ChangeNotifier {
     }
 
     final expense = byId(id);
-    if (expense == null) return 'Expense not found.';
-
     expense.status = 'Paid';
     notifyListeners();
 
     Map<String, dynamic> updateData = {
       'status': 'Paid',
       'transactionId': cleanTxId,
-      'paidAt': FieldValue.serverTimestamp(),
     };
 
     if (receiptBytes != null) {
@@ -1041,23 +1245,31 @@ class ExpenseStore extends ChangeNotifier {
       } catch (_) {}
     }
 
-    _safeUpdate(expense, updateData);
+    await _updateExpenseBackend(id, updateData);
     _addNotification(expense.id, expense.name, 'Payment for \$${expense.amount} has been processed.', 'paid');
     return null;
   }
 
-  Future<void> _safeUpdate(ExpenseRecord expense, Map<String, dynamic> data) async {
+  Future<void> _updateExpenseBackend(String id, Map<String, dynamic> data) async {
     try {
-      if (expense.firestoreDocId.isNotEmpty) {
-        await _db.collection('expenses').doc(expense.firestoreDocId).update(data);
-      } else {
-        final snap = await _db.collection('expenses').where('employeeId', isEqualTo: expense.id).limit(1).get();
-        if (snap.docs.isNotEmpty) {
-          await snap.docs.first.reference.update(data);
-        }
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+
+      final url = Uri.parse('http://10.0.2.2:8000/expenses/$id');
+      final response = await http.patch(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode(data),
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint('Failed to update expense on backend: ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('Silent update error: $e');
+      debugPrint('Network error updating expense: $e');
     }
   }
 

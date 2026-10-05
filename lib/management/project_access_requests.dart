@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:ats_onework/management/expense_store.dart';
 
-class ProjectAccessRequestsScreen extends StatelessWidget {
+class ProjectAccessRequestsScreen extends StatefulWidget {
   const ProjectAccessRequestsScreen({super.key});
 
-  void _handleRequest(BuildContext context, String docId, String employeeEmail, bool isApproved) {
+  @override
+  State<ProjectAccessRequestsScreen> createState() => _ProjectAccessRequestsScreenState();
+}
+
+class _ProjectAccessRequestsScreenState extends State<ProjectAccessRequestsScreen> {
+  void _handleRequest(BuildContext context, Map<String, dynamic> request, bool isApproved) {
     final store = ExpenseStore.instance;
+    final email = request['email'] ?? '';
 
     if (!isApproved) {
-      FirebaseFirestore.instance.collection('project_requests').doc(docId).update({'status': 'denied'});
+      // Handle denial locally or via backend if needed
+      store.projectRequests.removeWhere((r) => r['email'] == email);
+      setState(() {});
       return;
     }
 
@@ -18,7 +25,7 @@ class ProjectAccessRequestsScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setDialogState) => AlertDialog(
           backgroundColor: store.card,
           title: Text('Assign to Project', style: TextStyle(color: store.accentGold)),
           content: DropdownButtonFormField<String>(
@@ -60,7 +67,7 @@ class ProjectAccessRequestsScreen extends StatelessWidget {
                 ),
               );
             }).toList(),
-            onChanged: (val) => setState(() => selectedProjectId = val),
+            onChanged: (val) => setDialogState(() => selectedProjectId = val),
           ),
           actions: [
             TextButton(
@@ -72,10 +79,11 @@ class ProjectAccessRequestsScreen extends StatelessWidget {
               onPressed: () async {
                 if (selectedProjectId == null) return;
                 try {
-                  await store.approveProjectAccess(employeeEmail, selectedProjectId!);
+                  await store.approveProjectAccess(email, selectedProjectId!);
                   if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  setState(() {});
                 } catch (e) {
-                  print('Error assigning project: $e');
+                  debugPrint('Error assigning project: $e');
                 }
               },
               child: Text('Confirm Assignment', style: TextStyle(color: store.bg, fontWeight: FontWeight.bold)),
@@ -89,56 +97,54 @@ class ProjectAccessRequestsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = ExpenseStore.instance;
-    return Scaffold(
-      backgroundColor: store.bg,
-      appBar: AppBar(
-        backgroundColor: store.card,
-        title: Text('Project Access Requests', style: TextStyle(color: store.accentGold)),
-        iconTheme: IconThemeData(color: store.accentGold),
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('project_requests')
-            .where('status', isEqualTo: 'Pending Assignment')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final requests = snapshot.data!.docs;
-          if (requests.isEmpty) return Center(child: Text('No pending requests.', style: TextStyle(color: store.textMuted)));
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: requests.length,
-            itemBuilder: (context, index) {
-              final req = requests[index].data() as Map<String, dynamic>;
-              final docId = requests[index].id;
-              final email = req['email'] ?? docId;
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) {
+        final requests = store.projectRequests;
 
-              return Card(
-                color: store.card,
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  title: Text('${req['name']}', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-                  subtitle: Text(email, style: TextStyle(color: store.textMuted)),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent),
-                        onPressed: () => _handleRequest(context, docId, email, false),
+        return Scaffold(
+          backgroundColor: store.bg,
+          appBar: AppBar(
+            backgroundColor: store.card,
+            title: Text('Project Access Requests', style: TextStyle(color: store.accentGold)),
+            iconTheme: IconThemeData(color: store.accentGold),
+          ),
+          body: requests.isEmpty
+              ? Center(child: Text('No pending requests.', style: TextStyle(color: store.textMuted)))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: requests.length,
+                  itemBuilder: (context, index) {
+                    final req = requests[index];
+                    final email = req['email'] ?? '';
+                    final name = req['name'] ?? 'Unknown';
+
+                    return Card(
+                      color: store.card,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        title: Text(name, style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+                        subtitle: Text(email, style: TextStyle(color: store.textMuted)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent),
+                              onPressed: () => _handleRequest(context, req, false),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.check_circle_outline, color: Colors.greenAccent),
+                              onPressed: () => _handleRequest(context, req, true),
+                            ),
+                          ],
+                        ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.check_circle_outline, color: Colors.greenAccent),
-                        onPressed: () => _handleRequest(context, docId, email, true),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-              );
-            },
-          );
-        },
-      ),
+        );
+      },
     );
   }
 }

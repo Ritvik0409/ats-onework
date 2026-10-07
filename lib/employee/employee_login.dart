@@ -72,7 +72,7 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
     try {
       // NOTE: 10.0.2.2 is the address Android Emulators use to connect to your computer's localhost.
       // If you are using iOS simulator or Web, change this to 127.0.0.1
-      final url = Uri.parse('http://10.0.2.2:8000/auth/login');
+      final url = Uri.parse('http://localhost:8000/api/v1/auth/login');
       
       final response = await http.post(
         url,
@@ -110,7 +110,7 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
 
         // Fetch Projects from Python FastAPI Backend
         try {
-          final projectsUrl = Uri.parse('http://10.0.2.2:8000/projects');
+          final projectsUrl = Uri.parse('http://localhost:8000/projects');
           final projectsResponse = await http.get(
             projectsUrl,
             headers: {

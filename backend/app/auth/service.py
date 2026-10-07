@@ -72,7 +72,7 @@ class AuthService:
     # -- login ----------------------------------------------------------
 
     async def login(self, conn: Conn, payload: LoginRequest) -> TokenPair:
-        row = await self._repository.get_user_by_email(conn, payload.email)
+        row = await self._repository.get_user_by_identifier(conn, payload.username)
         if row is None:
             raise AuthenticationError(_INVALID_CREDENTIALS)
         ok, new_hash = await passwords.verify_and_update_password(

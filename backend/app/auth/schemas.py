@@ -39,7 +39,7 @@ class LoginRequest(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    email: EmailStr = Field(max_length=254)
+    username: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=1, max_length=128)
 
 

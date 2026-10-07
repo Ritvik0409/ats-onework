@@ -28,6 +28,26 @@ class AuthRepository:
             )
             return await cur.fetchone()
 
+    async def get_user_by_identifier(self, conn: Conn, identifier: str) -> Row | None:
+        """Lookup user by either employee ID or email address."""
+        # Safely extract just the numbers from the input (e.g. "EMP202" -> 202)
+        numeric_id = -1
+        digits = "".join(filter(str.isdigit, identifier))
+        if digits:
+            numeric_id = int(digits)
+
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT employee_id, name, email, password_hash, account_status,
+                       is_superuser, last_login_at, created_at, updated_at
+                FROM users
+                WHERE LOWER(email) = LOWER(%s) OR employee_id = %s
+                """,
+                (identifier, numeric_id),
+            )
+            return await cur.fetchone()
+
     async def get_user_by_id(self, conn: Conn, employee_id: int) -> Row | None:
         async with conn.cursor() as cur:
             await cur.execute(

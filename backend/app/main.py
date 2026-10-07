@@ -37,7 +37,8 @@ def register_middleware(app: FastAPI) -> None:
     settings = get_settings()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        # Allows Flutter web (which runs on random localhost ports) to connect
+        allow_origin_regex=r"^http://localhost:\d+$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

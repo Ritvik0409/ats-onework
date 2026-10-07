@@ -184,7 +184,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/expense_types');
+      final url = Uri.parse('http://localhost:8000/expense_types');
       final response = await http.get(
         url,
         headers: {
@@ -210,7 +210,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/expense_types');
+      final url = Uri.parse('http://localhost:8000/expense_types');
       final response = await http.post(
         url,
         headers: {
@@ -235,7 +235,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/users');
+      final url = Uri.parse('http://localhost:8000/users');
       final response = await http.get(
         url,
         headers: {
@@ -367,7 +367,7 @@ class ExpenseStore extends ChangeNotifier {
       final token = prefs.getString('auth_token') ?? '';
       final monthKey = _monthKey(DateTime.now());
 
-      final url = Uri.parse('http://10.0.2.2:8000/budgets/$monthKey');
+      final url = Uri.parse('http://localhost:8000/budgets/$monthKey');
       final response = await http.get(
         url,
         headers: {
@@ -394,7 +394,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/projects');
+      final url = Uri.parse('http://localhost:8000/projects');
       final response = await http.get(
         url,
         headers: {
@@ -418,7 +418,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/project_requests');
+      final url = Uri.parse('http://localhost:8000/project_requests');
       final response = await http.get(
         url,
         headers: {
@@ -442,7 +442,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/project_requests');
+      final url = Uri.parse('http://localhost:8000/project_requests');
       await http.post(
         url,
         headers: {
@@ -477,7 +477,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/users');
+      final url = Uri.parse('http://localhost:8000/users');
       final response = await http.post(
         url,
         headers: {
@@ -506,7 +506,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/projects/$projectId');
+      final url = Uri.parse('http://localhost:8000/projects/$projectId');
       final response = await http.patch(
         url,
         headers: {
@@ -529,7 +529,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/projects/$projectId/members');
+      final url = Uri.parse('http://localhost:8000/projects/$projectId/members');
       final response = await http.post(
         url,
         headers: {
@@ -552,7 +552,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/projects/$projectId/members');
+      final url = Uri.parse('http://localhost:8000/projects/$projectId/members');
       final response = await http.delete(
         url,
         headers: {
@@ -575,7 +575,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/project_requests/approve');
+      final url = Uri.parse('http://localhost:8000/project_requests/approve');
       final response = await http.post(
         url,
         headers: {
@@ -602,7 +602,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/projects/$projectId');
+      final url = Uri.parse('http://localhost:8000/projects/$projectId');
       final response = await http.patch(
         url,
         headers: {
@@ -643,7 +643,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/projects');
+      final url = Uri.parse('http://localhost:8000/projects');
       final response = await http.post(
         url,
         headers: {
@@ -846,7 +846,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/users/profile');
+      final url = Uri.parse('http://localhost:8000/users/profile');
       await http.patch(
         url,
         headers: {
@@ -887,7 +887,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/expenses');
+      final url = Uri.parse('http://localhost:8000/expenses');
       final response = await http.get(
         url,
         headers: {
@@ -915,7 +915,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/users/role');
+      final url = Uri.parse('http://localhost:8000/users/role');
       final response = await http.get(
         url,
         headers: {
@@ -946,7 +946,7 @@ class ExpenseStore extends ChangeNotifier {
       final token = prefs.getString('auth_token') ?? '';
       final monthKey = _monthKey(month);
 
-      final url = Uri.parse('http://10.0.2.2:8000/budgets/$monthKey');
+      final url = Uri.parse('http://localhost:8000/budgets/$monthKey');
       final response = await http.get(
         url,
         headers: {
@@ -973,7 +973,7 @@ class ExpenseStore extends ChangeNotifier {
       final token = prefs.getString('auth_token') ?? '';
       final monthKey = _monthKey(month);
 
-      final url = Uri.parse('http://10.0.2.2:8000/budgets');
+      final url = Uri.parse('http://localhost:8000/budgets');
       final response = await http.post(
         url,
         headers: {
@@ -1007,7 +1007,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/employee_status');
+      final url = Uri.parse('http://localhost:8000/employee_status');
       final response = await http.get(
         url,
         headers: {
@@ -1052,7 +1052,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/employee_status');
+      final url = Uri.parse('http://localhost:8000/employee_status');
       final response = await http.post(
         url,
         headers: {
@@ -1119,7 +1119,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/expenses');
+      final url = Uri.parse('http://localhost:8000/expenses');
       final response = await http.post(
         url,
         headers: {
@@ -1255,7 +1255,7 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token') ?? '';
 
-      final url = Uri.parse('http://10.0.2.2:8000/expenses/$id');
+      final url = Uri.parse('http://localhost:8000/expenses/$id');
       final response = await http.patch(
         url,
         headers: {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ats_onework/employee/employee_login.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 class EmployeeWaitScreen extends StatelessWidget {
   const EmployeeWaitScreen({super.key});
@@ -62,14 +63,17 @@ class EmployeeWaitScreen extends StatelessWidget {
     );
 
     if (confirmed != true || selectedProjectId == null || !context.mounted) return;
-    await store.submitProjectAccessRequest(selectedProjectId);
+    final sent = await store.submitProjectAccessRequest(selectedProjectId);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Access request sent successfully!', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: store.accentGold,
-      ),
-    );
+    if (sent) {
+      AppSnack.success(context, 'Access request sent! A manager will review it.');
+    } else {
+      AppSnack.error(context, 'Could not send the access request. Please try again.');
+    }
+  }
+
+  Future<void> _refreshProjects() async {
+    await ExpenseStore.instance.fetchProjectsFromBackend();
   }
 
   @override
@@ -141,6 +145,16 @@ class EmployeeWaitScreen extends StatelessWidget {
                         },
                         icon: Icon(Icons.mail_outline_rounded, color: store.accentGold, size: 18),
                         label: Text('Request Project Access', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: TextButton.icon(
+                        onPressed: _refreshProjects,
+                        icon: Icon(Icons.refresh_rounded, color: store.textMuted, size: 18),
+                        label: Text("Refresh — in case your manager just assigned you", style: TextStyle(color: store.textMuted, fontSize: 12)),
                       ),
                     ),
                     const SizedBox(height: 12),

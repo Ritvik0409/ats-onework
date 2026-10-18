@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/download_web.dart';
 import 'package:ats_onework/management/expense_details.dart'; 
+import 'package:ats_onework/shared/app_snack.dart';
 
 class ManagementProjectsScreen extends StatefulWidget {
   const ManagementProjectsScreen({super.key});
@@ -207,15 +208,18 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                 onPressed: () async {
                   final newBudget = double.tryParse(budgetCtrl.text.trim());
                   if (newBudget != null && newBudget >= 0) {
-                    await store.updateProjectBudget(currentProj.id, newBudget);
+                    final ok = await store.updateProjectBudget(currentProj.id, newBudget);
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);
-                
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Project budget updated successfully!'), backgroundColor: store.accentGold));
+                    if (ok) {
+                      AppSnack.success(context, 'Project budget updated!');
+                    } else {
+                      AppSnack.error(context, 'Budget editing is not supported by the backend yet.');
+                    }
                   } else {
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid amount.'), backgroundColor: Colors.redAccent));
+                    AppSnack.error(context, 'Please enter a valid amount.');
                   }
                 },
                 child: const Text('Save Budget', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -252,12 +256,13 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
             onPressed: () async {
               Navigator.pop(dialogContext); 
               Navigator.pop(context); 
-              await store.toggleProjectActiveStatus(currentProj.id, willBeActive);
+              final ok = await store.toggleProjectActiveStatus(currentProj.id, willBeActive);
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(willBeActive ? 'Project successfully resumed!' : 'Project marked as deactivated.'), 
-                backgroundColor: willBeActive ? store.accentGold : Colors.redAccent,
-              ));
+              if (ok) {
+                AppSnack.success(context, willBeActive ? 'Project resumed!' : 'Project deactivated.');
+              } else {
+                AppSnack.error(context, 'Could not update the project status.');
+              }
             },
             child: Text(willBeActive ? 'Resume' : 'Deactivate', style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
@@ -543,12 +548,16 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
 
     final finalIds = _selectedEmployeeIds.toList();
 
-    await ExpenseStore.instance.createProject(name, budget, finalIds);
+    final error = await ExpenseStore.instance.createProject(name, budget, finalIds);
     
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Project created successfully!'), backgroundColor: ExpenseStore.instance.accentGold));
-      Navigator.pop(context);
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+    if (error != null) {
+      AppSnack.error(context, error);
+      return;
     }
+    AppSnack.success(context, 'Project created!');
+    Navigator.pop(context);
   }
 
   @override
@@ -818,12 +827,16 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                       style: ElevatedButton.styleFrom(backgroundColor: store.accentGold, foregroundColor: store.isDarkMode ? store.bg : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                       onPressed: () async {
                         if (selectedIds.isNotEmpty) {
-                          await store.addMembersToProject(project.id, selectedIds.toList());
+                          final ok = await store.addMembersToProject(project.id, selectedIds.toList());
                           if (!dialogContext.mounted) return;
                           Navigator.pop(dialogContext);
                           
                           if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Members successfully added!'), backgroundColor: store.accentGold));
+                          if (ok) {
+                            AppSnack.success(context, 'Members added!');
+                          } else {
+                            AppSnack.error(context, 'Member management is not supported by the backend yet.');
+                          }
                         }
                       },
                       child: const Text('Add Selected', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -855,9 +868,13 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                 onPressed: () async {
                   Navigator.pop(dialogContext);
-                  await store.removeMemberFromProject(project.id, empId);
+                  final ok = await store.removeMemberFromProject(project.id, empId);
                   if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$empName removed from project.'), backgroundColor: Colors.redAccent));
+                  if (ok) {
+                    AppSnack.success(context, '$empName removed from project.');
+                  } else {
+                    AppSnack.error(context, 'Member management is not supported by the backend yet.');
+                  }
                 },
                 child: const Text('Remove', style: TextStyle(fontWeight: FontWeight.bold)),
               ),

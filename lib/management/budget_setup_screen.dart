@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 class BudgetSetupScreen extends StatefulWidget {
   final String? initialEmployeeEmail;
@@ -36,7 +37,7 @@ class _BudgetSetupScreenState extends State<BudgetSetupScreen> {
     setState(() => _isSaving = true);
     final store = ExpenseStore.instance;
 
-    await store.createProject(
+    final error = await store.createProject(
       _nameController.text.trim(),
       double.tryParse(_budgetController.text.trim()) ?? 0,
       _selectedEmails.toList(),
@@ -44,8 +45,12 @@ class _BudgetSetupScreenState extends State<BudgetSetupScreen> {
 
     setState(() => _isSaving = false);
     if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
+      return;
+    }
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Project Budget Created!'), backgroundColor: Colors.greenAccent));
+    AppSnack.success(context, 'Project created!');
   }
 
   @override

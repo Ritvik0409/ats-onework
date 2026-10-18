@@ -20,7 +20,6 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
 
   final ImagePicker _picker = ImagePicker();
   Uint8List? _previewBytes;
-  String? _fileName;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -49,7 +48,6 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
       final bytes = await picked.readAsBytes();
       setState(() {
         _previewBytes = bytes;
-        _fileName = picked.name;
         _isLoading = false;
       });
     } catch (e) {
@@ -63,8 +61,11 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
   }
 
   void _confirmAndReturn() {
-    if (_fileName != null) {
-      Navigator.pop(context, _fileName);
+    // Return the actual image bytes — the expense form's collector
+    // expects Uint8List (upload happens at final submit). Returning a
+    // String filename here used to break "Scan with Camera" entirely.
+    if (_previewBytes != null) {
+      Navigator.pop(context, _previewBytes);
     }
   }
 

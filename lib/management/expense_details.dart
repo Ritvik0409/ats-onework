@@ -113,13 +113,16 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
       message: 'This will mark the request as Approved. This action cannot be undone.',
       confirmLabel: 'Yes, Approve',
       confirmColor: Colors.green.shade700,
-      onConfirmed: () {
-        try {
-          _store.approve(widget.expenseId);
+      onConfirmed: () async {
+        // await the backend call — no success toast before the server
+        // confirms (approve() rolls the optimistic status back on failure).
+        final ok = await _store.approve(widget.expenseId);
+        if (!mounted) return;
+        if (ok) {
           _showResultSnack('Expense approved', Colors.greenAccent.shade400);
-          if (mounted) Navigator.pop(context);
-        } catch (e) {
-          _showResultSnack('Error: $e', Colors.redAccent);
+          Navigator.pop(context);
+        } else {
+          _showResultSnack('Could not approve the expense.', Colors.redAccent);
         }
       },
     );
@@ -129,7 +132,7 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
     final reasonController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
-    showDialog(
+    showDialog<String>(
       context: context,
       builder: (dialogContext) => AnimatedBuilder(
         animation: _store,
@@ -171,14 +174,7 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
               ElevatedButton(
                 onPressed: () {
                   if (formKey.currentState!.validate()) {
-                    Navigator.pop(dialogContext);
-                    try {
-                      _store.reject(widget.expenseId, reason: reasonController.text.trim());
-                      _showResultSnack('Expense rejected', Colors.redAccent.shade400);
-                      if (mounted) Navigator.pop(context);
-                    } catch (e) {
-                      _showResultSnack('Error: $e', Colors.redAccent);
-                    }
+                    Navigator.pop(dialogContext, reasonController.text.trim());
                   }
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
@@ -188,7 +184,18 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
           );
         },
       ),
-    );
+    ).then((reason) async {
+      if (reason == null) return;
+      // await the backend call — no success toast before the server confirms.
+      final ok = await _store.reject(widget.expenseId, reason: reason);
+      if (!mounted) return;
+      if (ok) {
+        _showResultSnack('Expense rejected', Colors.redAccent.shade400);
+        Navigator.pop(context);
+      } else {
+        _showResultSnack('Could not reject the expense.', Colors.redAccent);
+      }
+    });
   }
 
   void _handleRequestInfo() {
@@ -256,7 +263,17 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
     );
   }
 
-  void _showFullScreenImage(String base64Image) {
+  /// The receipt field holds a server URL (after §15 object storage) — or
+  /// legacy base64 data from before the migration. Render accordingly.
+  ImageProvider<Object> _receiptImageProvider(String receipt) {
+    if (receipt.startsWith('http://') || receipt.startsWith('https://')) {
+      return NetworkImage(receipt);
+    }
+    return MemoryImage(base64Decode(receipt));
+  }
+
+  void _showFullScreenImage(String receipt) {
+    final imageProvider = _receiptImageProvider(receipt);
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -265,7 +282,20 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            InteractiveViewer(minScale: 1.0, maxScale: 4.0, child: Image.memory(base64Decode(base64Image), fit: BoxFit.contain)),
+            InteractiveViewer(
+              minScale: 1.0,
+              maxScale: 4.0,
+              child: Image(
+                image: imageProvider,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Text(
+                    'Receipt file unavailable.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+              ),
+            ),
             Positioned(top: 20, right: 20, child: IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30), onPressed: () => Navigator.pop(context))),
           ],
         ),
@@ -380,7 +410,7 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    Text('Receipt (Encrypted & Interactive Viewer)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textFrost)),
+                    Text('Receipt', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textFrost)),
                     const SizedBox(height: 10),
                     Container(
                       width: double.infinity,
@@ -388,35 +418,29 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                       decoration: BoxDecoration(
                         color: darkCharcoal,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: employeeData.decrypted ? Colors.greenAccent.withValues(alpha: 0.3) : (_store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2))),
+                        border: Border.all(color: _store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
                         boxShadow: cardShadows,
                       ),
                       child: Column(
                         children: [
-                          Icon(employeeData.decrypted ? Icons.lock_open_rounded : Icons.lock_outline_rounded, size: 36, color: employeeData.decrypted ? Colors.greenAccent : champagneGold),
-                          const SizedBox(height: 12),
-                          Text(employeeData.decrypted ? 'Receipt decrypted — tap image to view full screen.' : 'This receipt is encrypted for security.', textAlign: TextAlign.center, style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.w500)),
-                          if (employeeData.decrypted) ...[
-                            const SizedBox(height: 16),
-                            if (employeeData.receiptBase64 != null && employeeData.receiptBase64!.isNotEmpty)
-                              GestureDetector(
-                                onTap: () => _showFullScreenImage(employeeData.receiptBase64!),
-                                child: Stack(
-                                  alignment: Alignment.bottomRight,
-                                  children: [
-                                    ClipRRect(borderRadius: BorderRadius.circular(12), child: Container(color: _store.isDarkMode ? Colors.black45 : Colors.grey.shade200, child: Image.memory(base64Decode(employeeData.receiptBase64!), height: 300, width: double.infinity, fit: BoxFit.contain))),
-                                    const Padding(padding: EdgeInsets.all(8.0), child: CircleAvatar(radius: 16, backgroundColor: Colors.black54, child: Icon(Icons.fullscreen, color: Colors.white, size: 20))),
-                                  ],
-                                ),
-                              )
-                            else Text('No receipt image attached.', style: TextStyle(color: textMuted, fontSize: 12)),
-                          ],
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: () => _store.toggleDecrypt(widget.expenseId),
-                            style: ElevatedButton.styleFrom(backgroundColor: obsidianBlack, foregroundColor: employeeData.decrypted ? Colors.greenAccent : champagneGold, side: BorderSide(color: employeeData.decrypted ? Colors.greenAccent : champagneGold, width: 1), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
-                            child: Text(employeeData.decrypted ? 'Hide Receipt' : 'Decrypt & View', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                          ),
+                          if (employeeData.receiptBase64 != null && employeeData.receiptBase64!.isNotEmpty) ...[
+                            GestureDetector(
+                              onTap: () => _showFullScreenImage(employeeData.receiptBase64!),
+                              child: Stack(
+                                alignment: Alignment.bottomRight,
+                                children: [
+                                  ClipRRect(borderRadius: BorderRadius.circular(12), child: Container(color: _store.isDarkMode ? Colors.black45 : Colors.grey.shade200, child: Image(image: _receiptImageProvider(employeeData.receiptBase64!), height: 300, width: double.infinity, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Center(child: Text('Receipt file unavailable.', style: TextStyle(color: Colors.grey)))))),
+                                  const Padding(padding: EdgeInsets.all(8.0), child: CircleAvatar(radius: 16, backgroundColor: Colors.black54, child: Icon(Icons.fullscreen, color: Colors.white, size: 20))),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text('Tap the image to view full screen.', textAlign: TextAlign.center, style: TextStyle(color: textMuted, fontSize: 12)),
+                          ] else
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text('No receipt image attached.', style: TextStyle(color: textMuted, fontSize: 13)),
+                            ),
                         ],
                       ),
                     ),

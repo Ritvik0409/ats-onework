@@ -365,7 +365,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                             if (_receiptBytes != null) ...[
                               const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 40),
                               const SizedBox(height: 12),
-                              const Text('Receipt will be encoded and stored securely.', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                              const Text('Receipt is uploaded with your expense for approval.', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 16),
                               OutlinedButton.icon(
                                 onPressed: () => setState(() => _receiptBytes = null),
@@ -380,7 +380,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                             ] else ...[
                               Icon(Icons.security_rounded, color: champagneGold, size: 32),
                               const SizedBox(height: 12),
-                              Text('Receipt will be encoded and stored securely.', style: TextStyle(color: textMuted, fontSize: 13)),
+                              Text('Receipt will be uploaded with your expense.', style: TextStyle(color: textMuted, fontSize: 13)),
                               const SizedBox(height: 20),
                               Row(
                                 children: [

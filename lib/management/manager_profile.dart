@@ -5,6 +5,7 @@ import 'package:ats_onework/management/budget_allocation_screen.dart';
 import 'package:ats_onework/management/employee_management_screen.dart';
 import 'package:ats_onework/management/pending_approvals_screen.dart';
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 class ManagerProfileScreen extends StatefulWidget {
   const ManagerProfileScreen({super.key});
@@ -59,17 +60,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
     );
   }
 
-  void _showSnack(String message) {
-    final store = ExpenseStore.instance;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: store.accentGold,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
+  void _showSnack(String message) => AppSnack.info(context, message);
 
   void _showUpdateName(bool isManager) {
     final formKey = GlobalKey<FormState>();

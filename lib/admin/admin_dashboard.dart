@@ -284,8 +284,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
             return matchesSearch;
           }).toList();
 
-          return SingleChildScrollView(
+          return RefreshIndicator(
+            onRefresh: () async {
+              await Future.wait([
+                _store.fetchUsersFromBackend(),
+                _store.fetchExpensesFromBackend(),
+                _store.fetchProjectRequestsFromBackend(),
+              ]);
+            },
+            child: SingleChildScrollView(
             padding: const EdgeInsets.all(24.0),
+            physics: const AlwaysScrollableScrollPhysics(),
             child: Center(
               child: Container(
                 constraints: const BoxConstraints(maxWidth: 1000),
@@ -338,7 +347,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: champagneGold.withValues(alpha: 0.1)),
                       ),
-                      child: _store.usersList.isEmpty
+                      child: !_store.usersLoaded
+                          ? const Center(child: CircularProgressIndicator())
+                          : _store.usersList.isEmpty
                           ? const Center(child: Text('No users found in the database.', style: TextStyle(color: textMuted)))
                           : ListView.builder(
                               padding: const EdgeInsets.all(12),
@@ -464,7 +475,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     ),
                     const SizedBox(height: 24),
                     
-                    filteredFeedExpenses.isEmpty
+                    !_store.expensesLoaded
+                      ? const Center(child: Padding(
+                          padding: EdgeInsets.all(20),
+                          child: CircularProgressIndicator(),
+                        ))
+                      : filteredFeedExpenses.isEmpty
                       ? Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(40),
@@ -591,6 +607,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ],
                 ),
               ),
+            ),
             ),
           );
         },

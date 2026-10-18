@@ -66,7 +66,7 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Database Error: Your Firestore rules may have expired. ($e)', style: const TextStyle(fontWeight: FontWeight.w600)), 
+          content: Text('Could not load budgets from the backend. ($e)', style: const TextStyle(fontWeight: FontWeight.w600)),
           backgroundColor: Colors.redAccent
         ),
       );

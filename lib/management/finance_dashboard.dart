@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/expense_details.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 class FinanceDashboard extends StatefulWidget {
   const FinanceDashboard({super.key});
@@ -333,7 +334,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                           Row(
                             children: [
                               TextButton.icon(
-                                onPressed: () {},
+                                // No CSV/export endpoint yet (§49) — say
+                                // so instead of a dead button.
+                                onPressed: () => AppSnack.info(context, 'CSV export is not available yet.'),
                                 icon: Icon(Icons.file_upload_outlined, color: champagneGold, size: 18),
                                 label: Text('Export MTD', style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold)),
                               ),

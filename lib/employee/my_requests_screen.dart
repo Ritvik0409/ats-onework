@@ -46,7 +46,10 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
           return uploaderEmail == myEmployeeEmail || uploaderEmail == myManagerEmail;
         }).toList();
         
-        all.sort((a, b) => b.firestoreDocId.compareTo(a.firestoreDocId));
+        // Newest first — backend ids are numeric; the old string compare
+        // on the id field put "10" before "9".
+        int expenseNumber(ExpenseRecord e) => int.tryParse(e.firestoreDocId) ?? 0;
+        all.sort((a, b) => expenseNumber(b).compareTo(expenseNumber(a)));
 
         final filtered = all.where((e) {
           if (_selectedFilter == 'All') return true;
@@ -105,12 +108,16 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                   ),
                   const SizedBox(height: 20),
                   Expanded(
-                    child: filtered.isEmpty
-                        ? Center(child: Text('No expenses in this category.', style: TextStyle(color: textMuted)))
-                        : ListView.builder(
-                            itemCount: filtered.length,
-                            itemBuilder: (context, index) {
-                              final e = filtered[index];
+                    child: !_store.expensesLoaded
+                        ? const Center(child: CircularProgressIndicator())
+                        : RefreshIndicator(
+                            onRefresh: () => _store.fetchExpensesFromBackend(),
+                            child: filtered.isEmpty
+                                ? Center(child: Text('No expenses in this category.', style: TextStyle(color: textMuted)))
+                                : ListView.builder(
+                                    itemCount: filtered.length,
+                                    itemBuilder: (context, index) {
+                                      final e = filtered[index];
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 14),
                                 padding: const EdgeInsets.all(16),
@@ -187,6 +194,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                               );
                             },
                           ),
+                  ),
                   ),
                 ],
               ),

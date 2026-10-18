@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/expense_details.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 class DirectorDashboard extends StatefulWidget {
   const DirectorDashboard({super.key});
@@ -21,43 +22,14 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
     Colors.cyan,
   ];
 
-  // Helper method to determine if an expense is in the current month
+  // Current-month check — delegates to the store's single backend date
+  // parser (this file used to keep a divergent private copy that could
+  // silently miss dates).
   bool _isCurrentMonth(String dateStr) {
-    try {
-      DateTime? d;
-      if (dateStr.contains(RegExp(r'[a-zA-Z]'))) {
-        final parts = dateStr.trim().split(RegExp(r'\s+'));
-        if (parts.length >= 3) {
-          int day = int.parse(parts[0]);
-          String mStr = parts[1].toLowerCase().substring(0, 3);
-          int y = int.parse(parts[2]);
-          const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-          int m = months.indexOf(mStr) + 1;
-          if (m > 0) d = DateTime(y, m, day);
-        }
-      } else if (dateStr.contains('-')) {
-        final parts = dateStr.split('-');
-        if (parts.length >= 3) {
-          if (parts[0].length == 4) d = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-          else if (parts[2].length == 4) d = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
-        }
-      } else if (dateStr.contains('/')) {
-        final parts = dateStr.split('/');
-        if (parts.length >= 3) {
-          if (parts[2].length == 4) {
-            int m = int.parse(parts[0]);
-            int day = int.parse(parts[1]);
-            if (m > 12) { m = int.parse(parts[1]); day = int.parse(parts[0]); }
-            d = DateTime(int.parse(parts[2]), m, day);
-          }
-        }
-      }
-      if (d != null) {
-        final now = DateTime.now();
-        return d.month == now.month && d.year == now.year;
-      }
-    } catch (_) {}
-    return false;
+    final d = ExpenseStore.instance.parseBackendDate(dateStr);
+    if (d == null) return false;
+    final now = DateTime.now();
+    return d.month == now.month && d.year == now.year;
   }
 
   // Generate Project Spend Breakdown dynamically based on expenses
@@ -168,27 +140,27 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
 
                       Row(
                         children: [
-                          Expanded(child: _buildKpiCard('MTD Pending', store.pendingCount.toString().padLeft(2, '0'), Icons.hourglass_empty, champagneGold, store, cardShadows)),
+                          // '––' while the backend load is in flight — the
+                          // padded '00' read as real zero data.
+                          Expanded(child: _buildKpiCard('MTD Pending', store.expensesLoaded ? store.pendingCount.toString().padLeft(2, '0') : '––', Icons.hourglass_empty, champagneGold, store, cardShadows)),
                           const SizedBox(width: 16),
-                          Expanded(child: _buildKpiCard('MTD Approved', store.approvedCount.toString().padLeft(2, '0'), Icons.check_circle_outline, Colors.greenAccent, store, cardShadows)),
+                          Expanded(child: _buildKpiCard('MTD Approved', store.expensesLoaded ? store.approvedCount.toString().padLeft(2, '0') : '––', Icons.check_circle_outline, Colors.greenAccent, store, cardShadows)),
                         ],
                       ),
                       const SizedBox(height: 16),
                       Row(
                         children: [
-                          Expanded(child: _buildKpiCard('MTD Rejected', store.rejectedCount.toString().padLeft(2, '0'), Icons.cancel_outlined, Colors.redAccent, store, cardShadows)),
+                          Expanded(child: _buildKpiCard('MTD Rejected', store.expensesLoaded ? store.rejectedCount.toString().padLeft(2, '0') : '––', Icons.cancel_outlined, Colors.redAccent, store, cardShadows)),
                           const SizedBox(width: 16),
                           Expanded(
                             child: _buildKpiCard(
                               'Total Employees', 
-                              store.allEmployees.length.toString().padLeft(2, '0'), 
+                              store.usersLoaded ? store.allEmployees.length.toString().padLeft(2, '0') : '––',
                               Icons.manage_accounts_outlined, 
                               Colors.blueAccent,
                               store,
                               cardShadows,
-                              onTap: () {
-                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Navigating to Employee Management...'), backgroundColor: champagneGold));
-                              }
+                              onTap: () => AppSnack.info(context, 'Open Employee Management from the side menu.'),
                             ),
                           ),
                         ],
@@ -412,6 +384,11 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
                             ),
                           );
                         })
+                      else if (!store.expensesLoaded)
+                        const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
                       else
                         Container(
                           padding: const EdgeInsets.all(24),
@@ -435,13 +412,9 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
                             children: [
                               InkWell(
                                 onTap: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: const Text('Exporting report...', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), 
-                                      backgroundColor: champagneGold,
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
+                                  // No CSV/export endpoint yet (§49) — say
+                                  // so instead of faking "Exporting...".
+                                  AppSnack.info(context, 'CSV export is not available yet.');
                                 },
                                 child: Row(
                                   children: [

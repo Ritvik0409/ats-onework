@@ -21,43 +21,14 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
     Colors.cyan,
   ];
 
-  // Helper method to determine if an expense is in the current month
+  // Current-month check — delegates to the store's single backend date
+  // parser (this file used to keep a divergent private copy that could
+  // silently miss dates).
   bool _isCurrentMonth(String dateStr) {
-    try {
-      DateTime? d;
-      if (dateStr.contains(RegExp(r'[a-zA-Z]'))) {
-        final parts = dateStr.trim().split(RegExp(r'\s+'));
-        if (parts.length >= 3) {
-          int day = int.parse(parts[0]);
-          String mStr = parts[1].toLowerCase().substring(0, 3);
-          int y = int.parse(parts[2]);
-          const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-          int m = months.indexOf(mStr) + 1;
-          if (m > 0) d = DateTime(y, m, day);
-        }
-      } else if (dateStr.contains('-')) {
-        final parts = dateStr.split('-');
-        if (parts.length >= 3) {
-          if (parts[0].length == 4) d = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-          else if (parts[2].length == 4) d = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
-        }
-      } else if (dateStr.contains('/')) {
-        final parts = dateStr.split('/');
-        if (parts.length >= 3) {
-          if (parts[2].length == 4) {
-            int m = int.parse(parts[0]);
-            int day = int.parse(parts[1]);
-            if (m > 12) { m = int.parse(parts[1]); day = int.parse(parts[0]); }
-            d = DateTime(int.parse(parts[2]), m, day);
-          }
-        }
-      }
-      if (d != null) {
-        final now = DateTime.now();
-        return d.month == now.month && d.year == now.year;
-      }
-    } catch (_) {}
-    return false;
+    final d = ExpenseStore.instance.parseBackendDate(dateStr);
+    if (d == null) return false;
+    final now = DateTime.now();
+    return d.month == now.month && d.year == now.year;
   }
 
   // Generate Project Spend Breakdown dynamically based on expenses
@@ -285,17 +256,19 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
 
                       Row(
                         children: [
-                          Expanded(child: _buildKpiCard('MTD Pending', store.pendingCount.toString().padLeft(2, '0'), Icons.hourglass_empty, champagneGold, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
+                          // '––' while the backend load is in flight — the
+                          // padded '00' read as real zero data.
+                          Expanded(child: _buildKpiCard('MTD Pending', store.expensesLoaded ? store.pendingCount.toString().padLeft(2, '0') : '––', Icons.hourglass_empty, champagneGold, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
                           const SizedBox(width: 16),
-                          Expanded(child: _buildKpiCard('MTD Approved', store.approvedCount.toString().padLeft(2, '0'), Icons.check_circle_outline, Colors.greenAccent.shade700, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
+                          Expanded(child: _buildKpiCard('MTD Approved', store.expensesLoaded ? store.approvedCount.toString().padLeft(2, '0') : '––', Icons.check_circle_outline, Colors.greenAccent.shade700, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
                         ],
                       ),
                       const SizedBox(height: 16),
                       Row(
                         children: [
-                          Expanded(child: _buildKpiCard('MTD Rejected', store.rejectedCount.toString().padLeft(2, '0'), Icons.cancel_outlined, Colors.redAccent, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
+                          Expanded(child: _buildKpiCard('MTD Rejected', store.expensesLoaded ? store.rejectedCount.toString().padLeft(2, '0') : '––', Icons.cancel_outlined, Colors.redAccent, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
                           const SizedBox(width: 16),
-                          Expanded(child: _buildKpiCard('Total Employees', store.allEmployees.length.toString().padLeft(2, '0'), Icons.people_outline, Colors.blueAccent, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
+                          Expanded(child: _buildKpiCard('Total Employees', store.usersLoaded ? store.allEmployees.length.toString().padLeft(2, '0') : '––', Icons.people_outline, Colors.blueAccent, darkCharcoal, textMuted, textFrost, cardShadows, store.isDarkMode)),
                         ],
                       ),
                       const SizedBox(height: 24),
@@ -612,10 +585,14 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
             alignment: Alignment.bottomCenter,
             child: Container(
               width: 32,
-              height: 120 * fillPercentage,
+              // Zero/negative fill would render a degenerate container —
+              // draw a stub 2px mark so the slot stays visible.
+              height: fillPercentage <= 0 ? 2.0 : 120 * fillPercentage,
               decoration: BoxDecoration(
-                color: barColor,
-                borderRadius: BorderRadius.circular(6),
+                color: fillPercentage <= 0
+                    ? (barColor.withValues(alpha: 0.25))
+                    : barColor,
+                borderRadius: BorderRadius.circular(fillPercentage <= 0 ? 1 : 6),
               ),
             ),
           ),

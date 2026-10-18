@@ -1,21 +1,81 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'employee/employee_login.dart';
 import 'employee/employee_navigation_shell.dart';
+import 'management/expense_store.dart';
 import 'management/navigation_shell.dart';
+import 'shared/api_client.dart';
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Session resume: with valid tokens stored, users land directly in the
+  // app shell instead of the login screen (validates via /users/me and
+  // auto-refreshes an expired access token through ApiClient).
+  final initialRoute = await _resolveInitialRoute();
+  runApp(MyApp(initialRoute: initialRoute));
+}
+
+Future<String> _resolveInitialRoute() async {
+  try {
+    if (!await ApiClient.ensureSession()) return '/';
+
+    final me = await ApiClient.get('/users/me');
+    if (me.statusCode != 200) return '/'; // dead/revoked session
+    final profile = json.decode(me.body) as Map<String, dynamic>;
+
+    final prefs = await SharedPreferences.getInstance();
+    final isAdmin = prefs.getBool('is_admin') ?? false;
+    final email = profile['email']?.toString() ?? '';
+    final name = profile['name']?.toString() ?? 'User';
+    final empId = (profile['employee_id'] ?? '').toString();
+
+    final store = ExpenseStore.instance;
+    store.currentUserRole = isAdmin ? 'manager' : 'employee';
+    store.currentUserName = name;
+    store.currentUserEmail = email;
+    store.currentUserId = empId;
+    store.currentEmployeeName = name;
+    store.currentEmployeeEmail = email;
+    store.currentEmployeeId = empId;
+    store.currentManagerName = name;
+    store.currentManagerEmail = email;
+    store.reloadThemePreference();
+    await store.primeSessionData();
+
+    return isAdmin ? '/management_shell' : '/employee_shell';
+  } catch (_) {
+    // Backend unreachable or corrupt state — fall back to the login
+    // screen (the interceptor will offer refresh + retry in-session).
+    return '/';
+  }
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, required this.initialRoute});
+
+  final String initialRoute;
+
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
+    // Any 401 that survives a refresh attempt (dead refresh token) pushes
+    // the login screen and wipes the stack — no more silent session death.
+    ApiClient.onSessionExpired = () {
+      navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        '/',
+        (Route<dynamic> route) => false,
+      );
+    };
+
     return MaterialApp(
       title: 'ATS OneWork',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFD4AF37)),
         useMaterial3: true,
@@ -28,7 +88,7 @@ class MyApp extends StatelessWidget {
           behavior: SnackBarBehavior.floating,
         ),
       ),
-      initialRoute: '/',
+      initialRoute: initialRoute,
       routes: {
         '/': (context) => const UniversalLoginScreen(),
         '/employee_shell': (context) => const EmployeeNavigationShell(),

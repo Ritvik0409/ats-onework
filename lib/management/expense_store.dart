@@ -130,13 +130,31 @@ class AppNotification {
 class ExpenseStore extends ChangeNotifier {
   ExpenseStore._internal() {
     _loadThemePreference();
-    fetchExpensesFromBackend(); 
-    fetchBudgetFromBackend();   
-    fetchProjectsFromBackend();
-    fetchProjectRequestsFromBackend();
-    fetchUsersFromBackend();
-    fetchEmployeeStatusFromBackend();
-    fetchExpenseTypesFromBackend();
+    // Only fetch when a session already exists — the store singleton is
+    // first touched by the login screens, so an unconditional bootstrap
+    // used to fire doomed requests with no token on every cold start.
+    // Login and session-resume call [primeSessionData] explicitly.
+    _bootstrapWhenAuthenticated();
+  }
+
+  Future<void> _bootstrapWhenAuthenticated() async {
+    if ((await ApiClient.getToken()).isEmpty) return;
+    await primeSessionData();
+  }
+
+  /// Loads the signed-in user's working set (dashboards, projects, users,
+  /// request queues). Awaiting this lets callers hold the UI until data
+  /// is on screen. Individual fetches swallow their own errors.
+  Future<void> primeSessionData() async {
+    await Future.wait([
+      fetchExpensesFromBackend(),
+      fetchProjectsFromBackend(),
+      fetchProjectRequestsFromBackend(),
+      fetchUsersFromBackend(),
+      fetchEmployeeStatusFromBackend(),
+      fetchExpenseTypesFromBackend(),
+    ]);
+    fetchBudgetFromBackend();
   }
 
   static final ExpenseStore instance = ExpenseStore._internal();
@@ -159,6 +177,10 @@ class ExpenseStore extends ChangeNotifier {
     isDarkMode = prefs.getBool(key) ?? true;
     notifyListeners();
   }
+
+  /// Public re-read of the persisted theme for the active user/role —
+  /// used by session resume in main.dart after re-resolving identity.
+  Future<void> reloadThemePreference() => _loadThemePreference();
 
   List<String> customExpenseTypes = [];
 

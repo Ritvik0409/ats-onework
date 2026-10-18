@@ -1,9 +1,8 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart'; 
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/api_client.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
 
 class UniversalLoginScreen extends StatefulWidget {
@@ -70,32 +69,50 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
     });
 
     try {
-      // NOTE: 10.0.2.2 is the address Android Emulators use to connect to your computer's localhost.
-      // If you are using iOS simulator or Web, change this to 127.0.0.1
-      final url = Uri.parse('http://localhost:8000/api/v1/auth/login');
-      
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'username': input, 
-          'password': enteredPassword,
-        }),
+      // Backend JWT login (ADR-001). Base URL via --dart-define=API_BASE_URL
+      // (Android emulator: http://10.0.2.2:8000).
+      final response = await ApiClient.post(
+        '/auth/login',
+        {'username': input, 'password': enteredPassword},
+        auth: false,
       );
 
       if (response.statusCode == 200) {
-        // Successfully authenticated with the Python backend
-        final userData = json.decode(response.body);
+        // TokenPair: {access_token, refresh_token, organizations[]}
+        final tokenData = json.decode(response.body) as Map<String, dynamic>;
+        final token = tokenData['access_token']?.toString() ?? '';
+        final refreshToken = tokenData['refresh_token']?.toString() ?? '';
+        final orgs = (tokenData['organizations'] as List?) ?? [];
 
-        final userRole = userData['role']?.toString() ?? 'employee';
-        final empId = userData['employeeId']?.toString() ?? input;
-        final userName = userData['name']?.toString() ?? 'User';
-        final userEmail = userData['email']?.toString() ?? '';
-        final token = userData['access_token']?.toString() ?? '';
-
-        // Store the Auth Token securely using SharedPreferences
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('auth_token', token);
+        await prefs.setString('refresh_token', refreshToken);
+
+        int? orgId;
+        bool isAdmin = false;
+        if (orgs.isNotEmpty) {
+          final first = orgs.first as Map<String, dynamic>;
+          orgId = (first['organization_id'] as num?)?.toInt();
+          isAdmin = (first['is_admin'] as bool?) ?? false;
+          await prefs.setInt('organization_id', orgId ?? 0);
+          await prefs.setBool('is_admin', isAdmin);
+        }
+
+        // Resolve profile via GET /users/me (TokenPair carries no name/email).
+        String userName = 'User';
+        String userEmail = input.contains('@') ? input : '';
+        String empId = input;
+        try {
+          final me = await ApiClient.get('/users/me');
+          if (me.statusCode == 200) {
+            final profile = json.decode(me.body) as Map<String, dynamic>;
+            userName = profile['name']?.toString() ?? userName;
+            userEmail = profile['email']?.toString() ?? userEmail;
+            empId = profile['employee_id']?.toString() ?? empId;
+          }
+        } catch (_) {}
+
+        final userRole = isAdmin ? 'manager' : 'employee';
 
         ExpenseStore.instance.currentUserRole = userRole.toLowerCase();
         ExpenseStore.instance.currentUserName = userName;
@@ -108,24 +125,22 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         ExpenseStore.instance.currentManagerName = userName;
         ExpenseStore.instance.currentManagerEmail = userEmail;
 
-        // Fetch Projects from Python FastAPI Backend
+        // Fetch projects for the active org: GET /organizations/{id}/projects (paged).
         try {
-          final projectsUrl = Uri.parse('http://localhost:8000/projects');
-          final projectsResponse = await http.get(
-            projectsUrl,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $token', 
-            },
-          );
+          if (orgId != null) {
+            final projectsResponse = await ApiClient.get(
+              '/organizations/$orgId/projects',
+              query: {'limit': '100'},
+            );
 
-          if (projectsResponse.statusCode == 200) {
-            final List<dynamic> projectsJson = json.decode(projectsResponse.body);
-            ExpenseStore.instance.projects = projectsJson
-                .map((data) => ProjectRecord.fromJson(data))
-                .toList();
-          } else {
-            print('Failed to load projects: ${projectsResponse.statusCode}');
+            if (projectsResponse.statusCode == 200) {
+              final projectsJson = ApiClient.pageItems(projectsResponse);
+              ExpenseStore.instance.projects = projectsJson
+                  .map((data) => ProjectRecord.fromJson(data as Map<String, dynamic>))
+                  .toList();
+            } else {
+              print('Failed to load projects: ${projectsResponse.statusCode}');
+            }
           }
         } catch (e) {
           print('Network error fetching projects: $e');

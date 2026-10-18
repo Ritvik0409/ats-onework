@@ -14,7 +14,7 @@ from app.common.audit import service as audit_service
 from app.common.pagination import Page, decode_cursor, encode_cursor
 from app.core.constants import AccountStatus
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
-from app.db.types import Conn
+from app.db.types import Conn, Row
 from app.users.repository import UserRepository
 from app.users.schemas import (
     EmployeeStatusCreate,
@@ -127,13 +127,28 @@ class UserService:
         employee_id: int,
         payload: EmployeeStatusCreate,
     ) -> EmployeeStatusResponse:
+        """Open a new status record; auto-closes the currently open one.
+
+        The manager toggle (active/inactive) expects a switch, not a
+        first-insert UI, so an existing open record is ended here instead
+        of raising 409 (arch. doc #12 amended: auto-close on re-open).
+        Same-status requests stay a no-op conflict to keep the log clean.
+        SQL ordering note: the closed row predates this transaction, so
+        ``ended_at`` (transaction-start timestamp) is strictly after its
+        ``started_at`` — the schema's date CHECK fits.
+        """
         if await self._repository.get_by_id(conn, employee_id) is None:
             raise NotFoundError("User not found.")
         active = await self._repository.get_active_status(conn, employee_id)
+        if active is not None and active["status"] == payload.status.value:
+            raise ConflictError(f"Employee is already in '{payload.status.value}' status.")
+        closed: Row | None = None
         if active is not None:
-            raise ConflictError(
-                "This user already has an active status entry. End it before opening a new one."
+            closed = await self._repository.close_status(
+                conn, employee_id=employee_id, updated_by=actor_id
             )
+            # None only after a concurrent closure; the DB's single-active
+            # partial unique is the final guard for that insert.
         row = await self._repository.create_status(
             conn,
             employee_id=employee_id,
@@ -146,6 +161,13 @@ class UserService:
             action="user.status.create",
             table_name="employee_status",
             record_id=str(row["status_id"]),
+            old_values=None
+            if closed is None
+            else {
+                "status_id": closed["status_id"],
+                "status": closed["status"],
+                "auto_closed": True,
+            },
             new_values={
                 "employee_id": employee_id,
                 "status": row["status"],

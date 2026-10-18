@@ -79,6 +79,21 @@ REIMBURSEMENT_TRANSITIONS: dict[ReimbursementStatus, set[ReimbursementStatus]] =
     ReimbursementStatus.FAILED: {ReimbursementStatus.PROCESSING},
 }
 
+
+class ProjectAccessStatus(StrEnum):
+    """project_access_requests.status CHECK constraint (migration 0002)."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+PROJECT_ACCESS_TRANSITIONS: dict[ProjectAccessStatus, set[ProjectAccessStatus]] = {
+    ProjectAccessStatus.PENDING: {ProjectAccessStatus.APPROVED, ProjectAccessStatus.REJECTED},
+    ProjectAccessStatus.APPROVED: set(),
+    ProjectAccessStatus.REJECTED: set(),
+}
+
 # Pagination bounds (§21)
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100

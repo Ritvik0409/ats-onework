@@ -117,6 +117,16 @@ class _UserRepositoryStub:
                 return row
         return None
 
+    async def close_status(
+        self, _conn: Any, *, employee_id: int, updated_by: int | None
+    ) -> dict[str, Any] | None:
+        for row in self.statuses:
+            if row["employee_id"] == employee_id and row["ended_at"] is None:
+                row["ended_at"] = _now()
+                row["updated_by"] = updated_by
+                return row
+        return None
+
     async def create_status(
         self,
         _conn: Any,
@@ -357,7 +367,8 @@ async def test_update_user_noop_writes_no_audit(
     assert audit.calls == []
 
 
-async def test_create_status_conflict_409(user_svc: UserService) -> None:
+async def test_create_status_auto_closes_active(user_svc: UserService) -> None:
+    """Toggle semantics: opening a status ends the previous open record."""
     created = await user_svc.create_status(
         object(),
         actor_id=1,
@@ -365,13 +376,27 @@ async def test_create_status_conflict_409(user_svc: UserService) -> None:
         payload=EmployeeStatusCreate(status=EmployeeStatus.ACTIVE),
     )
     assert created.status == EmployeeStatus.ACTIVE
-    with pytest.raises(ConflictError):
+    with pytest.raises(ConflictError):  # same status is a no-op conflict
         await user_svc.create_status(
             object(),
             actor_id=1,
             employee_id=1,
-            payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
+            payload=EmployeeStatusCreate(status=EmployeeStatus.ACTIVE),
         )
+
+    reopened = await user_svc.create_status(  # different status auto-closes
+        object(),
+        actor_id=1,
+        employee_id=1,
+        payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
+    )
+    assert reopened.status == EmployeeStatus.ON_LEAVE
+    active_rows = [
+        row
+        for row in await user_svc._repository.list_statuses(object(), 1)
+        if row["ended_at"] is None
+    ]
+    assert [row["status"] for row in active_rows] == ["on_leave"]
 
 
 async def test_create_status_unknown_user_404(user_svc: UserService) -> None:

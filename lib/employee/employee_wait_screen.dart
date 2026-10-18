@@ -6,6 +6,72 @@ import 'package:ats_onework/management/expense_store.dart';
 class EmployeeWaitScreen extends StatelessWidget {
   const EmployeeWaitScreen({super.key});
 
+  /// Requests are per-project (migration 0002): pick a project first,
+  /// then POST /projects/{id}/access-requests.
+  Future<void> _pickAndRequestProject(BuildContext context, ExpenseStore store) async {
+    // Keep the project list fresh before choosing.
+    await store.fetchProjectsFromBackend();
+    final activeProjects = store.projects.where((p) => p.isActive).toList();
+    if (!context.mounted) return;
+
+    String? selectedProjectId;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: store.card,
+          title: Text('Request Project Access', style: TextStyle(color: store.accentGold)),
+          content: activeProjects.isEmpty
+              ? Text(
+                  'No projects are currently synced. Ask your manager to create one.',
+                  style: TextStyle(color: store.textMuted),
+                )
+              : DropdownButtonFormField<String>(
+                  value: selectedProjectId,
+                  dropdownColor: store.card,
+                  style: TextStyle(color: store.textFrost),
+                  decoration: InputDecoration(
+                    labelText: 'Select Project',
+                    labelStyle: TextStyle(color: store.textMuted),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
+                  ),
+                  items: activeProjects
+                      .map(
+                        (p) => DropdownMenuItem<String>(
+                          value: p.id,
+                          child: Text(p.name, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (val) => setDialogState(() => selectedProjectId = val),
+                ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: store.accentGold, foregroundColor: Colors.black),
+              onPressed: selectedProjectId == null ? null : () => Navigator.pop(dialogContext, true),
+              child: const Text('Send Request'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || selectedProjectId == null || !context.mounted) return;
+    await store.submitProjectAccessRequest(selectedProjectId);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Access request sent successfully!', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        backgroundColor: store.accentGold,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = ExpenseStore.instance;
@@ -71,14 +137,7 @@ class EmployeeWaitScreen extends StatelessWidget {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         onPressed: () async {
-                          await store.submitProjectAccessRequest();
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: const Text('Access request sent successfully!', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                              backgroundColor: store.accentGold,
-                            ),
-                          );
+                          await _pickAndRequestProject(context, store);
                         },
                         icon: Icon(Icons.mail_outline_rounded, color: store.accentGold, size: 18),
                         label: Text('Request Project Access', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),

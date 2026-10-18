@@ -241,7 +241,18 @@ async def test_employee_status_single_active_backstop(
     await clean_db.commit()
     assert created.status == EmployeeStatus.ACTIVE
 
-    with pytest.raises(ConflictError):  # service pre-check
+    # Toggle semantics: an active record auto-closes when a different
+    # status opens; the schema's single-active partial unique still holds.
+    reopened = await users.create_status(
+        clean_db,
+        actor_id=user.employee_id,
+        employee_id=user.employee_id,
+        payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
+    )
+    await clean_db.commit()
+    assert reopened.status == EmployeeStatus.ON_LEAVE
+
+    with pytest.raises(ConflictError):  # same-open-status is a conflict
         await users.create_status(
             clean_db,
             actor_id=user.employee_id,

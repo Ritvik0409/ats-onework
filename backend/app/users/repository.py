@@ -129,6 +129,25 @@ class UserRepository:
             )
             return await cur.fetchone()
 
+    async def close_status(
+        self, conn: Conn, *, employee_id: int, updated_by: int | None
+    ) -> Row | None:
+        """End the employee's currently open status record.
+
+        The request-scoped ``conn`` keeps close + re-open atomic with the
+        caller's other writes. Returns None when nothing is open (e.g. a
+        concurrent request already closed it); the caller then falls back
+        to the DB's single-active partial unique for the final verdict.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE employee_status SET ended_at = CURRENT_TIMESTAMP,"
+                " updated_by = %s WHERE employee_id = %s AND ended_at IS NULL"
+                " RETURNING " + _STATUS_COLUMNS,
+                (updated_by, employee_id),
+            )
+            return await cur.fetchone()
+
     async def create_status(
         self,
         conn: Conn,

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; 
 import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/management/budget_setup_screen.dart'; 
+import 'package:ats_onework/management/budget_setup_screen.dart';
 
+/// Manager queue for project-access requests (FastAPI /access-requests,
+/// migration 0002). Each pending request already carries the project the
+/// employee selected, so "approve" confirms that project — no picker —
+/// while deny just rejects it.
 class PendingApprovalsScreen extends StatefulWidget {
   const PendingApprovalsScreen({super.key});
 
@@ -11,131 +14,79 @@ class PendingApprovalsScreen extends StatefulWidget {
 }
 
 class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
-  void _showAssignProjectDialog(BuildContext context, Map<String, dynamic> requestData, ExpenseStore store) {
-    final projects = store.projects;
-    String? selectedProjectName;
-    final employeeName = requestData['name'] ?? 'Unknown';
-    final employeeEmail = requestData['email'] ?? '';
+  void _showApproveDialog(BuildContext context, Map<String, dynamic> requestData, ExpenseStore store) {
+    final employeeName = requestData['name']?.toString() ?? 'Unknown';
+    final employeeEmail = requestData['email']?.toString() ?? '';
+    final projectName = requestData['projectName']?.toString() ?? '';
+    final requestId = requestData['access_request_id']?.toString() ?? '';
 
     showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: store.accentGold.withValues(alpha: 0.2))),
-            title: Text('Assign Project to $employeeName', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold, fontSize: 18)),
-            content: SizedBox(
-              width: 350,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Select an existing project to grant this employee access.', style: TextStyle(color: store.textMuted, fontSize: 13)),
-                  const SizedBox(height: 16),
-                  projects.isEmpty
-                      ? const Text('No active projects available.', style: TextStyle(color: Colors.redAccent, fontSize: 13))
-                      : DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          initialValue: selectedProjectName,
-                          dropdownColor: store.card,
-                          style: TextStyle(color: store.textFrost),
-                          decoration: InputDecoration(
-                            labelText: 'Select Project',
-                            labelStyle: TextStyle(color: store.textMuted),
-                            filled: true,
-                            fillColor: store.isDarkMode ? store.bg : Colors.grey.shade100,
-                            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold.withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(8)),
-                            focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold, width: 1.5), borderRadius: BorderRadius.circular(8)),
-                          ),
-                          items: projects.map((p) {
-                            final bool isDeactivated = !p.isActive; 
-                            
-                            return DropdownMenuItem<String>(
-                              value: p.name,
-                              enabled: !isDeactivated,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      p.name,
-                                      style: TextStyle(color: isDeactivated ? store.textMuted : store.textFrost),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  if (isDeactivated)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.redAccent.withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: const Text('Deactivated', style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                                    ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (val) => setDialogState(() => selectedProjectName = val),
-                        ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: store.accentGold.withValues(alpha: 0.5)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      onPressed: () {
-                        Navigator.pop(dialogContext); 
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => BudgetSetupScreen(initialEmployeeEmail: employeeEmail),
-                          ),
-                        );
-                      },
-                      icon: Icon(Icons.add_rounded, color: store.accentGold, size: 18),
-                      label: Text('Create New Project for Employee', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
-                    ),
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: store.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: store.accentGold.withValues(alpha: 0.2))),
+        title: Text('Grant Project Access', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold, fontSize: 18)),
+        content: SizedBox(
+          width: 350,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('$employeeName ($employeeEmail) wants to join:', style: TextStyle(color: store.textMuted, fontSize: 13)),
+              const SizedBox(height: 8),
+              Text(projectName.isEmpty ? 'Unknown project' : projectName, style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: store.accentGold.withValues(alpha: 0.5)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: store.accentGold, foregroundColor: store.isDarkMode ? store.bg : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                onPressed: selectedProjectName == null ? null : () async {
-                  final targetProject = projects.firstWhere((p) => p.name == selectedProjectName);
-                  
-                  if (dialogContext.mounted) Navigator.pop(dialogContext); 
-                  
-                  try {
-                    await store.approveProjectAccess(employeeEmail, targetProject.id);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$employeeName assigned successfully!'), backgroundColor: store.accentGold));
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error assigning project: $e'), backgroundColor: Colors.redAccent));
-                    }
-                  }
-                },
-                child: const Text('Confirm & Grant Access', style: TextStyle(fontWeight: FontWeight.bold)),
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BudgetSetupScreen(initialEmployeeEmail: employeeEmail),
+                      ),
+                    );
+                  },
+                  icon: Icon(Icons.add_rounded, color: store.accentGold, size: 18),
+                  label: Text('Create New Project Instead', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
+                ),
               ),
             ],
-          );
-        },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: store.accentGold, foregroundColor: store.isDarkMode ? store.bg : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            onPressed: requestId.isEmpty ? null : () async {
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              try {
+                await store.decideProjectAccess(requestId, true);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$employeeName assigned successfully!'), backgroundColor: store.accentGold));
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error approving request: $e'), backgroundColor: Colors.redAccent));
+                }
+              }
+            },
+            child: const Text('Confirm & Grant Access', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }
 
   void _handleDeny(BuildContext context, Map<String, dynamic> requestData, ExpenseStore store) {
-    final employeeName = requestData['name'] ?? 'Unknown';
-    final employeeEmail = requestData['email'] ?? '';
+    final employeeName = requestData['name']?.toString() ?? 'Unknown';
+    final requestId = requestData['access_request_id']?.toString() ?? '';
 
     showDialog(
       context: context,
@@ -148,16 +99,22 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-            onPressed: () async {
+            onPressed: requestId.isEmpty ? null : () async {
               Navigator.pop(dialogContext);
               try {
-                await FirebaseFirestore.instance.collection('project_requests').doc(employeeEmail).delete();
+                await store.decideProjectAccess(requestId, false);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Project access request denied.'), backgroundColor: Colors.redAccent),
                   );
                 }
-              } catch (_) {}
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error denying request: $e'), backgroundColor: Colors.redAccent),
+                  );
+                }
+              }
             },
             child: const Text('Yes, Deny', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
@@ -186,24 +143,12 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
             child: Container(
               constraints: const BoxConstraints(maxWidth: 800),
               padding: const EdgeInsets.all(24.0),
-              // NOW STREAMING EXCLUSIVELY FROM 'project_requests'
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('project_requests').snapshots(),
+              // Data path: GET /api/v1/access-requests?status=pending
+              // (store.projectRequests, migration 0002 flow).
+              child: FutureBuilder(
+                future: store.fetchProjectRequestsFromBackend(),
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Center(child: CircularProgressIndicator(color: store.accentGold));
-                  }
-                  if (snapshot.hasError) {
-                    return const Center(child: Text('Error loading requests', style: TextStyle(color: Colors.redAccent)));
-                  }
-
-                  final requests = snapshot.data?.docs.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    return {
-                      'email': data['email']?.toString() ?? '',
-                      'name': data['name']?.toString() ?? 'Unknown',
-                    };
-                  }).toList() ?? [];
+                  final requests = store.projectRequests;
 
                   if (requests.isEmpty) {
                     return Center(
@@ -235,10 +180,13 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           leading: CircleAvatar(
                             backgroundColor: store.accentGold.withValues(alpha: 0.1),
-                            child: Text(store.getInitials(req['name'] ?? 'U'), style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
+                            child: Text(store.getInitials(req['name']?.toString() ?? 'U'), style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
                           ),
-                          title: Text(req['name'] ?? 'Unknown', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-                          subtitle: Text('${req['email']} • Waiting for access', style: TextStyle(color: store.textMuted, fontSize: 12)),
+                          title: Text(req['name']?.toString() ?? 'Unknown', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+                          subtitle: Text(
+                            '${req['email'] ?? ''} • Wants to join: ${req['projectName'] ?? ''}',
+                            style: TextStyle(color: store.textMuted, fontSize: 12),
+                          ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -250,8 +198,8 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 ),
-                                onPressed: () => _showAssignProjectDialog(context, req, store),
-                                child: const Text('Assign Project', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                onPressed: () => _showApproveDialog(context, req, store),
+                                child: const Text('Approve', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
                               ),
                               const SizedBox(width: 8),
                               ElevatedButton(

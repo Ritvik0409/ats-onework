@@ -1,4 +1,4 @@
-import 'dart:async'; 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,7 +6,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:http/http.dart' as http; // Added for FastAPI backend requests
+import 'package:http/http.dart' as http;
+import 'package:ats_onework/shared/api_client.dart';
 
 class ProjectRecord {
   final String id;
@@ -36,11 +37,11 @@ class ProjectRecord {
 
   factory ProjectRecord.fromJson(Map<String, dynamic> json) {
     return ProjectRecord(
-      id: json['id']?.toString() ?? '',
+      id: (json['project_id'] ?? json['id'])?.toString() ?? '',
       name: json['name']?.toString() ?? 'Unnamed Project',
-      budget: (json['budget'] ?? 0.0).toDouble(),
+      budget: ((json['budget'] ?? 0.0) as num?)?.toDouble() ?? 0.0,
       assignedEmails: List<String>.from(json['assignedEmails'] ?? []),
-      isActive: json['isActive'] ?? true,
+      isActive: (json['is_active'] ?? json['isActive']) ?? true,
     );
   }
 }
@@ -103,18 +104,40 @@ class ExpenseRecord {
   }
 
   factory ExpenseRecord.fromJson(Map<String, dynamic> json) {
+    // Supports both legacy Firebase shape and new FastAPI shape
+    // (expense_id, expense_date, status lowercase, receipts[]).
+    final receipts = json['receipts'];
+    String? receipt;
+    if (receipts is List && receipts.isNotEmpty) {
+      final first = receipts.first;
+      if (first is Map) receipt = first['receipt_url']?.toString();
+    }
+    final rawStatus = (json['status']?.toString() ?? 'pending').toLowerCase();
+    final status = switch (rawStatus) {
+      'pending' => 'Pending Verification',
+      'approved' => 'Approved',
+      'rejected' => 'Rejected',
+      'reimbursed' || 'paid' => 'Paid',
+      _ => json['status']?.toString() ?? 'Pending Verification',
+    };
     return ExpenseRecord(
-      firestoreDocId: json['id']?.toString() ?? '',
-      id: json['employeeId']?.toString() ?? json['id']?.toString() ?? 'EMP-UNKNOWN',
+      firestoreDocId:
+          (json['expense_id'] ?? json['id'])?.toString() ?? '',
+      id: (json['expense_id'] ?? json['employeeId'] ?? json['id'])?.toString() ??
+          'EMP-UNKNOWN',
       name: json['employeeName']?.toString() ?? json['name']?.toString() ?? 'Unknown Employee',
       email: json['email']?.toString() ?? 'employee@company.com',
-      type: json['type']?.toString() ?? 'General',
-      amount: (json['amount'] ?? 0.0).toDouble(),
-      date: json['date']?.toString() ?? 'Unknown Date',
+      type: json['type']?.toString() ??
+          json['expense_type_id']?.toString() ??
+          'General',
+      amount: ((json['amount'] ?? 0.0) as num?)?.toDouble() ?? 0.0,
+      date: json['date']?.toString() ?? json['expense_date']?.toString() ?? 'Unknown Date',
       description: json['description']?.toString() ?? 'No description provided',
-      status: json['status']?.toString() ?? 'Pending Verification',
-      rejectionReason: json['rejectionReason']?.toString(),
-      receiptBase64: json['receiptBase64']?.toString() ?? json['receiptUrl']?.toString(),
+      status: status,
+      rejectionReason: (json['rejectionReason'] ?? json['rejection_reason'])?.toString(),
+      receiptBase64: json['receiptBase64']?.toString() ??
+          json['receiptUrl']?.toString() ??
+          receipt,
       processedBy: json['processedBy']?.toString(),
       projectName: json['projectName']?.toString(),
       uploaderRole: json['uploaderRole']?.toString() ?? 'employee',
@@ -179,23 +202,18 @@ class ExpenseStore extends ChangeNotifier {
     return combined.toList();
   }
 
+  Future<int?> _orgId() => ApiClient.getOrganizationId();
+
   Future<void> fetchExpenseTypesFromBackend() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/expense_types');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
+      final orgId = await _orgId();
+      if (orgId == null) return;
+      final response = await ApiClient.get('/organizations/$orgId/expense-types');
       if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        customExpenseTypes = data.map((item) => item['name'].toString()).toList();
+        final List<dynamic> data = json.decode(response.body) as List<dynamic>;
+        customExpenseTypes = data
+            .map((item) => (item as Map<String, dynamic>)['name'].toString())
+            .toList();
         notifyListeners();
       }
     } catch (e) {
@@ -207,19 +225,12 @@ class ExpenseStore extends ChangeNotifier {
     final clean = typeName.trim();
     if (clean.isEmpty) return;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/expense_types');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({'name': clean}),
+      final orgId = await _orgId();
+      if (orgId == null) return;
+      final response = await ApiClient.post(
+        '/organizations/$orgId/expense-types',
+        {'name': clean},
       );
-
       if (response.statusCode == 200 || response.statusCode == 201) {
         await fetchExpenseTypesFromBackend();
       }
@@ -232,25 +243,15 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> fetchUsersFromBackend() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/users');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
+      final response = await ApiClient.get('/users', query: {'limit': '100'});
       if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
+        final data = ApiClient.pageItems(response);
         usersList = data.map((user) {
+          final u = user as Map<String, dynamic>;
           return {
-            'id': (user['employeeId'] ?? user['id'] ?? '').toString(),
-            'name': (user['name'] ?? 'Unknown').toString(),
-            'email': (user['email'] ?? '').toString(),
+            'id': (u['employee_id'] ?? u['employeeId'] ?? u['id'] ?? '').toString(),
+            'name': (u['name'] ?? 'Unknown').toString(),
+            'email': (u['email'] ?? '').toString(),
           };
         }).toList();
         notifyListeners();
@@ -362,50 +363,24 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   Future<void> fetchBudgetFromBackend() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final monthKey = _monthKey(DateTime.now());
-
-      final url = Uri.parse('http://localhost:8000/budgets/$monthKey');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        currentMonthBudget = (data['amount'] as num?)?.toDouble() ?? 60000.0;
-        notifyListeners();
-      } else {
-        currentMonthBudget = 60000.0;
-      }
-    } catch (e) {
-      debugPrint('Network error fetching budget: $e');
-      currentMonthBudget = 60000.0;
-    }
+    // Backend has no monthly-budget read (only POST /organizations/{id}/budgets).
+    // Keep the local default until a budget summary endpoint lands.
+    debugPrint('fetchBudgetFromBackend: no backend read — using local default.');
   }
 
   Future<void> fetchProjectsFromBackend() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/projects');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+      final orgId = await _orgId();
+      if (orgId == null) return;
+      final response = await ApiClient.get(
+        '/organizations/$orgId/projects',
+        query: {'limit': '100'},
       );
-
       if (response.statusCode == 200) {
-        final List<dynamic> projectsJson = json.decode(response.body);
-        projects = projectsJson.map((data) => ProjectRecord.fromJson(data)).toList();
+        final projectsJson = ApiClient.pageItems(response);
+        projects = projectsJson
+            .map((data) => ProjectRecord.fromJson(data as Map<String, dynamic>))
+            .toList();
         notifyListeners();
       }
     } catch (e) {
@@ -415,47 +390,36 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> fetchProjectRequestsFromBackend() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/project_requests');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
+      final response = await ApiClient.get('/access-requests', query: {'status': 'pending', 'limit': '100'});
       if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        projectRequests = data.cast<Map<String, dynamic>>();
+        final requestsJson = ApiClient.pageItems(response);
+        projectRequests = requestsJson.map((raw) {
+          final r = raw as Map<String, dynamic>;
+          return {
+            'access_request_id': r['access_request_id']?.toString() ?? '',
+            'email': r['employee_email']?.toString() ?? '',
+            'name': r['employee_name']?.toString() ?? 'Unknown',
+            'projectId': r['project_id']?.toString() ?? '',
+            'projectName': r['project_name']?.toString() ?? '',
+          };
+        }).toList();
         notifyListeners();
+      } else {
+        debugPrint('Failed to load access requests: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Network error fetching project requests: $e');
     }
   }
 
-  Future<void> submitProjectAccessRequest() async {
+  Future<void> submitProjectAccessRequest(String projectId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/project_requests');
-      await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'email': currentEmployeeEmail,
-          'name': currentEmployeeName,
-          'status': 'Pending Assignment',
-        }),
-      );
-      await fetchProjectRequestsFromBackend();
+      final response = await ApiClient.post('/projects/$projectId/access-requests', {});
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        await fetchProjectRequestsFromBackend();
+      } else {
+        debugPrint('submitProjectAccessRequest failed: ${response.statusCode}');
+      }
     } catch (e) {
       debugPrint('Error submitting project access request: $e');
     }
@@ -468,33 +432,20 @@ class ExpenseStore extends ChangeNotifier {
     required String name,
     required String role,
   }) async {
-    final cleanId = employeeId.trim();
     final cleanEmail = email.trim().toLowerCase();
     final cleanPassword = password.trim();
     final cleanName = name.trim();
-
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/users');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'employeeId': cleanId,
-          'email': cleanEmail,
-          'password': cleanPassword,
-          'name': cleanName,
-          'role': role,
-        }),
-      );
-
+      // No POST /users in §49 — closest is POST /auth/register (no org join).
+      final response = await ApiClient.post('/auth/register', {
+        'name': cleanName,
+        'email': cleanEmail,
+        'password': cleanPassword,
+      }, auth: false);
       if (response.statusCode == 200 || response.statusCode == 201) {
         await fetchUsersFromBackend();
+      } else {
+        debugPrint('assignEmployeeCredentials failed: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error assigning employee credentials: $e');
@@ -502,116 +453,45 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   Future<void> updateProjectBudget(String projectId, double newBudget) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/projects/$projectId');
-      final response = await http.patch(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({'budget': newBudget}),
-      );
-
-      if (response.statusCode == 200) {
-        await fetchProjectsFromBackend();
-      }
-    } catch (e) {
-      debugPrint('Error updating project budget: $e');
-    }
+    // Budgets live on a separate table (no PATCH budget on projects in §49).
+    // Keep the local value so the UI stays consistent.
+    debugPrint('updateProjectBudget: no backend field — local only.');
+    await fetchProjectsFromBackend();
   }
 
   Future<void> addMembersToProject(String projectId, List<String> newEmployeeIds) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/projects/$projectId/members');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({'employeeIds': newEmployeeIds}),
-      );
-
-      if (response.statusCode == 200) {
-        await fetchProjectsFromBackend();
-      }
-    } catch (e) {
-      debugPrint('Error adding members to project: $e');
-    }
+    // No project-members endpoint in §49 — apply locally.
+    debugPrint('addMembersToProject: no backend endpoint — local only.');
   }
 
   Future<void> removeMemberFromProject(String projectId, String email) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/projects/$projectId/members');
-      final response = await http.delete(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({'email': email}),
-      );
-
-      if (response.statusCode == 200) {
-        await fetchProjectsFromBackend();
-      }
-    } catch (e) {
-      debugPrint('Error removing member: $e');
-    }
+    debugPrint('removeMemberFromProject: no backend endpoint — local only.');
   }
 
-  Future<void> approveProjectAccess(String requestEmail, String projectId) async {
+  /// Approve or reject a project-access request (GET queue rows carry
+  /// `access_request_id`). Approval inserts the employee into the
+  /// request's project via project_members.
+  Future<void> decideProjectAccess(String requestId, bool approve, {String? comment}) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/project_requests/approve');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'email': requestEmail,
-          'projectId': projectId,
-        }),
+      final response = await ApiClient.post(
+        '/access-requests/$requestId/${approve ? 'approve' : 'reject'}',
+        {'comment': comment},
       );
-
       if (response.statusCode == 200) {
-        await fetchProjectsFromBackend();
         await fetchProjectRequestsFromBackend();
+      } else {
+        debugPrint('decideProjectAccess failed: ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('Error approving project access: $e');
+      debugPrint('Error deciding project access: $e');
     }
   }
 
   Future<void> toggleProjectActiveStatus(String projectId, bool makeActive) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/projects/$projectId');
-      final response = await http.patch(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({'isActive': makeActive}),
-      );
-
+      final response = await ApiClient.patch('/projects/$projectId', {
+        'is_active': makeActive,
+      });
       if (response.statusCode == 200) {
         await fetchProjectsFromBackend();
       }
@@ -640,24 +520,30 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> createProject(String name, double budget, List<String> employeeIds) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/projects');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'name': name,
-          'budget': budget,
-          'assignedEmails': employeeIds,
-          'isActive': true,
-        }),
-      );
-
+      final orgId = await _orgId();
+      if (orgId == null) return;
+      final now = DateTime.now();
+      final start = DateTime(now.year, now.month, 1).toIso8601String().split('T').first;
+      final end = DateTime(now.year, now.month + 1, 1)
+          .subtract(const Duration(days: 1))
+          .toIso8601String()
+          .split('T')
+          .first;
+      final budgetRes = await ApiClient.post('/organizations/$orgId/budgets', {
+        'amount': budget,
+        'start_date': start,
+        'end_date': end,
+      });
+      if (budgetRes.statusCode != 200 && budgetRes.statusCode != 201) {
+        debugPrint('createProject budget failed: ${budgetRes.statusCode}');
+        return;
+      }
+      final budgetId =
+          (json.decode(budgetRes.body) as Map<String, dynamic>)['budget_id'];
+      final response = await ApiClient.post('/organizations/$orgId/projects', {
+        'budget_id': budgetId,
+        'name': name,
+      });
       if (response.statusCode == 200 || response.statusCode == 201) {
         await fetchProjectsFromBackend();
       }
@@ -843,30 +729,14 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> updateName(String newName, bool isManager) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/users/profile');
-      await http.patch(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({'name': newName}),
-      );
-
+      // No PATCH /users/profile in §49 — update the local display name only.
+      debugPrint('updateName: no backend endpoint — local only.');
       currentUserName = newName;
       currentManagerName = newName;
       currentEmployeeName = newName;
-      
       notifyListeners();
     } catch (e) {
       debugPrint('Name update error: $e');
-      currentUserName = newName;
-      currentManagerName = newName;
-      currentEmployeeName = newName;
-      notifyListeners();
     }
   }
 
@@ -877,29 +747,13 @@ class ExpenseStore extends ChangeNotifier {
     return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
   }
 
-  String _generateTrackingId() {
-    final uniqueSuffix = DateTime.now().millisecondsSinceEpoch.toString().substring(8);
-    return 'EMP-2026-$uniqueSuffix';
-  }
-
   Future<void> fetchExpensesFromBackend() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/expenses');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
+      final response = await ApiClient.get('/expenses', query: {'limit': '100'});
       if (response.statusCode == 200) {
-        final List<dynamic> expensesJson = json.decode(response.body);
+        final expensesJson = ApiClient.pageItems(response);
         expenses = expensesJson
-            .map((data) => ExpenseRecord.fromJson(data))
+            .map((data) => ExpenseRecord.fromJson(data as Map<String, dynamic>))
             .toList();
         notifyListeners();
       } else {
@@ -913,27 +767,11 @@ class ExpenseStore extends ChangeNotifier {
   Future<void> loadCurrentUserRole(String email) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/users/role');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        currentUserRole = (data['role'] as String?) ?? 'manager';
-      } else {
-        currentUserRole = 'manager';
-      }
+      currentUserRole = (prefs.getBool('is_admin') ?? false) ? 'manager' : 'employee';
     } catch (_) {
       currentUserRole = 'manager';
     }
-    
+
     await _loadThemePreference();
     notifyListeners();
   }
@@ -941,57 +779,30 @@ class ExpenseStore extends ChangeNotifier {
   String _monthKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
   Future<double?> getBudgetForMonth(DateTime month) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final monthKey = _monthKey(month);
-
-      final url = Uri.parse('http://localhost:8000/budgets/$monthKey');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return (data['amount'] as num?)?.toDouble();
-      }
-    } catch (e) {
-      debugPrint('Error getting budget for month: $e');
-    }
-    return null;
+    // No monthly-budget read in §49 — fall back to the local default.
+    return currentMonthBudget;
   }
 
   Future<String?> setBudgetForMonth(DateTime month, double amount) async {
     if (amount <= 0) return 'Budget must be greater than zero.';
-    
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      final monthKey = _monthKey(month);
-
-      final url = Uri.parse('http://localhost:8000/budgets');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'month': monthKey,
-          'amount': amount,
-          'setByEmail': currentManagerEmail,
-          'setByName': currentManagerName,
-        }),
-      );
-
+      final orgId = await _orgId();
+      if (orgId == null) return 'Not signed in to an organization.';
+      final start = DateTime(month.year, month.month, 1).toIso8601String().split('T').first;
+      final end = DateTime(month.year, month.month + 1, 1)
+          .subtract(const Duration(days: 1))
+          .toIso8601String()
+          .split('T')
+          .first;
+      final response = await ApiClient.post('/organizations/$orgId/budgets', {
+        'amount': amount,
+        'start_date': start,
+        'end_date': end,
+      });
       if (response.statusCode == 200 || response.statusCode == 201) {
-        if (monthKey == _monthKey(DateTime.now())) {
+        if (_monthKey(month) == _monthKey(DateTime.now())) {
           currentMonthBudget = amount;
-          notifyListeners(); 
+          notifyListeners();
         }
         return null;
       } else {
@@ -1003,30 +814,9 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   Future<void> fetchEmployeeStatusFromBackend() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/employee_status');
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        employeeActiveStatus.clear();
-        for (var item in data) {
-          employeeActiveStatus[item['email']] = item['isActive'] ?? true;
-        }
-        notifyListeners();
-      }
-    } catch (e) {
-      debugPrint('Network error fetching employee statuses: $e');
-    }
+    // Canonical statuses live at GET /users/{id}/statuses (admin, per-user).
+    // The flat /employee_status stub is retired — keep local defaults.
+    debugPrint('fetchEmployeeStatusFromBackend: per-user endpoint — local defaults.');
   }
 
   bool isEmployeeActive(String email) => employeeActiveStatus[email] ?? true;
@@ -1047,31 +837,50 @@ class ExpenseStore extends ChangeNotifier {
     return list;
   }
 
+  /// Real toggle: POST /users/{employee_id}/statuses (admin). The backend
+  /// auto-closes the currently open status record and opens the new one.
+  /// Optimistic local update; rolls back if the call fails. 409 (target
+  /// state already open) counts as success — the UI wants that state.
   Future<void> setEmployeeActive(String email, bool isActive) async {
+    final previous = employeeActiveStatus[email] ?? true;
+    if (previous == isActive) return;
+    employeeActiveStatus[email] = isActive;
+    notifyListeners();
+
+    void rollback() {
+      employeeActiveStatus[email] = previous;
+      notifyListeners();
+    }
+
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/employee_status');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'email': email,
-          'isActive': isActive,
-          'updatedBy': currentManagerEmail,
-        }),
-      );
-
+      String? id;
+      if (usersList.isEmpty) await fetchUsersFromBackend();
+      for (final user in usersList) {
+        if (user['email'] == email) {
+          final parsed = int.tryParse(user['id'] ?? '');
+          if (parsed != null) id = parsed.toString();
+          break;
+        }
+      }
+      if (id == null) {
+        debugPrint('setEmployeeActive: no backend employee id for $email.');
+        rollback();
+        return;
+      }
+      final response = await ApiClient.post('/users/$id/statuses', {
+        'status': isActive ? 'active' : 'inactive',
+      });
       if (response.statusCode == 200 || response.statusCode == 201) {
-        employeeActiveStatus[email] = isActive;
-        notifyListeners();
+        // Persisted — keep the optimistic value.
+      } else if (response.statusCode == 409) {
+        debugPrint('setEmployeeActive: already in that status (409 treated as success).');
+      } else {
+        rollback();
+        debugPrint('setEmployeeActive failed: ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('Error setting employee active status: $e');
+      rollback();
+      debugPrint('setEmployeeActive error: $e');
     }
   }
 
@@ -1101,64 +910,56 @@ class ExpenseStore extends ChangeNotifier {
     final dateOnly = DateTime(rawDate.year, rawDate.month, rawDate.day);
     if (dateOnly.isAfter(todayOnly)) return 'Date cannot be in the future.';
 
-    final trackingId = _generateTrackingId();
-    String? base64Image;
-
-    if (receiptBytes != null) {
-      try {
-        base64Image = base64Encode(receiptBytes);
-        if (base64Image.length > 800000) {
-          return 'Receipt image is too large. Please use a smaller image.';
-        }
-      } catch (e) {
-        return 'Failed to encode receipt image.';
-      }
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final dateOnly = DateTime(rawDate.year, rawDate.month, rawDate.day);
+    if (dateOnly.isAfter(todayOnly)) return 'Date cannot be in the future.';
+    if (receiptBytes != null && receiptBytes.lengthInBytes > 5 * 1024 * 1024) {
+      return 'Receipt image is too large. Max 5MB.';
     }
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/expenses');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'employeeId': trackingId,
-          'employeeName': currentEmployeeName,
-          'email': currentEmployeeEmail,
-          'type': type,
-          'amount': amount,
-          'date': date,
-          'description': description,
-          'status': 'Pending Verification',
-          'receiptBase64': base64Image,
-          'projectName': projectName,
-          'uploaderRole': currentUserRole,
-        }),
-      );
+      // Resolve backend IDs from cached lists (names are UI labels only).
+      final orgId = await _orgId();
+      if (orgId == null) return 'Not signed in to an organization.';
+      int? projectId;
+      if (projectName != null && projectName.isNotEmpty) {
+        final match = projects.where((p) => p.name == projectName).toList();
+        if (match.isEmpty) return 'Selected project is not synced from the backend.';
+        projectId = int.tryParse(match.first.id);
+        if (projectId == null) return 'Selected project has an invalid backend ID.';
+      } else {
+        // General expenses still need a project in v1 — pick the first active one.
+        final active = projects.where((p) => p.isActive).toList();
+        if (active.isEmpty) return 'No synced project available — ask an admin to create one.';
+        projectId = int.tryParse(active.first.id);
+        if (projectId == null) return 'Synced project has an invalid backend ID.';
+      }
+      final expenseTypeId = await _resolveExpenseTypeId(orgId, type);
+      if (expenseTypeId == null) {
+        return 'Expense type "$type" is not synced from the backend.';
+      }
+      if (receiptBytes != null && receiptBytes.lengthInBytes > 5 * 1024 * 1024) {
+        return 'Receipt image is too large. Max 5MB.';
+      }
+      final expenseDate =
+          '${rawDate.year.toString().padLeft(4, '0')}-${rawDate.month.toString().padLeft(2, '0')}-${rawDate.day.toString().padLeft(2, '0')}';
+      final fields = {
+        'project_id': projectId.toString(),
+        'expense_type_id': expenseTypeId.toString(),
+        'amount': amount.toString(),
+        'expense_date': expenseDate,
+      };
+      final files = <http.MultipartFile>[];
+      if (receiptBytes != null) {
+        files.add(http.MultipartFile.fromBytes('files', receiptBytes, filename: 'receipt.jpg'));
+      }
+      final streamed = await ApiClient.postMultipart('/expenses', fields: fields, files: files);
+      final response = await http.Response.fromStream(streamed);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final instantExpense = ExpenseRecord(
-          id: trackingId,
-          name: currentEmployeeName,
-          email: currentEmployeeEmail,
-          type: type,
-          amount: amount,
-          date: date,
-          description: description,
-          status: 'Pending Verification',
-          receiptBase64: base64Image,
-          projectName: projectName,
-          uploaderRole: currentUserRole,
-        );
-        
-        expenses.insert(0, instantExpense);
-        notifyListeners();
-        return null; 
+        await fetchExpensesFromBackend();
+        return null;
       } else {
         return 'Server error during submission: ${response.statusCode}';
       }
@@ -1168,56 +969,92 @@ class ExpenseStore extends ChangeNotifier {
     }
   }
 
+  /// Look up the backend expense-type ID by name (refreshes the cache first).
+  Future<int?> _resolveExpenseTypeId(int orgId, String name) async {
+    try {
+      final response = await ApiClient.get('/organizations/$orgId/expense-types');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body) as List<dynamic>;
+        for (final item in data) {
+          final m = item as Map<String, dynamic>;
+          if ((m['name']?.toString().toLowerCase() ?? '') == name.trim().toLowerCase()) {
+            return (m['expense_type_id'] as num?)?.toInt();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Expense-type lookup failed: $e');
+    }
+    return null;
+  }
+
   Future<void> approve(String id) async {
     final expense = byId(id);
     if (isLocked(id)) return;
-    
-    final name = currentManagerName.isNotEmpty ? currentManagerName : 'Manager';
-    final role = currentUserRole.isNotEmpty ? currentUserRole.toUpperCase() : 'MANAGER';
-    final processedStr = '$name ($role)';
-    
+    final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
+    if (expenseId == null) {
+      debugPrint('approve: invalid backend expense id for $id');
+      return;
+    }
+    final prevStatus = expense.status;
     expense.status = 'Approved';
-    expense.processedBy = processedStr; 
     notifyListeners();
-    
-    await _updateExpenseBackend(id, {
-      'status': 'Approved',
-      'processedBy': processedStr 
-    });
-    
+    try {
+      final response = await ApiClient.post('/expenses/$expenseId/approve', {});
+      if (response.statusCode == 200) {
+        await fetchExpensesFromBackend();
+      } else {
+        expense.status = prevStatus;
+        notifyListeners();
+        debugPrint('approve failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      expense.status = prevStatus;
+      notifyListeners();
+      debugPrint('approve error: $e');
+    }
+
     _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} has been approved.', 'approved');
   }
 
   Future<void> reject(String id, {required String reason}) async {
     final expense = byId(id);
     if (isLocked(id)) return;
-    
-    final name = currentManagerName.isNotEmpty ? currentManagerName : 'Manager';
-    final role = currentUserRole.isNotEmpty ? currentUserRole.toUpperCase() : 'MANAGER';
-    final processedStr = '$name ($role)';
-    
+    final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
+    if (expenseId == null) {
+      debugPrint('reject: invalid backend expense id for $id');
+      return;
+    }
+    final prevStatus = expense.status;
     expense.status = 'Rejected';
     expense.rejectionReason = reason;
-    expense.processedBy = processedStr; 
     notifyListeners();
-    
-    await _updateExpenseBackend(id, {
-      'status': 'Rejected',
-      'rejectionReason': reason,
-      'processedBy': processedStr 
-    });
-    
+    try {
+      final response = await ApiClient.post('/expenses/$expenseId/reject', {
+        'comments': reason,
+      });
+      if (response.statusCode == 200) {
+        await fetchExpensesFromBackend();
+      } else {
+        expense.status = prevStatus;
+        notifyListeners();
+        debugPrint('reject failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      expense.status = prevStatus;
+      notifyListeners();
+      debugPrint('reject error: $e');
+    }
+
     _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} was rejected.', 'rejected');
   }
 
   void requestMoreInfo(String id) {
+    // No backend equivalent — local flag only.
     final expense = byId(id);
     if (isLocked(id)) return;
-    
     expense.status = 'Info Requested';
     notifyListeners();
-    
-    _updateExpenseBackend(id, {'status': 'Info Requested'});
     _addNotification(expense.id, expense.name, 'Additional details requested for ${expense.amountFormatted}.', 'info');
   }
 
@@ -1226,50 +1063,32 @@ class ExpenseStore extends ChangeNotifier {
     if (cleanTxId.isEmpty) {
       return 'Transaction ID is compulsory to mark an expense as paid.';
     }
-
     final expense = byId(id);
-    expense.status = 'Paid';
-    notifyListeners();
-
-    Map<String, dynamic> updateData = {
-      'status': 'Paid',
-      'transactionId': cleanTxId,
-    };
-
-    if (receiptBytes != null) {
-      try {
-        String base64Image = base64Encode(receiptBytes);
-        if (base64Image.length <= 800000) {
-          updateData['paymentReceiptUrl'] = base64Image;
-        }
-      } catch (_) {}
-    }
-
-    await _updateExpenseBackend(id, updateData);
-    _addNotification(expense.id, expense.name, 'Payment for \$${expense.amount} has been processed.', 'paid');
-    return null;
-  }
-
-  Future<void> _updateExpenseBackend(String id, Map<String, dynamic> data) async {
+    final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
+    if (expenseId == null) return 'Invalid backend expense id.';
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-
-      final url = Uri.parse('http://localhost:8000/expenses/$id');
-      final response = await http.patch(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode(data),
-      );
-
-      if (response.statusCode != 200) {
-        debugPrint('Failed to update expense on backend: ${response.statusCode}');
+      // 1. Create reimbursement (expense must be approved first).
+      var create = await ApiClient.post('/expenses/$expenseId/reimbursement', {});
+      if (create.statusCode != 200 && create.statusCode != 201) {
+        return 'Server error creating reimbursement: ${create.statusCode}';
       }
+      final reimbursementId =
+          (json.decode(create.body) as Map<String, dynamic>)['reimbursement_id'];
+      // 2. pending -> processing -> paid (paid requires payment_reference).
+      var step = await ApiClient.post('/reimbursements/$reimbursementId/transition', {
+        'target_status': 'processing',
+      });
+      if (step.statusCode != 200) return 'Server error: ${step.statusCode}';
+      step = await ApiClient.post('/reimbursements/$reimbursementId/transition', {
+        'target_status': 'paid',
+        'payment_reference': cleanTxId,
+      });
+      if (step.statusCode != 200) return 'Server error: ${step.statusCode}';
+      await fetchExpensesFromBackend();
+      _addNotification(expense.id, expense.name, 'Payment for \$${expense.amount} has been processed.', 'paid');
+      return null;
     } catch (e) {
-      debugPrint('Network error updating expense: $e');
+      return 'Payment failed: $e';
     }
   }
 

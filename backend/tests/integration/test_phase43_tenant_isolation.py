@@ -1,9 +1,12 @@
 """Phase 4.1-4.3 integration tests — real PostgreSQL required.
 
-Marked ``@pytest.mark.integration`` and skipped automatically when
-``TEST_DATABASE_URL`` is unset (see ``tests/conftest.py``). Run with::
+Marked ``@pytest.mark.integration`` and skipped automatically when no
+database credentials are configured (see ``tests/conftest.py``). With
+``DB_*`` credentials in ``backend/.env`` the harness creates a throwaway
+``<DB_NAME>_test`` database, applies every migration into it, and drops
+it afterwards. Run with::
 
-    TEST_DATABASE_URL=postgresql://.../ats_test uv run pytest -m integration
+    uv run pytest -m integration
 
 Covers the behaviors unit doubles cannot prove: constraint backstops
 (``UNIQUE``, partial-unique single-active status), the refresh-rotation
@@ -181,7 +184,9 @@ async def test_org_membership_last_admin_and_duplicates(
     )
     await clean_db.commit()
 
-    with pytest.raises(ConflictError):  # duplicate slug pre-check path
+    with pytest.raises(pg_errors.UniqueViolation):  # duplicate slug backstop
+        # Raw SQL raises the psycopg error directly — the ConflictError /
+        # HTTP-409 mapping happens upstream in the service layer (§49).
         async with clean_db.cursor() as cur:
             await cur.execute(
                 "INSERT INTO organizations (name, slug) VALUES (%s, %s)",
@@ -339,7 +344,9 @@ async def test_role_uniqueness_is_org_scoped(clean_db: AsyncConnection[dict]) ->
         payload=RoleCreate(name="manager"),
     )
     await clean_db.commit()
-    with pytest.raises(ConflictError):  # same org → conflict
+    with pytest.raises(pg_errors.UniqueViolation):  # same org → 409 backstop
+        # Raw SQL raises psycopg's own error; the ConflictError mapping is
+        # the service/HTTP layer's job (§49), not the database's.
         async with clean_db.cursor() as cur:
             await cur.execute(
                 "INSERT INTO roles (name, organization_id) VALUES (%s, %s)",

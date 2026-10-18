@@ -19,7 +19,7 @@ def create_pool(settings: Settings) -> AsyncConnectionPool:
     """Create (but do not open) the process-wide pool."""
     global _pool
     _pool = AsyncConnectionPool(
-        conninfo=settings.database_url,
+        conninfo=settings.effective_database_url,
         min_size=settings.db_pool_min_size,
         max_size=settings.db_pool_max_size,
         open=False,

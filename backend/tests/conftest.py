@@ -2,10 +2,22 @@
 
 Design principles:
 
-- Fixtures compose: ``db_connection`` → ``seeded_orgs`` → ``admin_token``.
+- Fixtures compose: ``test_database`` → ``db_connection`` → ``seeded_orgs``
+  → ``admin_token``.
 - Unit tests never touch PostgreSQL; integration tests (marked
-  ``@pytest.mark.integration``) require ``TEST_DATABASE_URL`` pointing at a
-  throwaway database — never development or production (§41).
+  ``@pytest.mark.integration``) run against a **throwaway database the
+  harness creates on the fly** — never the development DB (§41).
+- Database credentials are discrete env vars (§40, read from
+  ``backend/.env``): ``DB_HOST`` ``DB_PORT`` ``DB_USER`` ``DB_PASSWORD``
+  ``DB_NAME``. Optional per-test overrides: ``TEST_DB_HOST`` /
+  ``TEST_DB_PORT`` / ``TEST_DB_USER`` / ``TEST_DB_PASSWORD``, with the
+  test database named ``TEST_DB_NAME`` (default ``<DB_NAME>_test``).
+  A full ``TEST_DATABASE_URL`` still works as an escape hatch.
+- The harness: connects to the server's ``postgres`` maintenance DB,
+  ``CREATE DATABASE``s the throwaway (fresh name per run), applies all
+  migrations into it via the shared ``apply_migrations`` core, yields,
+  then ``DROP DATABASE ... (FORCE)`` — so integration runs leave your
+  server exactly as they found it.
 - Auth fixtures mint real JWTs via ``create_access_token`` so tenant-scoping
   tests exercise the actual decode path in ``get_current_user``.
 - Seed data is created with explicit SQL (transparent, no hidden ORM magic);
@@ -15,20 +27,38 @@ Design principles:
 from __future__ import annotations
 
 import os
+import sys
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import suppress
 
+import psycopg
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
+from app.core.config import get_settings
 from app.core.security.jwt import create_access_token
 from app.core.security.tokens import hash_token, utc_now_naive
+from app.db.migrations import apply_migrations
 from app.main import create_app
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
+
+def _first_env(*names: str, default: str | None = None) -> str | None:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return default
+
+
+def _url_host(value: str) -> str:
+    from urllib.parse import quote_plus
+
+    return quote_plus(value)
+
 
 _SEED_ORG_SQL = """
 INSERT INTO organizations (name, slug, description)
@@ -57,16 +87,76 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest_asyncio.fixture
-async def db_connection() -> AsyncIterator[AsyncConnection[dict]]:
-    """Raw async connection to the throwaway test database.
+@pytest.fixture(scope="session")
+def event_loop_policy():
+    """psycopg async needs the Selector loop — Windows defaults to Proactor."""
+    if sys.platform == "win32":
+        from asyncio import WindowsSelectorEventLoopPolicy
 
-    Skips (instead of failing) when ``TEST_DATABASE_URL`` is unset so unit
-    runs stay green on machines without PostgreSQL.
+        return WindowsSelectorEventLoopPolicy()
+    import asyncio
+
+    return asyncio.DefaultEventLoopPolicy()
+
+
+@pytest.fixture(scope="session")
+def test_database() -> Iterator[str]:
+    """Session-scoped throwaway database created on the configured server.
+
+    Credentials resolve per key from the environment OR ``backend/.env``
+    (Settings reads the file): ``TEST_DB_*`` overrides ``DB_*``. A fresh
+    ``<DB_NAME>_test`` database is created, every migration is applied
+    into it, and it is dropped afterward — the development database is
+    never touched. Keep ``DB_PASSWORD`` empty to skip integration runs.
     """
-    if not TEST_DATABASE_URL:
-        pytest.skip("TEST_DATABASE_URL is not set — integration fixture skipped.")
-    async with await AsyncConnection.connect(TEST_DATABASE_URL, row_factory=dict_row) as conn:
+    settings = get_settings()
+    db_host = _first_env("TEST_DB_HOST", "DB_HOST", default=settings.db_host)
+    db_port = _first_env("TEST_DB_PORT", "DB_PORT", default=str(settings.db_port))
+    db_user = _first_env("TEST_DB_USER", "DB_USER", default=settings.db_user)
+    db_password = _first_env("TEST_DB_PASSWORD", "DB_PASSWORD", default=settings.db_password)
+
+    # Escape hatch: a caller-provided full DSN owns its own database.
+    explicit_url = os.environ.get("TEST_DATABASE_URL")
+    if explicit_url:
+        with psycopg.connect(explicit_url) as conn:
+            apply_migrations(conn, log=lambda _msg: None)
+        yield explicit_url
+        return
+
+    if not db_user or not db_password:
+        pytest.skip(
+            "No test database configured — leave DB_PASSWORD empty in .env "
+            "to skip, or fill in credentials to run integration tests."
+        )
+    host_for_url = _url_host(db_user)
+    pwd_for_url = _url_host(db_password)
+    server_dsn = f"postgresql://{host_for_url}:{pwd_for_url}@{db_host}:{db_port}/postgres"
+    db_name = _first_env("TEST_DB_NAME", default=f"{settings.db_name}_test")
+    quoted = f'"{db_name}"'
+    test_database_dsn = f"postgresql://{host_for_url}:{pwd_for_url}@{db_host}:{db_port}/{db_name}"
+
+    with psycopg.connect(server_dsn, autocommit=True) as admin:
+        # Fresh schema every run — leftovers from a crashed prior session die here.
+        with suppress(psycopg.errors.InvalidCatalogName):
+            admin.execute(f"DROP DATABASE {quoted} WITH (FORCE)")
+        admin.execute(f"CREATE DATABASE {quoted}")
+
+    try:
+        with psycopg.connect(test_database_dsn) as conn:
+            apply_migrations(conn, log=lambda msg: print(f"[migrate] {msg}"))
+        yield test_database_dsn
+    finally:
+        with (
+            psycopg.connect(server_dsn, autocommit=True) as admin,
+            suppress(psycopg.errors.InvalidCatalogName),
+        ):
+            admin.execute(f"DROP DATABASE {quoted} WITH (FORCE)")
+
+
+@pytest_asyncio.fixture
+async def db_connection(test_database: str) -> AsyncIterator[AsyncConnection[dict]]:
+    """Raw async connection to the throwaway test database."""
+    async with await AsyncConnection.connect(test_database, row_factory=dict_row) as conn:
         yield conn
 
 

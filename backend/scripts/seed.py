@@ -17,13 +17,14 @@ Usage (from ``backend/``)::
 from __future__ import annotations
 
 import argparse
-import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import psycopg
 from psycopg.rows import dict_row
 from pwdlib import PasswordHash
-
-DEFAULT_DSN = "postgresql://ats:ats_dev_password@localhost:5432/ats"
 
 # Dev-only password — NEVER use in production (arch. doc §19).
 DEV_PASSWORD = "DevPassword123!"
@@ -35,10 +36,13 @@ ORGS = [
 
 USERS = [
     # (email, name, org_slug, is_admin)
-    ("admin@acme.test", "Asha Admin", "acme-corp", True),
-    ("employee@acme.test", "Evan Employee", "acme-corp", False),
-    ("admin@globex.test", "Gita Admin", "globex-inc", True),
-    ("employee@globex.test", "Guru Employee", "globex-inc", False),
+    # Domain is a plausible-but-never-to-be-registered .dev — it must pass the
+    # API's own email validation (RFC 2606 names like .test are rejected) so
+    # seeded users can actually log in through /auth/login.
+    ("admin@acme-corp.dev", "Asha Admin", "acme-corp", True),
+    ("employee@acme-corp.dev", "Evan Employee", "acme-corp", False),
+    ("admin@globex-inc.dev", "Gita Admin", "globex-inc", True),
+    ("employee@globex-inc.dev", "Guru Employee", "globex-inc", False),
 ]
 
 ROLES = ["employee", "manager"]
@@ -196,7 +200,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dsn", default=None, help="PostgreSQL DSN")
     args = parser.parse_args()
-    dsn = args.dsn or os.environ.get("DATABASE_URL") or DEFAULT_DSN
+    from app.core.config import get_settings
+
+    dsn = args.dsn or get_settings().effective_database_url
 
     with (
         psycopg.connect(dsn, row_factory=dict_row) as conn,

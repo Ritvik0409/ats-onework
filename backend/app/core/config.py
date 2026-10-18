@@ -22,11 +22,34 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
 
-    # Database
-    database_url: str = "postgresql://ats:ats_dev_password@localhost:5432/ats"
+    # Database — discrete credentials (§40). Compose the DSN from these;
+    # ``DATABASE_URL`` is only an escape hatch for single-string deploys.
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_user: str = "ats"
+    db_password: str = "ats_dev_password"
+    db_name: str = "ats"
+    database_url: str | None = None
     db_pool_min_size: int = 2
     db_pool_max_size: int = 10
     db_statement_timeout_ms: int = 15_000
+
+    @property
+    def effective_database_url(self) -> str:
+        """The DSN the pool/runners connect with.
+
+        ``DATABASE_URL`` wins when explicitly provided; otherwise one is
+        composed from HOST/PORT/USER/PASSWORD/NAME (values are URL-escaped
+        so passwords with special characters are safe).
+        """
+        if self.database_url:
+            return self.database_url
+        from urllib.parse import quote_plus
+
+        return (
+            f"postgresql://{quote_plus(self.db_user)}:{quote_plus(self.db_password)}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
     # JWT / auth (ADR-001, arch. doc §51)
     jwt_secret: str = INSECURE_DEFAULT_SECRET

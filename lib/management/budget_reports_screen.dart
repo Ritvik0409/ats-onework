@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 import 'package:intl/intl.dart';
 
 import 'download_stub.dart' if (dart.library.html) 'download_web.dart' as downloader;
@@ -116,16 +117,8 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
     }
   }
 
-  void _showSnack(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
+  void _showSnack(String message, Color color) =>
+      AppSnack.custom(context, message, color);
 
   @override
   Widget build(BuildContext context) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ats_onework/employee/employee_login.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 class EmployeeProfileScreen extends StatefulWidget {
   const EmployeeProfileScreen({super.key});
@@ -52,16 +53,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
     );
   }
 
-  void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: ExpenseStore.instance.accentGold,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
+  void _showSnack(String message) => AppSnack.info(context, message);
 
   void _showUpdateName(bool isManager) {
     final formKey = GlobalKey<FormState>();

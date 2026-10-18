@@ -294,7 +294,38 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
           BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 4, offset: const Offset(0, 1)),
         ];
 
-        final employeeData = _store.byId(widget.expenseId);
+        final employeeData = _store.byIdOrNull(widget.expenseId);
+        if (employeeData == null) {
+          // Stale row (deleted/refetched away) — render a friendly state
+          // instead of red-screening (byId used to throw StateError here).
+          return Scaffold(
+            backgroundColor: obsidianBlack,
+            appBar: AppBar(
+              backgroundColor: darkCharcoal,
+              foregroundColor: textFrost,
+              elevation: 0,
+              title: Text('Expense Details', style: TextStyle(fontWeight: FontWeight.bold, color: textFrost)),
+            ),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.receipt_long, size: 48, color: textMuted),
+                  const SizedBox(height: 12),
+                  Text(
+                    'This expense record is no longer available.',
+                    style: TextStyle(color: textMuted),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    child: const Text('Go back'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
         final isLocked = _store.isLocked(widget.expenseId);
         final isFinance = _store.currentUserRole == 'finance';
         

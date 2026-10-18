@@ -61,7 +61,9 @@ class _ManagementProjectsScreenState extends State<ManagementProjectsScreen> {
           body: Center(
             child: Container(
               constraints: const BoxConstraints(maxWidth: 800),
-              child: projects.isEmpty
+              child: !store.projectsLoaded
+                  ? const Center(child: CircularProgressIndicator())
+                  : projects.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,

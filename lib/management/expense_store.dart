@@ -229,6 +229,12 @@ class ExpenseStore extends ChangeNotifier {
 
   List<Map<String, String>> usersList = [];
 
+  /// One-time-load markers so screens can tell "still loading" apart from
+  /// an genuinely empty list (empty states used to double as loading states).
+  bool expensesLoaded = false;
+  bool projectsLoaded = false;
+  bool usersLoaded = false;
+
   Future<void> fetchUsersFromBackend() async {
     try {
       final response = await ApiClient.get('/users', query: {'limit': '100'});
@@ -247,6 +253,8 @@ class ExpenseStore extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Network error fetching users: $e');
+    } finally {
+      usersLoaded = true;
     }
   }
 
@@ -320,10 +328,19 @@ class ExpenseStore extends ChangeNotifier {
   int get myRejectedCount => myExpenses.where((e) => e.status == 'Rejected').length;
   int get myTotalUploads => myExpenses.length;
 
-  ExpenseRecord byId(String id) => expenses.firstWhere((e) => e.id == id);
+  /// Nullable lookup — a bare `firstWhere` throws on a stale id (row
+  /// refetched away), which used to red-screen the details page.
+  ExpenseRecord? byIdOrNull(String id) {
+    for (final e in expenses) {
+      if (e.id == id) return e;
+    }
+    return null;
+  }
 
   bool isLocked(String id) {
-    final status = byId(id).status;
+    final expense = byIdOrNull(id);
+    if (expense == null) return true; // unknown/gone rows are locked
+    final status = expense.status;
     return status == 'Approved' || status == 'Rejected' || status == 'Paid';
   }
 
@@ -361,6 +378,10 @@ class ExpenseStore extends ChangeNotifier {
     return null;
   }
 
+  /// Public single date parser — dashboards previously kept three
+  /// divergent private copies ("5 Jan 2026" legacy vs ISO "2026-01-05").
+  DateTime? parseBackendDate(String dateStr) => _parseDate(dateStr);
+
   bool _isCurrentMonth(String dateStr) {
     final d = _parseDate(dateStr);
     if (d == null) return false;
@@ -391,6 +412,8 @@ class ExpenseStore extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Network error fetching projects: $e');
+    } finally {
+      projectsLoaded = true;
     }
   }
 
@@ -767,6 +790,8 @@ class ExpenseStore extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Network error fetching expenses: $e');
+    } finally {
+      expensesLoaded = true;
     }
   }
 

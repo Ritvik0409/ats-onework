@@ -188,7 +188,7 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Network error: Cannot connect to the local Python server.';
+        _errorMessage = 'Network error: Cannot reach the backend server (check API_BASE_URL).';
       });
     } finally {
       if (mounted) {

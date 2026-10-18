@@ -289,10 +289,14 @@ class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
                   ),
                   const SizedBox(height: 24),
                   Expanded(
-                    child: approvedExpenses.isEmpty
-                        ? Center(child: Text('Inbox Zero! No pending payouts.', style: TextStyle(color: textMuted)))
-                        : ListView.builder(
-                            itemCount: approvedExpenses.length,
+                    child: !_store.expensesLoaded
+                        ? const Center(child: CircularProgressIndicator())
+                        : RefreshIndicator(
+                            onRefresh: () => _store.fetchExpensesFromBackend(),
+                            child: approvedExpenses.isEmpty
+                                ? Center(child: Text('Inbox Zero! No pending payouts.', style: TextStyle(color: textMuted)))
+                                : ListView.builder(
+                                    itemCount: approvedExpenses.length,
                             itemBuilder: (context, index) {
                               final expense = approvedExpenses[index];
 
@@ -357,6 +361,7 @@ class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
                               );
                             },
                           ),
+                  ),
                   ),
                 ],
               ),
@@ -501,7 +506,9 @@ class _PaidReimbursementsScreenState extends State<PaidReimbursementsScreen> {
                   ),
                   const SizedBox(height: 24),
                   Expanded(
-                    child: paidExpenses.isEmpty
+                    child: !_store.expensesLoaded
+                        ? const Center(child: CircularProgressIndicator())
+                        : paidExpenses.isEmpty
                         ? Center(child: Text('No paid reimbursement records found.', style: TextStyle(color: textMuted)))
                         : ListView.builder(
                             itemCount: paidExpenses.length,
@@ -586,32 +593,21 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
   String _searchQuery = '';
   String _selectedTimeframe = 'All Time';
 
+  // Delegates parsing to the store's single backend date parser (legacy
+  // "5 Jan 2026" and ISO "2026-01-05" both supported); only the
+  // timeframe matching lives here.
   bool _matchesTimeframe(String dateStr) {
     if (_selectedTimeframe == 'All Time') return true;
-    try {
-      DateTime? d;
-      if (dateStr.contains(RegExp(r'[a-zA-Z]'))) {
-        final parts = dateStr.trim().split(RegExp(r'\s+'));
-        if (parts.length >= 3) {
-          int day = int.parse(parts[0]);
-          String mStr = parts[1].toLowerCase().substring(0, 3);
-          int y = int.parse(parts[2]);
-          const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-          int m = months.indexOf(mStr) + 1;
-          if (m > 0) d = DateTime(y, m, day);
-        }
-      }
-      if (d != null) {
-        final now = DateTime.now();
-        if (_selectedTimeframe == 'This Month') {
-          return d.year == now.year && d.month == now.month;
-        } else if (_selectedTimeframe == 'Last 3 Months') {
-          final threeMonthsAgo = DateTime(now.year, now.month - 3, now.day);
-          return d.isAfter(threeMonthsAgo) || d.isAtSameMomentAs(threeMonthsAgo);
-        }
-      }
-    } catch (_) {}
-    return false; 
+    final d = ExpenseStore.instance.parseBackendDate(dateStr);
+    if (d == null) return false;
+    final now = DateTime.now();
+    if (_selectedTimeframe == 'This Month') {
+      return d.year == now.year && d.month == now.month;
+    } else if (_selectedTimeframe == 'Last 3 Months') {
+      final threeMonthsAgo = DateTime(now.year, now.month - 3, now.day);
+      return d.isAfter(threeMonthsAgo) || d.isAtSameMomentAs(threeMonthsAgo);
+    }
+    return false;
   }
 
   @override
@@ -752,7 +748,9 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
                   ),
                   const SizedBox(height: 24),
                   Expanded(
-                    child: paidExpenses.isEmpty 
+                    child: !store.expensesLoaded
+                      ? const Center(child: CircularProgressIndicator())
+                      : paidExpenses.isEmpty 
                       ? Center(child: Text('No matching paid records found.', style: TextStyle(color: textMuted)))
                       : ListView.builder(
                           itemCount: paidExpenses.length,
@@ -854,32 +852,20 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
   String _searchQuery = '';
   String _selectedTimeframe = 'All Time';
 
+  // Delegates parsing to the store's single backend date parser; only the
+  // timeframe matching lives here.
   bool _matchesTimeframe(String dateStr) {
     if (_selectedTimeframe == 'All Time') return true;
-    try {
-      DateTime? d;
-      if (dateStr.contains(RegExp(r'[a-zA-Z]'))) {
-        final parts = dateStr.trim().split(RegExp(r'\s+'));
-        if (parts.length >= 3) {
-          int day = int.parse(parts[0]);
-          String mStr = parts[1].toLowerCase().substring(0, 3);
-          int y = int.parse(parts[2]);
-          const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-          int m = months.indexOf(mStr) + 1;
-          if (m > 0) d = DateTime(y, m, day);
-        }
-      }
-      if (d != null) {
-        final now = DateTime.now();
-        if (_selectedTimeframe == 'This Month') {
-          return d.year == now.year && d.month == now.month;
-        } else if (_selectedTimeframe == 'Last 3 Months') {
-          final threeMonthsAgo = DateTime(now.year, now.month - 3, now.day);
-          return d.isAfter(threeMonthsAgo) || d.isAtSameMomentAs(threeMonthsAgo);
-        }
-      }
-    } catch (_) {}
-    return false; 
+    final d = ExpenseStore.instance.parseBackendDate(dateStr);
+    if (d == null) return false;
+    final now = DateTime.now();
+    if (_selectedTimeframe == 'This Month') {
+      return d.year == now.year && d.month == now.month;
+    } else if (_selectedTimeframe == 'Last 3 Months') {
+      final threeMonthsAgo = DateTime(now.year, now.month - 3, now.day);
+      return d.isAfter(threeMonthsAgo) || d.isAtSameMomentAs(threeMonthsAgo);
+    }
+    return false;
   }
 
   @override
@@ -1020,7 +1006,9 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                   ),
                   const SizedBox(height: 24),
                   Expanded(
-                    child: pendingPayouts.isEmpty 
+                    child: !store.expensesLoaded
+                      ? const Center(child: CircularProgressIndicator())
+                      : pendingPayouts.isEmpty 
                       ? Center(child: Text('No matching pending records found.', style: TextStyle(color: textMuted)))
                       : ListView.builder(
                           itemCount: pendingPayouts.length,

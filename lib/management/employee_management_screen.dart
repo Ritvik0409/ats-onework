@@ -123,7 +123,9 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                 ),
               ),
               Expanded(
-                child: employees.isEmpty
+                child: !store.usersLoaded
+                    ? const Center(child: CircularProgressIndicator())
+                    : employees.isEmpty
                     ? Center(child: Text('No employees found.', style: TextStyle(color: textMuted)))
                     : ListView.builder(
                         padding: const EdgeInsets.symmetric(horizontal: 16),

@@ -6,7 +6,7 @@ are undiscoverable — the service turns empty results into 404 (§49).
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from app.core.constants import ExpenseStatus
@@ -14,7 +14,8 @@ from app.db.types import Conn, Row
 
 _EXPENSE_COLUMNS = (
     "expense_id, employee_id, project_id, organization_id, expense_type_id, "
-    "amount, status, rejection_reason, expense_date, submission_date, updated_at"
+    "amount, status, rejection_reason, expense_date, submission_date, updated_at, "
+    "info_message, info_requested_at"
 )
 
 _MEDIA_COLUMNS = "media_id, expense_id, receipt_url, description, uploaded_at"
@@ -107,14 +108,25 @@ class ExpenseRepository:
         *,
         status: ExpenseStatus,
         rejection_reason: str | None,
+        info_message: str | None,
+        info_requested_at: datetime | None,
     ) -> Row | None:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE expenses SET status = %s, rejection_reason = %s"
+                "UPDATE expenses SET status = %s, rejection_reason = %s,"
+                " info_message = %s, info_requested_at = %s"
                 " WHERE expense_id = %s RETURNING " + _EXPENSE_COLUMNS,
-                (status.value, rejection_reason, expense_id),
+                (status.value, rejection_reason, info_message, info_requested_at, expense_id),
             )
             return await cur.fetchone()
+
+    async def list_admin_ids(self, conn: Conn, organization_id: int) -> list[int]:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT employee_id FROM memberships WHERE organization_id = %s AND is_admin",
+                (organization_id,),
+            )
+            return [int(row["employee_id"]) for row in await cur.fetchall()]
 
     async def insert_approval(
         self,

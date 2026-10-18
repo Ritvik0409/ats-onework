@@ -199,22 +199,67 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
   }
 
   void _handleRequestInfo() {
-    _confirmAction(
-      title: 'Request more information?',
-      message: 'The employee will be notified that additional details are needed for this expense.',
-      confirmLabel: 'Yes, Request Info',
-      confirmColor: _store.accentGold,
-      confirmTextColor: _store.isDarkMode ? _store.bg : Colors.white,
-      onConfirmed: () {
-        try {
-          _store.requestMoreInfo(widget.expenseId);
-          _showResultSnack('Additional info requested from employee', _softAmber);
-          if (mounted) Navigator.pop(context);
-        } catch (e) {
-          _showResultSnack('Error: $e', Colors.redAccent);
-        }
-      },
-    );
+    // Like reject, request-info needs the manager's actual question — a
+    // bare confirm would produce a backend notification with empty help.
+    final messageController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _store.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: _store.accentGold.withValues(alpha: 0.2))),
+        title: Text('Request more information?', style: TextStyle(color: _store.textFrost, fontWeight: FontWeight.bold, fontSize: 17)),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('The employee will be notified with the message below.', style: TextStyle(color: _store.textMuted, fontSize: 13)),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: messageController,
+                maxLines: 3,
+                style: TextStyle(color: _store.textFrost, fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'e.g. Please attach the itemized receipt...',
+                  hintStyle: TextStyle(color: _store.textMuted.withValues(alpha: 0.5), fontSize: 12),
+                  filled: true,
+                  fillColor: _store.isDarkMode ? _store.bg : Colors.grey.shade100,
+                  contentPadding: const EdgeInsets.all(12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: _store.accentGold, width: 1.5)),
+                ),
+                validator: (value) => (value == null || value.trim().isEmpty) ? 'Tell the employee what is missing' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: _store.textMuted))),
+          ElevatedButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(dialogContext, messageController.text.trim());
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: _store.accentGold, foregroundColor: _store.isDarkMode ? _store.bg : Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            child: const Text('Send Request', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    ).then((message) async {
+      if (message == null) return;
+      final ok = await _store.requestMoreInfo(widget.expenseId, message: message);
+      if (!mounted) return;
+      if (ok) {
+        _showResultSnack('Additional info requested from employee', _softAmber);
+        Navigator.pop(context);
+      } else {
+        _showResultSnack('Could not send the info request.', Colors.redAccent);
+      }
+    });
   }
 
   void _confirmAction({
@@ -458,6 +503,8 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                           _buildDetailRow('Description', employeeData.description, true, textFrost, textMuted),
                           _buildDetailRow('Date', employeeData.date, employeeData.status == 'Rejected' && employeeData.rejectionReason != null || employeeData.processedBy != null, textFrost, textMuted),
                           if (employeeData.status == 'Rejected' && employeeData.rejectionReason != null) _buildDetailRow('Rejection Reason', employeeData.rejectionReason!, employeeData.processedBy != null, textFrost, textMuted),
+                          if (employeeData.status == 'Info Requested' && employeeData.infoMessage != null)
+                            _buildDetailRow('Manager asked', employeeData.infoMessage!, false, textFrost, textMuted),
                           if (employeeData.processedBy != null) _buildDetailRow('Processed By', employeeData.processedBy!, false, textFrost, textMuted),
                         ],
                       ),

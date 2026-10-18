@@ -59,6 +59,14 @@ def test_token_purpose_covers_schema_check_constraint() -> None:
 
 def test_expense_transitions_forbid_arbitrary_jumps() -> None:
     assert EXPENSE_TRANSITIONS[ExpenseStatus.PENDING] == {
+        ExpenseStatus.INFO_REQUESTED,
+        ExpenseStatus.APPROVED,
+        ExpenseStatus.REJECTED,
+    }
+    # Migration 0003: an answered info request re-enters the queue, or the
+    # manager may still decide directly.
+    assert EXPENSE_TRANSITIONS[ExpenseStatus.INFO_REQUESTED] == {
+        ExpenseStatus.PENDING,
         ExpenseStatus.APPROVED,
         ExpenseStatus.REJECTED,
     }

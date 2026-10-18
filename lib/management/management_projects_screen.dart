@@ -125,7 +125,7 @@ class _ManagementProjectsScreenState extends State<ManagementProjectsScreen> {
                                         color: champagneGold.withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
-                                      child: Text('${project.assignedEmails.length} Members', style: TextStyle(color: champagneGold, fontSize: 11, fontWeight: FontWeight.bold)),
+                                      child: Text('${project.memberCount} Members', style: TextStyle(color: champagneGold, fontSize: 11, fontWeight: FontWeight.bold)),
                                     ),
                                     const SizedBox(width: 8),
                                     Icon(Icons.info_outline_rounded, color: champagneGold),
@@ -758,13 +758,23 @@ class ProjectMembersScreen extends StatefulWidget {
 }
 
 class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Real roster: GET /projects/{id}/members (§49 24a).
+    ExpenseStore.instance.fetchProjectMembersFromBackend(widget.projectId);
+  }
+
   void _showAddMemberDialog(BuildContext context, ProjectRecord project, ExpenseStore store) {
     if (!project.isActive) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cannot add members to a deactivated project.'), backgroundColor: Colors.redAccent));
       return;
     }
 
-    final available = store.allEmployees.where((e) => !project.assignedEmails.contains(e['id'])).toList();
+    final memberIds = (store.projectMembersByProject[widget.projectId] ?? const [])
+        .map((m) => m.employeeId)
+        .toSet();
+    final available = store.allEmployees.where((e) => !memberIds.contains(e['id'])).toList();
     final selectedIds = <String>{};
 
     showDialog(
@@ -833,9 +843,10 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                           
                           if (!context.mounted) return;
                           if (ok) {
+                            await store.fetchProjectMembersFromBackend(project.id);
                             AppSnack.success(context, 'Members added!');
                           } else {
-                            AppSnack.error(context, 'Member management is not supported by the backend yet.');
+                            AppSnack.error(context, 'Some members could not be added. Please try again.');
                           }
                         }
                       },
@@ -869,11 +880,12 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                 onPressed: () async {
                   Navigator.pop(dialogContext);
                   final ok = await store.removeMemberFromProject(project.id, empId);
+                  if (ok) await store.fetchProjectMembersFromBackend(project.id);
                   if (!context.mounted) return;
                   if (ok) {
                     AppSnack.success(context, '$empName removed from project.');
                   } else {
-                    AppSnack.error(context, 'Member management is not supported by the backend yet.');
+                    AppSnack.error(context, 'Could not remove $empName. Please try again.');
                   }
                 },
                 child: const Text('Remove', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -895,6 +907,9 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
           (p) => p.id == widget.projectId,
           orElse: () => ProjectRecord(id: widget.projectId, name: 'Unknown', budget: 0, assignedEmails: [], isActive: false),
         );
+
+        final roster = store.projectMembersByProject[widget.projectId] ?? const <ProjectMemberRecord>[];
+        final membersLoading = store.projectMembersLoading && roster.isEmpty;
         
         final obsidianBlack = store.bg;
         final darkCharcoal = store.card;
@@ -934,7 +949,10 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('${project.assignedEmails.length} Team Members', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text(
+                        '${(store.projectMembersByProject[widget.projectId] ?? const <ProjectMemberRecord>[]).length} Team Members',
+                        style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
                       if (project.isActive)
                         TextButton.icon(
                           onPressed: () => _showAddMemberDialog(context, project, store),
@@ -960,30 +978,49 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                         border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.2)),
                         boxShadow: cardShadows,
                       ),
-                      child: ListView.separated(
-                        itemCount: project.assignedEmails.length,
+                      child: membersLoading
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(color: champagneGold, strokeWidth: 2.5),
+                                  const SizedBox(height: 12),
+                                  Text('Loading members…', style: TextStyle(color: textMuted, fontSize: 13)),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                        // Real roster from GET /projects/{id}/members —
+                        // assignedEmails is never populated by the backend.
+                        itemCount: roster.length,
                         separatorBuilder: (_, _) => Divider(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.shade200, height: 1),
                         itemBuilder: (context, index) {
-                          final empId = project.assignedEmails[index];
-                          
-                          final empData = store.allEmployees.firstWhere(
-                            (e) => e['id'] == empId, 
-                            orElse: () => {'name': empId, 'email': '', 'id': empId}
-                          );
-                          
+                          final member = roster[index];
+                          final empId = member.employeeId;
                           final isSelf = empId == store.currentUserId;
 
                           return ListTile(
                             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             leading: CircleAvatar(
                               backgroundColor: champagneGold.withValues(alpha: 0.2),
-                              child: Text(store.getInitials(empData['name'] ?? 'U'), style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold)),
+                              child: Text(
+                                store.getInitials(member.name.isNotEmpty ? member.name : 'U'),
+                                style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold),
+                              ),
                             ),
-                            title: Text(empData['name'] ?? empId, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                            subtitle: Text('ID: ${empData['id']} • ${empData['email']}', style: TextStyle(color: textMuted, fontSize: 12)),
+                            title: Text(
+                              member.name.isNotEmpty ? member.name : empId,
+                              style: TextStyle(color: textFrost, fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(
+                              member.roleName.isNotEmpty
+                                  ? 'ID: $empId • ${member.email} • ${member.roleName}'
+                                  : 'ID: $empId • ${member.email}',
+                              style: TextStyle(color: textMuted, fontSize: 12),
+                            ),
                             trailing: (!project.isActive || isSelf) ? const SizedBox.shrink() : IconButton(
                               icon: const Icon(Icons.person_remove_rounded, color: Colors.redAccent, size: 20),
-                              onPressed: () => _confirmRemoveMember(context, project, store, empId, empData['name'] ?? empId),
+                              onPressed: () => _confirmRemoveMember(context, project, store, empId, member.name),
                             ),
                           );
                         },

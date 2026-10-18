@@ -19,6 +19,8 @@ class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: 0);
+    // Real feed: GET /notifications (owner-scoped) each time the hub opens.
+    _store.fetchNotificationsFromBackend();
   }
 
   @override

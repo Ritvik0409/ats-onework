@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 class MyRequestsScreen extends StatefulWidget {
   const MyRequestsScreen({super.key});
@@ -15,6 +16,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
   Color _statusColor(String status, Color defaultGold) {
     if (status == 'Approved' || status == 'Paid') return Colors.greenAccent.shade400;
     if (status == 'Rejected') return Colors.redAccent.shade400;
+    if (status == 'Info Requested') return Colors.orangeAccent.shade200;
     return defaultGold;
   }
 
@@ -53,7 +55,9 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
 
         final filtered = all.where((e) {
           if (_selectedFilter == 'All') return true;
-          if (_selectedFilter == 'Pending') return e.status == 'Pending Verification';
+          if (_selectedFilter == 'Pending') {
+            return e.status == 'Pending Verification' || e.status == 'Info Requested';
+          }
           return e.status == _selectedFilter;
         }).toList();
 
@@ -170,6 +174,13 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                                             style: TextStyle(color: Colors.redAccent.withValues(alpha: 0.85), fontSize: 11, fontStyle: FontStyle.italic),
                                           ),
                                         ],
+                                        if (e.status == 'Info Requested' && e.infoMessage != null && e.infoMessage!.isNotEmpty) ...[
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            'Manager asked: ${e.infoMessage}',
+                                            style: TextStyle(color: Colors.orangeAccent.withValues(alpha: 0.9), fontSize: 11, fontStyle: FontStyle.italic),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                     ),
@@ -187,6 +198,10 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                                           ),
                                           child: Text(e.status == 'Approved' ? 'Approved • Payment Pending' : e.status, style: TextStyle(color: _statusColor(e.status, champagneGold), fontSize: 10, fontWeight: FontWeight.bold)),
                                         ),
+                                        if (e.status == 'Info Requested') ...[
+                                          const SizedBox(height: 8),
+                                          _ResubmitButton(store: _store, expenseId: e.id),
+                                        ],
                                       ],
                                     ),
                                   ],
@@ -202,6 +217,66 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Resubmit affordance for an expense in 'Info Requested' — the honest
+/// backend action: POST /expenses/{id}/resubmit (no fake success).
+class _ResubmitButton extends StatefulWidget {
+  final ExpenseStore store;
+  final String expenseId;
+
+  const _ResubmitButton({required this.store, required this.expenseId});
+
+  @override
+  State<_ResubmitButton> createState() => _ResubmitButtonState();
+}
+
+class _ResubmitButtonState extends State<_ResubmitButton> {
+  bool _sending = false;
+
+  Future<void> _resubmit() async {
+    final snackContext = context;
+    setState(() => _sending = true);
+    final ok = await widget.store.resubmitExpense(widget.expenseId);
+    if (!mounted) return;
+    setState(() => _sending = false);
+    if (ok) {
+      AppSnack.success(snackContext, 'Details acknowledged — back in the review queue.');
+    } else {
+      AppSnack.error(snackContext, 'Could not resubmit. Please try again.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 26,
+      child: ElevatedButton.icon(
+        onPressed: _sending ? null : _resubmit,
+        icon: _sending
+            ? const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.replay_rounded, size: 13),
+        label: Text(
+          _sending ? 'Sending…' : "I've updated it — resubmit",
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+        ),
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          backgroundColor: Colors.orangeAccent.withValues(alpha: 0.15),
+          foregroundColor: Colors.orangeAccent,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(6),
+            side: BorderSide(color: Colors.orangeAccent.withValues(alpha: 0.4)),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -15,7 +15,8 @@ class EmployeeNotificationsScreen extends StatelessWidget {
     Color iconColor;
     String title;
 
-    // Matches the title and icon to the specific action
+    // Matches the title and icon to the specific action (backend types are
+    // normalized in the store via normalizeNotificationType).
     if (notif.type == 'approved') {
       icon = Icons.check_circle_rounded;
       iconColor = Colors.greenAccent;
@@ -28,10 +29,19 @@ class EmployeeNotificationsScreen extends StatelessWidget {
       icon = Icons.info_rounded;
       iconColor = champagneGold;
       title = 'Additional Info Required';
+    } else if (notif.type == 'paid') {
+      icon = Icons.payments_rounded;
+      iconColor = Colors.greenAccent;
+      title = 'Reimbursement Paid';
+    } else if (notif.type == 'resubmit') {
+      icon = Icons.replay_rounded;
+      iconColor = champagneGold;
+      title = 'Expense Resubmitted';
     } else {
       icon = Icons.notifications_rounded;
       iconColor = champagneGold;
-      title = 'Notification';
+      // Backend notifications carry their own human title — show it.
+      title = notif.title.isNotEmpty ? notif.title : 'Notification';
     }
 
     return Container(
@@ -72,9 +82,11 @@ class EmployeeNotificationsScreen extends StatelessWidget {
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) {
-        // Only grabs notifications that belong to this specific employee's expenses
-        final myExpenseIds = store.myExpenses.map((e) => e.id).toSet();
-        final myNotifications = store.notifications.where((n) => myExpenseIds.contains(n.expenseId)).toList();
+        // The GET /notifications feed is already owner-scoped server-side
+        // (§49 #36), so show everything it returned — reference_id is an
+        // expense id only for expense.* types, and membership/access rows
+        // reference other tables.
+        final myNotifications = store.notifications.toList();
 
         return Scaffold(
           backgroundColor: obsidianBlack,

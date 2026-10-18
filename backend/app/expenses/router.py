@@ -192,3 +192,35 @@ async def reject_expense(
         expense_id=expense_id,
         payload=payload,
     )
+
+
+@router.post("/{expense_id}/request-info", response_model=ExpenseResponse)
+async def request_expense_info(
+    expense_id: int,
+    payload: ApprovalActionRequest,
+    user: Annotated[CurrentUser, Depends(require_admin)],
+    conn: Annotated[Conn, Depends(get_connection)],
+) -> ExpenseResponse:
+    """Admin asks the employee for details — status becomes info_requested."""
+    return await expense_service.request_info(
+        conn,
+        actor_id=user.employee_id,
+        organization_id=user.organization_id,
+        expense_id=expense_id,
+        payload=payload,
+    )
+
+
+@router.post("/{expense_id}/resubmit", response_model=ExpenseResponse)
+async def resubmit_expense(
+    expense_id: int,
+    user: Annotated[CurrentUser, Depends(require_membership)],
+    conn: Annotated[Conn, Depends(get_connection)],
+) -> ExpenseResponse:
+    """The submitting employee returns an info_requested expense to pending."""
+    return await expense_service.resubmit(
+        conn,
+        actor_id=user.employee_id,
+        organization_id=user.organization_id,
+        expense_id=expense_id,
+    )

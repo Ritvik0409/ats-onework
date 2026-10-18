@@ -8,6 +8,7 @@ import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/expense_details.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -157,27 +158,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   return;
                 }
                 try {
-                  await store.assignEmployeeCredentials(
+                  // POST /auth/register — the role dropdown is informational
+                  // only (no role endpoint in §49).
+                  final ok = await store.assignEmployeeCredentials(
                     employeeId: idController.text.trim(),
                     email: emailController.text.trim(),
                     password: passwordController.text.trim(),
                     name: nameController.text.trim(),
                     role: selectedRole, 
                   );
-                  if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Successfully created ${selectedRole.toUpperCase()} account!', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                        backgroundColor: store.accentGold,
-                      ),
-                    );
+                  if (!context.mounted) return;
+                  if (ok) {
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    AppSnack.success(context, 'Account created! (Role is informational — no role endpoint yet)');
+                  } else {
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    AppSnack.error(context, 'Could not create the account (the email may already be registered).');
                   }
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.redAccent),
-                    );
+                    AppSnack.error(context, 'Error: $e');
                   }
                 }
               },

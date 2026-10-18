@@ -27,8 +27,15 @@ class _EmployeeNavigationShellState extends State<EmployeeNavigationShell> {
       builder: (context, _) {
         
         // --- THE GATEKEEPER ---
-        // If the user has zero projects assigned to them, intercept 
-        // the navigation and show the wait screen immediately.
+        // Wait screen ONLY when the project fetch has actually completed
+        // and came back empty — a slow/failed fetch used to strand
+        // assigned employees on this screen with no way out.
+        if (!store.projectsLoaded && store.myProjects.isEmpty) {
+          return Scaffold(
+            backgroundColor: store.bg,
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
         if (store.myProjects.isEmpty) {
           return const EmployeeWaitScreen();
         }

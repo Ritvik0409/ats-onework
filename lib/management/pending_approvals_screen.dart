@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/budget_setup_screen.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 /// Manager queue for project-access requests (FastAPI /access-requests,
 /// migration 0002). Each pending request already carries the project the
@@ -66,15 +67,12 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: store.accentGold, foregroundColor: store.isDarkMode ? store.bg : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
             onPressed: requestId.isEmpty ? null : () async {
               if (dialogContext.mounted) Navigator.pop(dialogContext);
-              try {
-                await store.decideProjectAccess(requestId, true);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$employeeName assigned successfully!'), backgroundColor: store.accentGold));
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error approving request: $e'), backgroundColor: Colors.redAccent));
-                }
+              final ok = await store.decideProjectAccess(requestId, true);
+              if (!context.mounted) return;
+              if (ok) {
+                AppSnack.success(context, '$employeeName assigned successfully!');
+              } else {
+                AppSnack.error(context, 'Could not approve the request.');
               }
             },
             child: const Text('Confirm & Grant Access', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -101,19 +99,12 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
             onPressed: requestId.isEmpty ? null : () async {
               Navigator.pop(dialogContext);
-              try {
-                await store.decideProjectAccess(requestId, false);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Project access request denied.'), backgroundColor: Colors.redAccent),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error denying request: $e'), backgroundColor: Colors.redAccent),
-                  );
-                }
+              final ok = await store.decideProjectAccess(requestId, false);
+              if (!context.mounted) return;
+              if (ok) {
+                AppSnack.error(context, 'Project access request denied.');
+              } else {
+                AppSnack.error(context, 'Could not deny the request.');
               }
             },
             child: const Text('Yes, Deny', style: TextStyle(fontWeight: FontWeight.bold)),

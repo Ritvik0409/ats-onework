@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/app_snack.dart';
 
 /// Manager queue for project-access requests.
 ///
@@ -55,7 +56,17 @@ class _ProjectAccessRequestsScreenState extends State<ProjectAccessRequestsScree
     );
 
     if (confirm != true) return;
-    await store.decideProjectAccess(requestId, isApproved);
+    final ok = await store.decideProjectAccess(requestId, isApproved);
+    if (!context.mounted) return;
+    if (ok) {
+      if (isApproved) {
+        AppSnack.success(context, 'Request approved — employee now has project access.');
+      } else {
+        AppSnack.error(context, 'Request denied.');
+      }
+    } else {
+      AppSnack.error(context, 'Could not ${isApproved ? 'approve' : 'deny'} the request.');
+    }
   }
 
   @override

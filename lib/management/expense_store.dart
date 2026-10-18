@@ -42,7 +42,6 @@ class ExpenseRecord {
   final String date; 
   final String description;
   String status; 
-  bool decrypted; 
   String? rejectionReason; 
   final String? receiptBase64;
   String? processedBy; 
@@ -59,7 +58,6 @@ class ExpenseRecord {
     required this.date,
     required this.description,
     this.status = 'Pending Verification',
-    this.decrypted = false,
     this.rejectionReason,
     this.receiptBase64,
     this.processedBy,
@@ -441,20 +439,25 @@ class ExpenseStore extends ChangeNotifier {
     }
   }
 
-  Future<void> submitProjectAccessRequest(String projectId) async {
+  /// Returns true when the backend confirmed the access request. The
+  /// caller decides what to tell the user (false = request failed).
+  Future<bool> submitProjectAccessRequest(String projectId) async {
     try {
       final response = await ApiClient.post('/projects/$projectId/access-requests', {});
       if (response.statusCode == 200 || response.statusCode == 201) {
         await fetchProjectRequestsFromBackend();
-      } else {
-        debugPrint('submitProjectAccessRequest failed: ${response.statusCode}');
+        return true;
       }
+      debugPrint('submitProjectAccessRequest failed: ${response.statusCode}');
     } catch (e) {
       debugPrint('Error submitting project access request: $e');
     }
+    return false;
   }
 
-  Future<void> assignEmployeeCredentials({
+  /// Registers a new account via POST /auth/register (no org auto-join in
+  /// §49; the role field is informational). Returns true on success.
+  Future<bool> assignEmployeeCredentials({
     required String employeeId,
     required String email,
     required String password,
@@ -465,7 +468,6 @@ class ExpenseStore extends ChangeNotifier {
     final cleanPassword = password.trim();
     final cleanName = name.trim();
     try {
-      // No POST /users in §49 — closest is POST /auth/register (no org join).
       final response = await ApiClient.post('/auth/register', {
         'name': cleanName,
         'email': cleanEmail,
@@ -473,34 +475,38 @@ class ExpenseStore extends ChangeNotifier {
       }, auth: false);
       if (response.statusCode == 200 || response.statusCode == 201) {
         await fetchUsersFromBackend();
-      } else {
-        debugPrint('assignEmployeeCredentials failed: ${response.statusCode}');
+        return true;
       }
+      debugPrint('assignEmployeeCredentials failed: ${response.statusCode}');
     } catch (e) {
       debugPrint('Error assigning employee credentials: $e');
     }
+    return false;
   }
 
-  Future<void> updateProjectBudget(String projectId, double newBudget) async {
-    // Budgets live on a separate table (no PATCH budget on projects in §49).
-    // Keep the local value so the UI stays consistent.
-    debugPrint('updateProjectBudget: no backend field — local only.');
-    await fetchProjectsFromBackend();
+  /// No budget-edit endpoint in §49 (budgets are POST-only). Returns
+  /// false so callers show an honest failure instead of a fake success.
+  Future<bool> updateProjectBudget(String projectId, double newBudget) async {
+    debugPrint('updateProjectBudget: no backend endpoint yet.');
+    return false;
   }
 
-  Future<void> addMembersToProject(String projectId, List<String> newEmployeeIds) async {
-    // No project-members endpoint in §49 — apply locally.
-    debugPrint('addMembersToProject: no backend endpoint — local only.');
+  /// No project-members endpoint in §49 — returns false so callers stop
+  /// reporting success for a no-op.
+  Future<bool> addMembersToProject(String projectId, List<String> newEmployeeIds) async {
+    debugPrint('addMembersToProject: no backend endpoint yet.');
+    return false;
   }
 
-  Future<void> removeMemberFromProject(String projectId, String email) async {
-    debugPrint('removeMemberFromProject: no backend endpoint — local only.');
+  Future<bool> removeMemberFromProject(String projectId, String email) async {
+    debugPrint('removeMemberFromProject: no backend endpoint yet.');
+    return false;
   }
 
   /// Approve or reject a project-access request (GET queue rows carry
   /// `access_request_id`). Approval inserts the employee into the
-  /// request's project via project_members.
-  Future<void> decideProjectAccess(String requestId, bool approve, {String? comment}) async {
+  /// request's project via project_members. Returns true on success.
+  Future<bool> decideProjectAccess(String requestId, bool approve, {String? comment}) async {
     try {
       final response = await ApiClient.post(
         '/access-requests/$requestId/${approve ? 'approve' : 'reject'}',
@@ -508,25 +514,31 @@ class ExpenseStore extends ChangeNotifier {
       );
       if (response.statusCode == 200) {
         await fetchProjectRequestsFromBackend();
-      } else {
-        debugPrint('decideProjectAccess failed: ${response.statusCode}');
+        return true;
       }
+      debugPrint('decideProjectAccess failed: ${response.statusCode}');
     } catch (e) {
       debugPrint('Error deciding project access: $e');
     }
+    return false;
   }
 
-  Future<void> toggleProjectActiveStatus(String projectId, bool makeActive) async {
+  /// PATCH /projects/{id} is_active. Returns true when the backend
+  /// confirmed (list is refreshed); false leaves the UI unchanged.
+  Future<bool> toggleProjectActiveStatus(String projectId, bool makeActive) async {
     try {
       final response = await ApiClient.patch('/projects/$projectId', {
         'is_active': makeActive,
       });
       if (response.statusCode == 200) {
         await fetchProjectsFromBackend();
+        return true;
       }
+      debugPrint('toggleProjectActiveStatus failed: ${response.statusCode}');
     } catch (e) {
       debugPrint('Error updating project status: $e');
     }
+    return false;
   }
 
   bool isEmployeeAssignedToAnyProject(String identifier) {
@@ -547,10 +559,12 @@ class ExpenseStore extends ChangeNotifier {
         .fold(0.0, (totalAmount, e) => totalAmount + e.amount);
   }
 
-  Future<void> createProject(String name, double budget, List<String> employeeIds) async {
+  /// Creates the org budget for the current month, then the project
+  /// referencing it. Returns null on success or an error message.
+  Future<String?> createProject(String name, double budget, List<String> employeeIds) async {
+    final orgId = await _orgId();
+    if (orgId == null) return 'You are not signed in to an organization.';
     try {
-      final orgId = await _orgId();
-      if (orgId == null) return;
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, 1).toIso8601String().split('T').first;
       final end = DateTime(now.year, now.month + 1, 1)
@@ -565,7 +579,7 @@ class ExpenseStore extends ChangeNotifier {
       });
       if (budgetRes.statusCode != 200 && budgetRes.statusCode != 201) {
         debugPrint('createProject budget failed: ${budgetRes.statusCode}');
-        return;
+        return 'Could not create the monthly budget (${budgetRes.statusCode}).';
       }
       final budgetId =
           (json.decode(budgetRes.body) as Map<String, dynamic>)['budget_id'];
@@ -575,9 +589,13 @@ class ExpenseStore extends ChangeNotifier {
       });
       if (response.statusCode == 200 || response.statusCode == 201) {
         await fetchProjectsFromBackend();
+        return null;
       }
+      debugPrint('createProject project failed: ${response.statusCode}');
+      return 'Could not create the project (${response.statusCode}).';
     } catch (e) {
       debugPrint('Error creating project: $e');
+      return 'Network error while creating the project.';
     }
   }
 
@@ -1019,13 +1037,15 @@ class ExpenseStore extends ChangeNotifier {
     return null;
   }
 
-  Future<void> approve(String id) async {
-    final expense = byId(id);
-    if (isLocked(id)) return;
+  /// Optimistic approve with rollback. Returns true when the backend
+  /// confirmed the approval (notification only fires on success).
+  Future<bool> approve(String id) async {
+    final expense = byIdOrNull(id);
+    if (expense == null || isLocked(id)) return false;
     final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
     if (expenseId == null) {
       debugPrint('approve: invalid backend expense id for $id');
-      return;
+      return false;
     }
     final prevStatus = expense.status;
     expense.status = 'Approved';
@@ -1034,27 +1054,29 @@ class ExpenseStore extends ChangeNotifier {
       final response = await ApiClient.post('/expenses/$expenseId/approve', {});
       if (response.statusCode == 200) {
         await fetchExpensesFromBackend();
-      } else {
-        expense.status = prevStatus;
-        notifyListeners();
-        debugPrint('approve failed: ${response.statusCode}');
+        _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} has been approved.', 'approved');
+        return true;
       }
+      expense.status = prevStatus;
+      notifyListeners();
+      debugPrint('approve failed: ${response.statusCode}');
     } catch (e) {
       expense.status = prevStatus;
       notifyListeners();
       debugPrint('approve error: $e');
     }
-
-    _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} has been approved.', 'approved');
+    return false;
   }
 
-  Future<void> reject(String id, {required String reason}) async {
-    final expense = byId(id);
-    if (isLocked(id)) return;
+  /// Optimistic reject with rollback. Returns true when the backend
+  /// confirmed the rejection. Notification only fires on success.
+  Future<bool> reject(String id, {required String reason}) async {
+    final expense = byIdOrNull(id);
+    if (expense == null || isLocked(id)) return false;
     final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
     if (expenseId == null) {
       debugPrint('reject: invalid backend expense id for $id');
-      return;
+      return false;
     }
     final prevStatus = expense.status;
     expense.status = 'Rejected';
@@ -1066,24 +1088,24 @@ class ExpenseStore extends ChangeNotifier {
       });
       if (response.statusCode == 200) {
         await fetchExpensesFromBackend();
-      } else {
-        expense.status = prevStatus;
-        notifyListeners();
-        debugPrint('reject failed: ${response.statusCode}');
+        _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} was rejected.', 'rejected');
+        return true;
       }
+      expense.status = prevStatus;
+      notifyListeners();
+      debugPrint('reject failed: ${response.statusCode}');
     } catch (e) {
       expense.status = prevStatus;
       notifyListeners();
       debugPrint('reject error: $e');
     }
-
-    _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} was rejected.', 'rejected');
+    return false;
   }
 
   void requestMoreInfo(String id) {
     // No backend equivalent — local flag only.
-    final expense = byId(id);
-    if (isLocked(id)) return;
+    final expense = byIdOrNull(id);
+    if (expense == null || isLocked(id)) return;
     expense.status = 'Info Requested';
     notifyListeners();
     _addNotification(expense.id, expense.name, 'Additional details requested for ${expense.amountFormatted}.', 'info');
@@ -1094,7 +1116,8 @@ class ExpenseStore extends ChangeNotifier {
     if (cleanTxId.isEmpty) {
       return 'Transaction ID is compulsory to mark an expense as paid.';
     }
-    final expense = byId(id);
+    final expense = byIdOrNull(id);
+    if (expense == null) return 'Record no longer available.';
     final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
     if (expenseId == null) return 'Invalid backend expense id.';
     try {
@@ -1121,12 +1144,6 @@ class ExpenseStore extends ChangeNotifier {
     } catch (e) {
       return 'Payment failed: $e';
     }
-  }
-
-  void toggleDecrypt(String id) {
-    final expense = byId(id);
-    expense.decrypted = !expense.decrypted;
-    notifyListeners();
   }
 
   void _addNotification(String expenseId, String title, String subtitle, String type) {

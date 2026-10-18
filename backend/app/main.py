@@ -34,10 +34,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 def register_middleware(app: FastAPI) -> None:
-    settings = get_settings()
+    # allow_origin_regex covers Flutter web (random localhost ports) and the
+    # Android-emulator origin; no settings dependency needed.
     app.add_middleware(
         CORSMiddleware,
-        # Allows Flutter web (which runs on random localhost ports) to connect
         allow_origin_regex=r"^http://localhost:\d+$",
         allow_credentials=True,
         allow_methods=["*"],

@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
 
+/// Manager queue for project-access requests.
+///
+/// Requests come from `GET /api/v1/access-requests?status=pending`
+/// (migration 0002 flow): each request already carries the project the
+/// employee wants, so approving just decides it — the project picker
+/// from the Firebase era is gone.
 class ProjectAccessRequestsScreen extends StatefulWidget {
   const ProjectAccessRequestsScreen({super.key});
 
@@ -9,89 +15,47 @@ class ProjectAccessRequestsScreen extends StatefulWidget {
 }
 
 class _ProjectAccessRequestsScreenState extends State<ProjectAccessRequestsScreen> {
-  void _handleRequest(BuildContext context, Map<String, dynamic> request, bool isApproved) {
+  Future<void> _handleRequest(BuildContext context, Map<String, dynamic> request, bool isApproved) async {
     final store = ExpenseStore.instance;
-    final email = request['email'] ?? '';
+    final requestId = request['access_request_id']?.toString() ?? '';
+    if (requestId.isEmpty) return;
 
-    if (!isApproved) {
-      // Handle denial locally or via backend if needed
-      store.projectRequests.removeWhere((r) => r['email'] == email);
-      setState(() {});
-      return;
-    }
+    final name = request['name']?.toString() ?? 'Unknown';
+    final projectName = request['projectName']?.toString() ?? 'unknown project';
 
-    String? selectedProjectId;
-
-    showDialog(
+    final confirm = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: store.card,
-          title: Text('Assign to Project', style: TextStyle(color: store.accentGold)),
-          content: DropdownButtonFormField<String>(
-            value: selectedProjectId,
-            dropdownColor: store.card,
-            style: TextStyle(color: store.textFrost),
-            decoration: InputDecoration(
-              labelText: 'Select Project',
-              labelStyle: TextStyle(color: store.textMuted),
-              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.textMuted)),
-              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
-            ),
-            items: store.projects.map((p) {
-              return DropdownMenuItem<String>(
-                value: p.id,
-                enabled: p.isActive,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      p.name, 
-                      style: TextStyle(
-                        color: p.isActive ? store.textFrost : store.textMuted.withValues(alpha: 0.5),
-                      ),
-                    ),
-                    if (!p.isActive)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'Deactivated', 
-                          style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                  ],
-                ),
-              );
-            }).toList(),
-            onChanged: (val) => setDialogState(() => selectedProjectId = val),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text('Cancel', style: TextStyle(color: store.textMuted)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: store.accentGold),
-              onPressed: () async {
-                if (selectedProjectId == null) return;
-                try {
-                  await store.approveProjectAccess(email, selectedProjectId!);
-                  if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  setState(() {});
-                } catch (e) {
-                  debugPrint('Error assigning project: $e');
-                }
-              },
-              child: Text('Confirm Assignment', style: TextStyle(color: store.bg, fontWeight: FontWeight.bold)),
-            ),
-          ],
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: store.card,
+        title: Text(
+          isApproved ? 'Approve Access' : 'Deny Access',
+          style: TextStyle(color: store.accentGold),
         ),
+        content: Text(
+          isApproved
+              ? 'Grant $name membership on "$projectName"?'
+              : 'Reject $name\'s request for "$projectName"?',
+          style: TextStyle(color: store.textMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isApproved ? store.accentGold : Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(isApproved ? 'Approve' : 'Deny'),
+          ),
+        ],
       ),
     );
+
+    if (confirm != true) return;
+    await store.decideProjectAccess(requestId, isApproved);
   }
 
   @override
@@ -110,39 +74,65 @@ class _ProjectAccessRequestsScreenState extends State<ProjectAccessRequestsScree
             title: Text('Project Access Requests', style: TextStyle(color: store.accentGold)),
             iconTheme: IconThemeData(color: store.accentGold),
           ),
-          body: requests.isEmpty
-              ? Center(child: Text('No pending requests.', style: TextStyle(color: store.textMuted)))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: requests.length,
-                  itemBuilder: (context, index) {
-                    final req = requests[index];
-                    final email = req['email'] ?? '';
-                    final name = req['name'] ?? 'Unknown';
-
-                    return Card(
-                      color: store.card,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      child: ListTile(
-                        title: Text(name, style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-                        subtitle: Text(email, style: TextStyle(color: store.textMuted)),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent),
-                              onPressed: () => _handleRequest(context, req, false),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.check_circle_outline, color: Colors.greenAccent),
-                              onPressed: () => _handleRequest(context, req, true),
-                            ),
-                          ],
+          body: RefreshIndicator(
+            color: store.accentGold,
+            onRefresh: store.fetchProjectRequestsFromBackend,
+            child: requests.isEmpty
+                ? ListView(
+                    children: [
+                      const SizedBox(height: 160),
+                      Center(
+                        child: Text(
+                          'No pending requests.',
+                          style: TextStyle(color: store.textMuted),
                         ),
                       ),
-                    );
-                  },
-                ),
+                    ],
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: requests.length,
+                    itemBuilder: (context, index) {
+                      final req = requests[index];
+                      final email = req['email']?.toString() ?? '';
+                      final name = req['name']?.toString() ?? 'Unknown';
+                      final projectName = req['projectName']?.toString() ?? '';
+
+                      return Card(
+                        color: store.card,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ListTile(
+                          title: Text(
+                            name,
+                            style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                            projectName.isEmpty ? email : '$email\nWants to join: $projectName',
+                            style: TextStyle(color: store.textMuted),
+                          ),
+                          isThreeLine: projectName.isNotEmpty,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent),
+                                onPressed: () async {
+                                  await _handleRequest(context, req, false);
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.check_circle_outline, color: Colors.greenAccent),
+                                onPressed: () async {
+                                  await _handleRequest(context, req, true);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
         );
       },
     );

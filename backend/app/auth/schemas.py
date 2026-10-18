@@ -9,7 +9,8 @@ the client picks its active organization from that list and calls
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from email_validator import validate_email
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.users.schemas import UserResponse
 
@@ -35,12 +36,27 @@ class UserCreate(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    """Login body — §49 #4."""
+    """Login body — §49 #4.
+
+    The identifier field is ``email`` (as clients and the contract tests
+    send it). A well-formed email is fully validated and its domain
+    normalized to lowercase; a bare employee ID (e.g. ``EMP202``) is
+    accepted too and lowercased for case-insensitive lookup.
+    """
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    username: str = Field(min_length=1, max_length=254)
+    email: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_identifier(cls, value: str) -> str:
+        if "@" in value:
+            # Email path — EmailStr-equivalent validation + normalization.
+            return validate_email(value, check_deliverability=False).normalized
+        # Employee-ID path (e.g. EMP202) — case-insensitive lookup.
+        return value.lower()
 
 
 class RefreshRequest(BaseModel):

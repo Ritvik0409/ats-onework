@@ -1,12 +1,10 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:ats_onework/employee/employee_login.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/budget_allocation_screen.dart';
 import 'package:ats_onework/management/employee_management_screen.dart';
 import 'package:ats_onework/management/pending_approvals_screen.dart';
+import 'package:ats_onework/shared/api_client.dart';
 
 class ManagerProfileScreen extends StatefulWidget {
   const ManagerProfileScreen({super.key});
@@ -42,9 +40,11 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
           ),
           TextButton(
             onPressed: () async {
-              Navigator.of(dialogContext).pop(); 
-              await FirebaseAuth.instance.signOut(); 
-              
+              Navigator.of(dialogContext).pop();
+              // Revokes the refresh token server-side and clears the
+              // local JWT store (api_client.dart).
+              await ApiClient.signOut();
+
               if (context.mounted) {
                 Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const UniversalLoginScreen()),
@@ -129,12 +129,10 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
   }
 
   void _showChangePassword() {
-    final formKey = GlobalKey<FormState>();
+    // No self-service password endpoint in the backend (§49) — passwords
+    // are bcrypt-hashed server-side; resets are admin actions
+    // (PATCH /users/{id} or a future /auth/reset flow).
     final store = ExpenseStore.instance;
-    final currentCtrl = TextEditingController();
-    final newCtrl = TextEditingController();
-    final confirmCtrl = TextEditingController();
-
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -144,125 +142,16 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
           side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
         ),
         title: Text('Change Password', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-        content: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _passwordField(currentCtrl, 'Current Password', store),
-                const SizedBox(height: 12),
-                _passwordField(newCtrl, 'New Password', store),
-                const SizedBox(height: 12),
-                _passwordField(confirmCtrl, 'Confirm New Password', store, confirmAgainst: newCtrl),
-              ],
-            ),
-          ),
+        content: const Text(
+          'For security, password changes are admin-managed. Contact an administrator to reset your password.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text('Cancel', style: TextStyle(color: store.textMuted)),
-          ),
-          TextButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-
-              try {
-                final db = FirebaseFirestore.instance;
-                final identifier = store.currentUserId.isNotEmpty ? store.currentUserId : store.currentUserEmail;
-
-                if (identifier.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Error: User identifier missing.'), backgroundColor: Colors.redAccent),
-                  );
-                  return;
-                }
-
-                DocumentReference userRef;
-                if (store.currentUserId.isNotEmpty) {
-                  userRef = db.collection('users').doc(store.currentUserId);
-                } else {
-                  final query = await db.collection('users').where('email', isEqualTo: store.currentUserEmail.trim().toLowerCase()).limit(1).get();
-                  if (query.docs.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('User record not found in database.'), backgroundColor: Colors.redAccent),
-                    );
-                    return;
-                  }
-                  userRef = query.docs.first.reference;
-                }
-
-                final docSnap = await userRef.get();
-                if (!docSnap.exists) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('User document does not exist.'), backgroundColor: Colors.redAccent),
-                  );
-                  return;
-                }
-
-                final data = docSnap.data() as Map<String, dynamic>? ?? {};
-                final dbPassword = data['password']?.toString();
-
-                if (dbPassword != null && dbPassword != currentCtrl.text.trim()) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('The current password you entered is incorrect.'), backgroundColor: Colors.redAccent),
-                  );
-                  return;
-                }
-
-                await userRef.update({
-                  'password': newCtrl.text.trim(),
-                  'updatedAt': FieldValue.serverTimestamp(),
-                });
-
-                try {
-                  final authUser = FirebaseAuth.instance.currentUser;
-                  if (authUser != null && authUser.email != null) {
-                    await authUser.updatePassword(newCtrl.text.trim());
-                  }
-                } catch (_) {}
-
-                if (!dialogContext.mounted) return;
-                Navigator.pop(dialogContext);
-                _showSnack('Password securely updated!');
-
-              } catch (e) {
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Failed to update password: $e', style: const TextStyle(fontWeight: FontWeight.bold)), backgroundColor: Colors.redAccent),
-                );
-              }
-            },
-            child: Text('Update', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
+            child: Text('Close', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _passwordField(TextEditingController controller, String label, ExpenseStore store, {TextEditingController? confirmAgainst}) {
-    return TextFormField(
-      controller: controller,
-      obscureText: true,
-      style: TextStyle(color: store.textFrost, fontSize: 14),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: store.textMuted, fontSize: 13),
-        filled: true,
-        fillColor: store.bg,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: store.accentGold, width: 1.5),
-        ),
-      ),
-      validator: (value) {
-        if (value == null || value.isEmpty) return 'This field is required';
-        if (value.length < 6) return 'Must be at least 6 characters';
-        if (confirmAgainst != null && value != confirmAgainst.text) return 'Passwords do not match';
-        return null;
-      },
     );
   }
 

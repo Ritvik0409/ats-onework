@@ -1,14 +1,8 @@
-"""Notification orchestration — service layer (arch. doc §7, §38).
-
-Services (expenses, approvals, reimbursements) call ``NotificationService``
-from inside their workflow transaction so the notification row commits or
-rolls back atomically with the business state change. Delivery to external
-channels (push/email) is scheduled by routers via ``BackgroundTasks`` —
-never awaited inline.
-"""
+"""Notification orchestration — service layer (arch. doc §7, §38)."""
 
 from __future__ import annotations
 
+from app.core.exceptions import NotFoundError
 from app.db.types import Conn, Row
 from app.notifications.repository import NotificationRepository
 from app.notifications.schemas import (
@@ -45,6 +39,16 @@ class NotificationService:
             before_id=before_id,
         )
         return [NotificationListItem.model_validate(row) for row in rows]
+
+    async def mark_read(self, conn: Conn, *, employee_id: int, notification_id: int) -> None:
+        row = await self._repository.mark_read(
+            conn, employee_id=employee_id, notification_id=notification_id
+        )
+        if row is None:
+            raise NotFoundError("Notification not found.")
+
+    async def mark_all_read(self, conn: Conn, *, employee_id: int) -> None:
+        await self._repository.mark_all_read(conn, employee_id=employee_id)
 
 
 service = NotificationService()

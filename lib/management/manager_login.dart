@@ -1,13 +1,14 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // NEW: Required to check activation status
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ats_onework/management/navigation_shell.dart';
 import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/shared/google_auth_service.dart';
-import 'package:ats_onework/shared/google_sign_in_button.dart';
+import 'package:ats_onework/shared/api_client.dart';
 
-
+/// Management-portal login — FastAPI JWT (ADR-001), same flow as
+/// employee_login but gated on an admin membership: a non-admin login
+/// is refused and the persisted token is discarded.
 class ManagerLoginScreen extends StatefulWidget {
   const ManagerLoginScreen({super.key});
 
@@ -21,9 +22,7 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _rememberMe = false;
-  bool _isLoading = false; 
-  bool _isGoogleLoading = false;
-
+  bool _isLoading = false;
 
   static const Color obsidianBlack = Color(0xFF0D0D11);
   static const Color darkCharcoal = Color(0xFF16161F);
@@ -48,101 +47,90 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
     }
   }
 
- Future<void> _handleLogin() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
-      
-      try {
-        final email = _emailController.text.trim();
-        final password = _passwordController.text.trim();
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isLoading = true);
 
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
 
-        // Security Checkpoint
-        final statusDoc = await FirebaseFirestore.instance.collection('employee_status').doc(email).get();
-        if (statusDoc.exists && statusDoc.data()?['isActive'] == false) {
-          await FirebaseAuth.instance.signOut(); 
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Your account has been deactivated. Please contact administration.'), backgroundColor: Colors.redAccent),
-            );
-            // Force the spinner off right here just to be absolutely safe
-            setState(() => _isLoading = false);
-          }
-          return; 
-        }
-
-        final prefs = await SharedPreferences.getInstance();
-        if (_rememberMe) {
-          await prefs.setString('saved_manager_email', email);
-        } else {
-          await prefs.remove('saved_manager_email');
-        }
-
-        ExpenseStore.instance.setCurrentManager(email: email);
-        await ExpenseStore.instance.loadCurrentUserRole(email);
-
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-           MaterialPageRoute(builder: (context) => const ManagementNavigationShell()),
-          );
-        }
-      } catch (e) {
-        // FIX: Broadened the catch block to intercept EVERY type of error, preventing silent crashes
-        String errorMessage = 'An error occurred. Please try again.';
-        if (e is FirebaseAuthException) {
-          if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
-            errorMessage = 'Incorrect email or password.';
-          } else if (e.code == 'user-disabled') {
-            errorMessage = 'Your account has been disabled by an administrator.';
-          } else {
-            errorMessage = e.message ?? errorMessage;
-          }
-        } else {
-          errorMessage = e.toString(); // Catches database permission errors
-        }
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(errorMessage), backgroundColor: Colors.redAccent),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
-      }
-    }
-  }
-
-  Future<void> _handleGoogleSignIn() async {
-    setState(() => _isGoogleLoading = true);
     try {
-      final email = await GoogleAuthService.signIn();
+      // POST /api/v1/auth/login — base URL via --dart-define=API_BASE_URL
+      // (Android emulator: http://10.0.2.2:8000).
+      final response = await ApiClient.post(
+        '/auth/login',
+        {'email': email, 'password': password},
+        auth: false,
+      );
 
-      // FIX: Apply the same security checkpoint to Google Logins
-      final statusDoc = await FirebaseFirestore.instance.collection('employee_status').doc(email).get();
-      if (statusDoc.exists && statusDoc.data()?['isActive'] == false) {
-        await FirebaseAuth.instance.signOut(); 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Your account has been deactivated. Please contact administration.'), backgroundColor: Colors.redAccent),
-          );
-        }
-        return; 
+      if (!mounted) return;
+
+      if (response.statusCode == 401 || response.statusCode == 404) {
+        _showError('Incorrect email or password.');
+        return;
       }
+      if (response.statusCode == 403) {
+        _showError('Your account has been deactivated. Please contact administration.');
+        return;
+      }
+      if (response.statusCode != 200) {
+        _showError('Server error (${response.statusCode}). Please try again.');
+        return;
+      }
+
+      // TokenPair: {access_token, refresh_token, organizations[]}.
+      final tokenData = json.decode(response.body) as Map<String, dynamic>;
+      final token = tokenData['access_token']?.toString() ?? '';
+      final refreshToken = tokenData['refresh_token']?.toString() ?? '';
+      final orgs = (tokenData['organizations'] as List?) ?? [];
 
       final prefs = await SharedPreferences.getInstance();
-      if (_rememberMe) {
-        await prefs.setString('saved_manager_email', email);
+      int? orgId;
+      bool isAdmin = false;
+      if (orgs.isNotEmpty) {
+        final first = orgs.first as Map<String, dynamic>;
+        orgId = (first['organization_id'] as num?)?.toInt();
+        isAdmin = (first['is_admin'] as bool?) ?? false;
+      }
+      if (token.isEmpty || !isAdmin) {
+        // Never persist a token that cannot use the management portal.
+        await prefs.remove('auth_token');
+        await prefs.remove('refresh_token');
+        _showError('This portal is restricted to management accounts.');
+        return;
       }
 
+      await prefs.setString('auth_token', token);
+      await prefs.setString('refresh_token', refreshToken);
+      if (orgId != null) {
+        await prefs.setInt('organization_id', orgId);
+      }
+      await prefs.setBool('is_admin', isAdmin);
+
+      if (_rememberMe) {
+        await prefs.setString('saved_manager_email', email);
+      } else {
+        await prefs.remove('saved_manager_email');
+      }
+
+      // Resolve profile via GET /users/me (TokenPair carries no name/email).
+      String userName = 'Manager';
+      try {
+        final me = await ApiClient.get('/users/me');
+        if (me.statusCode == 200) {
+          final profile = json.decode(me.body) as Map<String, dynamic>;
+          userName = profile['name']?.toString() ?? userName;
+        }
+      } catch (_) {}
+
+      ExpenseStore.instance.currentUserName = userName;
       ExpenseStore.instance.setCurrentManager(email: email);
+      ExpenseStore.instance.setManagerName(userName);
       await ExpenseStore.instance.loadCurrentUserRole(email);
+
+      // Prime the manager's working set: projects (like employee login),
+      // plus the queues the dashboards render first.
+      await _primeManagerData(orgId);
 
       if (mounted) {
         Navigator.pushReplacement(
@@ -152,39 +140,51 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
-        );
+        _showError('Network error. Verify the backend is running (API_BASE_URL).');
       }
     } finally {
-      if (mounted) setState(() => _isGoogleLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _handleForgotPassword() async {
-    final email = _emailController.text.trim();
-    
-    if (email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please type your email address first.'), backgroundColor: Colors.redAccent),
-      );
-      return;
-    }
-
+  Future<void> _primeManagerData(int? orgId) async {
+    final store = ExpenseStore.instance;
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password reset link sent! Check your inbox.'), backgroundColor: Colors.green),
+      if (orgId != null) {
+        final projectsResponse = await ApiClient.get(
+          '/organizations/$orgId/projects',
+          query: {'limit': '100'},
         );
+        if (projectsResponse.statusCode == 200) {
+          store.projects = ApiClient.pageItems(projectsResponse)
+              .map((data) => ProjectRecord.fromJson(data as Map<String, dynamic>))
+              .toList();
+        }
       }
+      await store.fetchUsersFromBackend();
+      await store.fetchExpensesFromBackend();
+      await store.fetchProjectRequestsFromBackend();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error sending link. Verify your email is correct.'), backgroundColor: Colors.redAccent),
-        );
-      }
+      debugPrint('Manager data priming failed: $e');
     }
+    store.notifyListeners();
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+    );
+  }
+
+  void _handleForgotPassword() {
+    // No reset endpoint in the backend (§49) — account resets are admin
+    // actions (PATCH /users/{id}). Point users at their administrator.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Password resets are handled by your administrator.'),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
   }
 
   @override
@@ -278,7 +278,7 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
                       final email = value.trim().toLowerCase();
                       final looksLikeEmail = RegExp(r'^[\w.+-]+@[\w-]+\.[a-z]{2,}$').hasMatch(email);
                       if (!looksLikeEmail) return 'Please enter a valid email address';
-                      return null; 
+                      return null;
                     },
                   ),
                   const SizedBox(height: 20),
@@ -332,7 +332,7 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
                         ],
                       ),
                       TextButton(
-                        onPressed: _handleForgotPassword, 
+                        onPressed: _handleForgotPassword,
                         child: const Text('Forgot Password?', style: TextStyle(color: champagneGold, fontSize: 13, fontWeight: FontWeight.w600)),
                       ),
                     ],
@@ -342,7 +342,7 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _handleLogin, 
+                      onPressed: _isLoading ? null : _handleLogin,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: champagneGold,
                         foregroundColor: obsidianBlack,
@@ -351,17 +351,15 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
                         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         disabledBackgroundColor: champagneGold.withValues(alpha: 0.5),
                       ),
-                      child: _isLoading 
+                      child: _isLoading
                           ? const SizedBox(
-                              height: 24, 
-                              width: 24, 
+                              height: 24,
+                              width: 24,
                               child: CircularProgressIndicator(color: obsidianBlack, strokeWidth: 2.5)
                             )
                           : const Text('Login'),
                     ),
                   ),
-                  const OrDivider(),
-                  GoogleSignInButton(isLoading: _isGoogleLoading, onPressed: _handleGoogleSignIn),
                   const SizedBox(height: 24),
                   Text(
                     'Secure access for management only',
@@ -372,28 +370,6 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-// Ensure you have your OrDivider component defined either here or imported
-class OrDivider extends StatelessWidget {
-  const OrDivider({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Row(
-        children: [
-          Expanded(child: Divider(color: Colors.grey.withValues(alpha: 0.2))),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text('OR', style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12, fontWeight: FontWeight.w600)),
-          ),
-          Expanded(child: Divider(color: Colors.grey.withValues(alpha: 0.2))),
-        ],
       ),
     );
   }

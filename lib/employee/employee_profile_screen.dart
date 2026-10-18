@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:ats_onework/employee/employee_login.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/api_client.dart';
 
 class EmployeeProfileScreen extends StatefulWidget {
   const EmployeeProfileScreen({super.key});
@@ -32,9 +31,11 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
               TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
               TextButton(
                 onPressed: () async {
-                  Navigator.of(dialogContext).pop(); 
-                  await FirebaseAuth.instance.signOut(); 
-                  
+                  Navigator.of(dialogContext).pop();
+                  // Revokes the refresh token server-side and clears the
+                  // local JWT store (api_client.dart).
+                  await ApiClient.signOut();
+
                   if (context.mounted) {
                     Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
                       MaterialPageRoute(builder: (context) => const UniversalLoginScreen()),
@@ -124,127 +125,25 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
     );
   }
 
-  Widget _passwordField(TextEditingController controller, String label, ExpenseStore store, {TextEditingController? confirmAgainst}) {
-    return TextFormField(
-      controller: controller,
-      obscureText: true,
-      style: TextStyle(color: store.textFrost, fontSize: 14),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: store.textMuted, fontSize: 13),
-        filled: true,
-        fillColor: store.isDarkMode ? store.bg : Colors.grey.shade100,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.accentGold, width: 1.5)),
-      ),
-      validator: (value) {
-        if (value == null || value.isEmpty) return 'This field is required';
-        if (value.length < 6) return 'Must be at least 6 characters';
-        if (confirmAgainst != null && value != confirmAgainst.text) return 'Passwords do not match';
-        return null;
-      },
-    );
-  }
-
   void _showChangePassword() {
-    final formKey = GlobalKey<FormState>();
-    final currentCtrl = TextEditingController();
-    final newCtrl = TextEditingController();
-    final confirmCtrl = TextEditingController();
-
+    // No self-service password endpoint in the backend (§49) — passwords
+    // are bcrypt-hashed server-side; resets are admin actions
+    // (PATCH /users/{id} or a future /auth/reset flow).
     showDialog(
       context: context,
-      builder: (dialogContext) => AnimatedBuilder(
-        animation: ExpenseStore.instance,
-        builder: (context, _) {
-          final store = ExpenseStore.instance;
-          return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: store.accentGold.withValues(alpha: 0.2))),
-            title: Text('Change Password', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-            content: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _passwordField(currentCtrl, 'Current Password', store),
-                    const SizedBox(height: 12),
-                    _passwordField(newCtrl, 'New Password', store),
-                    const SizedBox(height: 12),
-                    _passwordField(confirmCtrl, 'Confirm New Password', store, confirmAgainst: newCtrl),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
-              TextButton(
-                onPressed: () async {
-                  if (formKey.currentState!.validate()) {
-                    try {
-                      final user = FirebaseAuth.instance.currentUser;
-                      if (user != null && user.email != null) {
-                        // 1. Verify current credentials
-                        final credential = EmailAuthProvider.credential(
-                          email: user.email!,
-                          password: currentCtrl.text,
-                        );
-                        await user.reauthenticateWithCredential(credential);
-
-                        // 2. Lock in new password in Firebase Auth
-                        await user.updatePassword(newCtrl.text);
-
-                        // 3. Sync password update into Firestore database
-                        try {
-                          final db = FirebaseFirestore.instance;
-                          if (store.currentEmployeeId.isNotEmpty) {
-                            await db.collection('users').doc(store.currentEmployeeId).update({
-                              'password': newCtrl.text.trim(),
-                              'updatedAt': FieldValue.serverTimestamp(),
-                            });
-                          } else {
-                            final userQuery = await db.collection('users').where('email', isEqualTo: user.email!.trim().toLowerCase()).limit(1).get();
-                            if (userQuery.docs.isNotEmpty) {
-                              await userQuery.docs.first.reference.update({
-                                'password': newCtrl.text.trim(),
-                                'updatedAt': FieldValue.serverTimestamp(),
-                              });
-                            }
-                          }
-                        } catch (firestoreErr) {
-                          debugPrint('Firestore password sync warning: $firestoreErr');
-                        }
-
-                        if (!dialogContext.mounted) return;
-                        Navigator.pop(dialogContext);
-                        _showSnack('Password securely updated!');
-                      }
-                    } on FirebaseAuthException catch (e) {
-                      String errorMessage = 'Failed to update password.';
-                      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
-                        errorMessage = 'The current password you entered is incorrect.';
-                      } else if (e.code == 'weak-password') {
-                        errorMessage = 'The new password is too weak.';
-                      } else {
-                        errorMessage = e.message ?? errorMessage;
-                      }
-                      
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(errorMessage, style: const TextStyle(fontWeight: FontWeight.bold)), 
-                          backgroundColor: Colors.redAccent
-                        ),
-                      );
-                    }
-                  }
-                },
-                child: Text('Update', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          );
-        }
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: ExpenseStore.instance.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: ExpenseStore.instance.accentGold.withValues(alpha: 0.2))),
+        title: Text('Change Password', style: TextStyle(color: ExpenseStore.instance.textFrost, fontWeight: FontWeight.bold)),
+        content: const Text(
+          'For security, password changes are admin-managed. Contact your administrator to reset your password.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Close', style: TextStyle(color: ExpenseStore.instance.accentGold, fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:ats_onework/employee/employee_login.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/api_client.dart';
 
 class EmployeeWaitScreen extends StatelessWidget {
   const EmployeeWaitScreen({super.key});
@@ -153,7 +153,9 @@ class EmployeeWaitScreen extends StatelessWidget {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         onPressed: () async {
-                          await FirebaseAuth.instance.signOut();
+                          // Revokes the refresh token and clears the
+                          // local JWT store (api_client.dart).
+                          await ApiClient.signOut();
                           if (!context.mounted) return;
                           Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
                             MaterialPageRoute(builder: (context) => const UniversalLoginScreen()),

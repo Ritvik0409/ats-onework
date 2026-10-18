@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:ats_onework/employee/employee_dashboard.dart';
 import 'package:ats_onework/employee/add_expense_screen.dart';
 import 'package:ats_onework/employee/my_requests_screen.dart';
 import 'package:ats_onework/employee/employee_profile_screen.dart';
 import 'package:ats_onework/employee/employee_projects.dart'; 
-import 'package:ats_onework/employee/employee_wait_screen.dart'; // <-- ADD THIS IMPORT
+import 'package:ats_onework/employee/employee_wait_screen.dart';
 import 'package:ats_onework/management/expense_store.dart';
 
 class EmployeeNavigationShell extends StatefulWidget {
@@ -20,35 +17,6 @@ class EmployeeNavigationShell extends StatefulWidget {
 
 class _EmployeeNavigationShellState extends State<EmployeeNavigationShell> {
   int _currentIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    startSecurityGuard();
-  }
-
-  void startSecurityGuard() async {
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? localTicket = prefs.getString('local_session_ticket');
-
-    FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots().listen((document) {
-      if (document.exists) {
-        String? databaseTicket = document.data()?['session_ticket'];
-
-        if (databaseTicket != null && databaseTicket != localTicket) {
-          FirebaseAuth.instance.signOut();
-          prefs.remove('local_session_ticket'); 
-          
-          if (mounted) {
-             Navigator.of(context).pushReplacementNamed('/login'); 
-          }
-        }
-      }
-    });
-  }
 
   @override
   Widget build(BuildContext context) {

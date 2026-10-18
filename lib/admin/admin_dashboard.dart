@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:ats_onework/employee/employee_login.dart';
 
 import 'package:ats_onework/management/budget_allocation_screen.dart';
@@ -9,6 +7,7 @@ import 'package:ats_onework/management/manager_requests_screen.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/expense_details.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
+import 'package:ats_onework/shared/api_client.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -29,27 +28,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
   String _selectedFilter = 'All';
   final ExpenseStore _store = ExpenseStore.instance;
 
-  Future<void> _updateUserRole(BuildContext context, String email, String newRole) async {
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(email).set({
-        'role': newRole,
-      }, SetOptions(merge: true));
-      
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Successfully updated $email to $newRole', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating role: $e'), backgroundColor: Colors.redAccent),
-        );
-      }
-    }
+  /// Admin action — actives/deactivates an account (PATCH /users/{id}
+  /// account_status, the real backend counterpart of the old Firestore
+  /// role write). Deactivated accounts are refused at login (403).
+  Future<void> _updateAccountStatus(BuildContext context, Map<String, String> user, bool active) async {
+    final ok = await _store.updateUserAccountStatus(user['id'] ?? '', active);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? '${user['name']} is now ${active ? 'active' : 'inactive'}'
+              : 'Could not update account status.',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: ok ? Colors.green : Colors.redAccent,
+      ),
+    );
   }
 
   void _showAssignEmployeeDialog(BuildContext context) {
@@ -242,8 +237,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
             icon: const Icon(Icons.logout, color: champagneGold),
             tooltip: 'Logout',
             onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              
+              // Revokes the refresh token and clears the local JWT store.
+              await ApiClient.signOut();
+
               if (context.mounted) {
                 Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const UniversalLoginScreen()),
@@ -331,6 +327,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     const SizedBox(height: 32),
                     
                     // --- USER ROLE MANAGEMENT ---
+                    // Backed by GET /users (admin-gated); account_status
+                    // opens/closes the door at login.
                     const Text('User Role Management', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     Container(
@@ -340,85 +338,70 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: champagneGold.withValues(alpha: 0.1)),
                       ),
-                      child: StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance.collection('users').snapshots(),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) {
-                            return const Center(child: CircularProgressIndicator(color: champagneGold));
-                          }
-                          
-                          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                            return const Center(
-                              child: Text('No users found in the database.', style: TextStyle(color: textMuted)),
-                            );
-                          }
+                      child: _store.usersList.isEmpty
+                          ? const Center(child: Text('No users found in the database.', style: TextStyle(color: textMuted)))
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(12),
+                              itemCount: _store.usersList.length,
+                              itemBuilder: (context, index) {
+                                final user = _store.usersList[index];
+                                final userName = user['name'] ?? 'Unknown';
+                                final userEmail = user['email'] ?? '';
+                                final isActive = (user['account_status'] ?? 'active') == 'active';
 
-                          final users = snapshot.data!.docs;
-
-                          return ListView.builder(
-                            padding: const EdgeInsets.all(12),
-                            itemCount: users.length,
-                            itemBuilder: (context, index) {
-                              final userData = users[index].data() as Map<String, dynamic>;
-                              final userEmail = users[index].id;
-                              final currentRole = userData['role'] ?? 'employee';
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                decoration: BoxDecoration(
-                                  color: obsidianBlack,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: champagneGold.withValues(alpha: 0.05)),
-                                ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                                  leading: CircleAvatar(
-                                    backgroundColor: champagneGold.withValues(alpha: 0.2),
-                                    child: const Icon(Icons.person, color: champagneGold),
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  decoration: BoxDecoration(
+                                    color: obsidianBlack,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: champagneGold.withValues(alpha: 0.05)),
                                   ),
-                                  title: Text(
-                                    userEmail,
-                                    style: const TextStyle(color: textFrost, fontWeight: FontWeight.bold),
-                                  ),
-                                  subtitle: Text(
-                                    'Current Role: ${currentRole.toString().toUpperCase()}',
-                                    style: const TextStyle(color: textMuted, fontSize: 12),
-                                  ),
-                                  trailing: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                                    decoration: BoxDecoration(
-                                      color: darkCharcoal,
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: champagneGold.withValues(alpha: 0.3)),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                                    leading: CircleAvatar(
+                                      backgroundColor: champagneGold.withValues(alpha: 0.2),
+                                      child: const Icon(Icons.person, color: champagneGold),
                                     ),
-                                    child: DropdownButtonHideUnderline(
-                                      child: DropdownButton<String>(
-                                        dropdownColor: darkCharcoal,
-                                        value: ['employee', 'manager', 'hr', 'finance', 'admin', 'director'].contains(currentRole) ? currentRole : 'employee',
-                                        icon: const Icon(Icons.arrow_drop_down, color: champagneGold),
-                                        style: const TextStyle(color: textFrost, fontWeight: FontWeight.w600),
-                                        onChanged: (String? newValue) {
-                                          if (newValue != null && newValue != currentRole) {
-                                            _updateUserRole(context, userEmail, newValue);
-                                          }
-                                        },
-                                        items: const [
-                                          DropdownMenuItem(value: 'employee', child: Text('Employee')),
-                                          DropdownMenuItem(value: 'manager', child: Text('Manager')),
-                                          DropdownMenuItem(value: 'hr', child: Text('HR')),
-                                          DropdownMenuItem(value: 'finance', child: Text('Finance')),
-                                          DropdownMenuItem(value: 'director', child: Text('Director')),
-                                          DropdownMenuItem(value: 'admin', child: Text('Admin')),
-                                        ],
+                                    title: Text(
+                                      '$userName  •  $userEmail',
+                                      style: const TextStyle(color: textFrost, fontWeight: FontWeight.bold),
+                                    ),
+                                    subtitle: Text(
+                                      'Account Status: ${isActive ? 'active'.toUpperCase() : (user['account_status'] ?? '').toUpperCase()}',
+                                      style: TextStyle(
+                                        color: isActive ? textMuted : Colors.redAccent.shade200,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    trailing: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      decoration: BoxDecoration(
+                                        color: darkCharcoal,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: champagneGold.withValues(alpha: 0.3)),
+                                      ),
+                                      child: DropdownButtonHideUnderline(
+                                        child: DropdownButton<bool>(
+                                          dropdownColor: darkCharcoal,
+                                          value: isActive,
+                                          icon: const Icon(Icons.arrow_drop_down, color: champagneGold),
+                                          style: const TextStyle(color: textFrost, fontWeight: FontWeight.w600),
+                                          onChanged: (bool? newValue) {
+                                            if (newValue != null && newValue != isActive) {
+                                              _updateAccountStatus(context, user, newValue);
+                                            }
+                                          },
+                                          items: const [
+                                            DropdownMenuItem(value: true, child: Text('Active')),
+                                            DropdownMenuItem(value: false, child: Text('Inactive')),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                                );
+                              },
+                            ),
                     ),
                     const SizedBox(height: 40),
                     Divider(color: champagneGold.withValues(alpha: 0.2), thickness: 1),

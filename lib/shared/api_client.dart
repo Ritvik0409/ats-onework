@@ -103,6 +103,25 @@ class ApiClient {
     return request.send();
   }
 
+  /// Sign the user out: best-effort `POST /auth/logout` (revokes the
+  /// refresh token server-side, §49 #6), then clear the local token store.
+  /// Never throws — offline/failed logout still clears local state.
+  static Future<void> signOut() async {
+    final prefs = await SharedPreferences.getInstance();
+    final refresh = prefs.getString('refresh_token') ?? '';
+    if (refresh.isNotEmpty) {
+      try {
+        await post('/auth/logout', {'refresh_token': refresh});
+      } catch (_) {
+        // Server revoke failed (offline etc.) — clear locally anyway.
+      }
+    }
+    await prefs.remove('auth_token');
+    await prefs.remove('refresh_token');
+    await prefs.remove('organization_id');
+    await prefs.remove('is_admin');
+  }
+
   /// Decode a paged envelope `{items, next_cursor}` into its items list.
   static List<dynamic> pageItems(http.Response response) {
     final decoded = json.decode(response.body);

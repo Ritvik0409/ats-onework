@@ -73,7 +73,7 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
       // (Android emulator: http://10.0.2.2:8000).
       final response = await ApiClient.post(
         '/auth/login',
-        {'username': input, 'password': enteredPassword},
+        {'email': input, 'password': enteredPassword},
         auth: false,
       );
 
@@ -279,9 +279,9 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
                           controller: _idController,
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
-                            labelText: 'User ID or Email',
+                            labelText: 'Email',
                             labelStyle: const TextStyle(color: _goldColor),
-                            hintText: 'e.g. EMP101 or emp101@company.com',
+                            hintText: 'your.name@company.com',
                             hintStyle: TextStyle(color: Colors.grey.shade600),
                             prefixIcon: const Icon(
                               Icons.person_outline,
@@ -303,7 +303,10 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Please enter your User ID or Email';
+                              return 'Please enter your email';
+                            }
+                            if (!value.trim().contains('@')) {
+                              return 'Please enter a valid email address';
                             }
                             return null;
                           },

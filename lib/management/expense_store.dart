@@ -2,10 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:ats_onework/shared/api_client.dart';
 
@@ -23,17 +20,6 @@ class ProjectRecord {
     required this.assignedEmails,
     required this.isActive,
   });
-
-  factory ProjectRecord.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
-    return ProjectRecord(
-      id: doc.id,
-      name: data['name'] ?? 'Unnamed Project',
-      budget: (data['budget'] ?? 0.0).toDouble(),
-      assignedEmails: List<String>.from(data['assignedEmails'] ?? []),
-      isActive: data['isActive'] ?? true,
-    );
-  }
 
   factory ProjectRecord.fromJson(Map<String, dynamic> json) {
     return ProjectRecord(
@@ -82,26 +68,6 @@ class ExpenseRecord {
   });
 
   String get amountFormatted => '₹${amount.toStringAsFixed(2)}';
-
-  factory ExpenseRecord.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
-    return ExpenseRecord(
-      firestoreDocId: doc.id,
-      id: data['employeeId'] ?? 'EMP-UNKNOWN',
-      name: data['employeeName'] ?? 'Unknown Employee',
-      email: data['email'] ?? 'employee@company.com',
-      type: data['type'] ?? 'General',
-      amount: (data['amount'] ?? 0.0).toDouble(),
-      date: data['date'] ?? 'Unknown Date',
-      description: data['description'] ?? 'No description provided',
-      status: data['status'] ?? 'Pending Verification',
-      rejectionReason: data['rejectionReason'],
-      receiptBase64: data['receiptBase64'] ?? data['receiptUrl'],
-      processedBy: data['processedBy'],
-      projectName: data['projectName'],
-      uploaderRole: data['uploaderRole'] ?? 'employee', 
-    );
-  }
 
   factory ExpenseRecord.fromJson(Map<String, dynamic> json) {
     // Supports both legacy Firebase shape and new FastAPI shape
@@ -252,6 +218,7 @@ class ExpenseStore extends ChangeNotifier {
             'id': (u['employee_id'] ?? u['employeeId'] ?? u['id'] ?? '').toString(),
             'name': (u['name'] ?? 'Unknown').toString(),
             'email': (u['email'] ?? '').toString(),
+            'account_status': (u['account_status'] ?? 'active').toString(),
           };
         }).toList();
         notifyListeners();
@@ -259,6 +226,24 @@ class ExpenseStore extends ChangeNotifier {
     } catch (e) {
       debugPrint('Network error fetching users: $e');
     }
+  }
+
+  /// Admin action: toggle a user's account_status via PATCH /users/{id}.
+  /// Returns true when the backend confirmed the change (list refreshed).
+  Future<bool> updateUserAccountStatus(String employeeId, bool active) async {
+    try {
+      final response = await ApiClient.patch('/users/$employeeId', {
+        'account_status': active ? 'active' : 'inactive',
+      });
+      if (response.statusCode == 200) {
+        await fetchUsersFromBackend();
+        return true;
+      }
+      debugPrint('updateUserAccountStatus failed: ${response.statusCode}');
+    } catch (e) {
+      debugPrint('updateUserAccountStatus error: $e');
+    }
+    return false;
   }
 
   Future<void> toggleTheme() async {
@@ -290,7 +275,6 @@ class ExpenseStore extends ChangeNotifier {
   
   bool get isHR => currentUserRole == 'hr';
   final Map<String, bool> employeeActiveStatus = {};
-  final FirebaseFirestore _db = FirebaseFirestore.instance; 
 
   double currentMonthBudget = 60000.0;
 
@@ -1112,14 +1096,5 @@ class ExpenseStore extends ChangeNotifier {
       type: type,
     ));
     notifyListeners();
-  }
-
-  Future<void> nukeAllExpenses() async {
-    final snapshots = await _db.collection('expenses').get();
-    final batch = _db.batch();
-    for (var doc in snapshots.docs) {
-      batch.delete(doc.reference);
-    }
-    await batch.commit();
   }
 }

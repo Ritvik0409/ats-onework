@@ -9,7 +9,8 @@ FastAPI + PostgreSQL (psycopg 3) backend for the **ATS — Aniruddha Telemetry S
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) ≥ 0.12 (installs/manages Python itself)
-- Docker (for the local PostgreSQL 16)
+- A real PostgreSQL server — local install, remote host, or a container you
+  own. No Docker images are required by this repo.
 
 ## Setup
 
@@ -17,7 +18,23 @@ FastAPI + PostgreSQL (psycopg 3) backend for the **ATS — Aniruddha Telemetry S
 cd backend
 uv sync                 # creates .venv from uv.lock (Python 3.13)
 cp .env.example .env    # then edit values — generate a JWT_SECRET!
-docker compose up -d    # start PostgreSQL 16
+```
+
+Point `.env` at your server with discrete credentials:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=ats
+DB_PASSWORD=change-me
+DB_NAME=ats
+```
+
+Create the role + database out-of-band (psql as a superuser):
+
+```sql
+CREATE ROLE ats WITH LOGIN PASSWORD 'change-me' CREATEDB;
+CREATE DATABASE ats OWNER ats;
 ```
 
 ## Database
@@ -27,14 +44,18 @@ uv run python scripts/migrate.py   # applies migrations/*.sql in order (idempote
 uv run python scripts/seed.py      # seeds Org A + Org B dev data (idempotent)
 ```
 
-Default local DSN: `postgresql://ats:ats_dev_password@localhost:5432/ats`
-(override with `DATABASE_URL` or `--dsn`).
+The DSN is composed from `DB_*` in `.env`; `DATABASE_URL` (or `--dsn` on the
+seed script) overrides when set.
 
 ## Run
 
 ```bash
-uv run uvicorn app.main:app --reload
+uv run python scripts/dev.py --reload
 ```
+
+On Windows **use `scripts/dev.py`, not plain `uvicorn`**: psycopg3 async
+cannot run on the Proactor event loop uvicorn otherwise boots there, and the
+connection pool would never connect. On Linux/macOS either works.
 
 - Swagger UI: <http://localhost:8000/docs>
 - Health: `GET /health` · Readiness: `GET /ready`
@@ -44,9 +65,13 @@ uv run uvicorn app.main:app --reload
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest                     # unit + api (skips DB integration unless DB is up)
-uv run pytest -m integration      # full integration suite (needs Postgres running)
+uv run pytest -m "not integration"   # 106 unit + contract tests (no DB needed)
+uv run pytest -m integration         # 11 integration tests (needs DB creds in .env)
 ```
+
+Integration tests auto-provision a throwaway `<DB_NAME>_test` database on
+the configured server (create → migrate → run → drop), so they never touch
+your development data. `uv run pytest` runs everything.
 
 ## Conventions
 

@@ -2,10 +2,17 @@
 
 No business logic here: middleware, exception handlers, and routers are
 registered by dedicated functions; the pool lifecycle lives in ``lifespan``.
+
+Windows note: psycopg async needs a Selector event loop, and ``uvicorn``
+alone still boots a Proactor loop on Windows — run the dev server through
+``scripts/dev.py`` (it installs the policy before the loop is created).
+The early guard below covers programmatic imports, where it can help.
 """
 
 from __future__ import annotations
 
+import asyncio
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -20,6 +27,10 @@ from app.core.config import check_production_readiness, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import RequestLoggingMiddleware, configure_logging
 from app.db.pool import close_pool, create_pool
+
+if sys.platform == "win32" and "Proactor" in type(asyncio.get_event_loop_policy()).__name__:
+    # Best effort at import time — later loop creations pick this up.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 @asynccontextmanager

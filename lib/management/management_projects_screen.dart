@@ -208,6 +208,15 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                 onPressed: () async {
                   final newBudget = double.tryParse(budgetCtrl.text.trim());
                   if (newBudget != null && newBudget >= 0) {
+                    if (currentProj.budgetId == null) {
+                      if (!context.mounted) return;
+                      Navigator.pop(dialogContext);
+                      AppSnack.error(
+                        context,
+                        'This project has no budget row to edit yet — create one on the Budgets screen.',
+                      );
+                      return;
+                    }
                     final ok = await store.updateProjectBudget(currentProj.id, newBudget);
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);
@@ -215,7 +224,10 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                     if (ok) {
                       AppSnack.success(context, 'Project budget updated!');
                     } else {
-                      AppSnack.error(context, 'Budget editing is not supported by the backend yet.');
+                      AppSnack.error(
+                        context,
+                        "Couldn't update the budget — check your connection and try again.",
+                      );
                     }
                   } else {
                     if (!context.mounted) return;

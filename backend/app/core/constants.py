@@ -38,9 +38,10 @@ class TokenPurpose(StrEnum):
 
 
 class ExpenseStatus(StrEnum):
-    """expenses.status CHECK constraint."""
+    """expenses.status CHECK constraint (0001 + migration 0003)."""
 
     PENDING = "pending"
+    INFO_REQUESTED = "info_requested"
     APPROVED = "approved"
     REJECTED = "rejected"
     REIMBURSED = "reimbursed"
@@ -65,7 +66,18 @@ class ReimbursementStatus(StrEnum):
 # Status transition maps (§36) — arbitrary transitions are forbidden; services
 # consult these before persisting any status change.
 EXPENSE_TRANSITIONS: dict[ExpenseStatus, set[ExpenseStatus]] = {
-    ExpenseStatus.PENDING: {ExpenseStatus.APPROVED, ExpenseStatus.REJECTED},
+    ExpenseStatus.PENDING: {
+        ExpenseStatus.INFO_REQUESTED,
+        ExpenseStatus.APPROVED,
+        ExpenseStatus.REJECTED,
+    },
+    # An answered info request goes back to the review queue, or the
+    # manager can still decide directly without waiting for a resubmit.
+    ExpenseStatus.INFO_REQUESTED: {
+        ExpenseStatus.PENDING,
+        ExpenseStatus.APPROVED,
+        ExpenseStatus.REJECTED,
+    },
     ExpenseStatus.APPROVED: {ExpenseStatus.REIMBURSED},
     ExpenseStatus.REJECTED: set(),
     ExpenseStatus.REIMBURSED: set(),

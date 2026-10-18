@@ -1651,9 +1651,14 @@ Conventions:
 | 19 | GET | /organizations/{id}/roles | member | — | 200 list[RoleResponse] | 404 |
 | 20 | POST | /organizations/{id}/roles | admin | RoleCreate | 201 RoleResponse | 403, 409, 422 |
 | 21 | POST | /organizations/{id}/budgets | admin | BudgetCreate | 201 BudgetResponse | 403, 404, 422 |
+| 21a | GET | /organizations/{id}/budgets | member | `month=YYYY-MM` overlap filter | 200 Page[BudgetResponse] (rows carry computed `spent`) | 404, 422 |
+| 21b | PATCH | /organizations/{id}/budgets/{budget_id} | admin | BudgetUpdate (amount/start/end) | 200 BudgetResponse | 403, 404, 422 |
 | 22 | POST | /organizations/{id}/projects | admin | ProjectCreate | 201 ProjectResponse | 403, 404, 409 |
-| 23 | GET | /organizations/{id}/projects | member | filters | 200 Page[ProjectListItem] | 404 |
+| 23 | GET | /organizations/{id}/projects | member | filters | 200 Page[ProjectListItem] (rows carry `budget_amount`, `member_count`) | 404 |
 | 24 | PATCH | /projects/{project_id} | admin | ProjectUpdate | 200 ProjectResponse | 403, 404 |
+| 24a | GET | /projects/{project_id}/members | member | — | 200 Page[ProjectMemberListItem] | 404 |
+| 24b | POST | /projects/{project_id}/members | admin | ProjectMemberAdd (role defaults to org `employee` role) | 201 ProjectMemberListItem | 403, 404, 409 (already member / no default role), 422 |
+| 24c | DELETE | /projects/{project_id}/members/{employee_id} | admin | — | 204 | 403, 404 |
 | 25 | POST | /organizations/{id}/expense-types | admin | ExpenseTypeCreate | 201 ExpenseTypeResponse | 403, 404, 409 |
 | 26 | GET | /organizations/{id}/expense-types | member | — | 200 list[ExpenseTypeResponse] | 404 |
 | 27 | POST | /expenses | member | multipart: ExpenseCreate + receipt files | 201 ExpenseResponse | 403, 404 (project/type not in org), 422 |
@@ -1662,6 +1667,8 @@ Conventions:
 | 30 | GET | /approvals/pending | admin | — | 200 Page[ExpenseListItem] | 403 |
 | 31 | POST | /expenses/{id}/approve | admin | ApprovalActionRequest | 200 ExpenseResponse | 403, 404, 409 (not pending), 422 |
 | 32 | POST | /expenses/{id}/reject | admin | ApprovalActionRequest (comments required) | 200 ExpenseResponse | 403, 404, 409, 422 (missing comments) |
+| 32a | POST | /expenses/{id}/request-info | admin | ApprovalActionRequest (comments used as the question, max 500 chars stored) | 200 ExpenseResponse (`status=info_requested`, `info_message` set) | 403, 404, 409, 422 (missing message) |
+| 32b | POST | /expenses/{id}/resubmit | member (expense owner only) | — | 200 ExpenseResponse (back to `pending`; org admins notified) | 403, 404, 409 |
 | 33 | POST | /expenses/{id}/reimbursement | admin | ReimbursementCreate | 201 ReimbursementResponse | 403, 404, 409 (UNIQUE expense_id), 422 |
 | 34 | GET | /reimbursements | member | status filter | 200 Page[ReimbursementListItem] | 404 |
 | 35 | POST | /reimbursements/{id}/transition | admin | ReimbursementTransitionRequest | 200 ReimbursementResponse | 403, 404, 409 (invalid transition), 422 (paid without reference) |

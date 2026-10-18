@@ -19,7 +19,13 @@ from decimal import Decimal
 from app.common.audit import service as audit_service
 from app.common.tenant import require_path_admin, require_path_member
 from app.core.constants import EXPENSE_TRANSITIONS, ApprovalAction, ExpenseStatus
-from app.core.exceptions import ConflictError, NotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
+from app.core.security.tokens import utc_now_naive
 from app.db.transaction import transaction
 from app.db.types import Conn, Row
 from app.expenses.repository import ExpenseRepository
@@ -175,6 +181,113 @@ class ExpenseService:
             comments=payload.comments,
         )
 
+    # -- request-more-info / resubmit -------------------------------------
+
+    async def request_info(
+        self,
+        conn: Conn,
+        *,
+        actor_id: int,
+        organization_id: int,
+        expense_id: int,
+        payload: ApprovalActionRequest,
+    ) -> ExpenseResponse:
+        """Move a pending expense to ``info_requested`` with the manager's
+        question persisted (migration 0003). repeats replace the question."""
+        message = (payload.comments or "").strip()
+        if not message:
+            raise ValidationError("Requesting more info requires a message.")
+        await self._require_admin(conn, actor_id, organization_id)
+        async with transaction(conn):
+            row = await self._repository.get_by_id_for_update(conn, expense_id, organization_id)
+            if row is None:
+                raise NotFoundError("Expense not found.")
+            current = ExpenseStatus(row["status"])
+            if ExpenseStatus.INFO_REQUESTED not in EXPENSE_TRANSITIONS[current]:
+                raise ConflictError(f"Cannot request more info from an expense in {current.value}.")
+            updated = await self._repository.update_status(
+                conn,
+                expense_id,
+                status=ExpenseStatus.INFO_REQUESTED,
+                rejection_reason=row["rejection_reason"],
+                info_message=message[:500],
+                info_requested_at=utc_now_naive(),
+            )
+            assert updated is not None
+            await audit_service.log(
+                conn,
+                actor_id=actor_id,
+                action="expense.info_requested",
+                table_name="expenses",
+                record_id=str(expense_id),
+                old_values={"status": current.value},
+                new_values={"status": ExpenseStatus.INFO_REQUESTED.value},
+            )
+            await self._notifications.insert(
+                conn,
+                NotificationCreate(
+                    employee_id=int(row["employee_id"]),
+                    title="Details needed for your expense",
+                    message=(f"Expense #{expense_id}: {message[:400]}"),
+                    type="expense.info_requested",
+                    reference_id=str(expense_id),
+                ),
+            )
+            media = await self._repository.list_media(conn, expense_id)
+            return self._to_response(updated, media)
+
+    async def resubmit(
+        self,
+        conn: Conn,
+        *,
+        actor_id: int,
+        organization_id: int,
+        expense_id: int,
+    ) -> ExpenseResponse:
+        """Employee (owner) moves an ``info_requested`` expense back to
+        pending once details have been provided; org admins are notified."""
+        await self._require_member(conn, actor_id, organization_id)
+        async with transaction(conn):
+            row = await self._repository.get_by_id_for_update(conn, expense_id, organization_id)
+            if row is None:
+                raise NotFoundError("Expense not found.")
+            if int(row["employee_id"]) != actor_id:
+                raise AuthorizationError("Only the submitting employee can resubmit.")
+            current = ExpenseStatus(row["status"])
+            if ExpenseStatus.PENDING not in EXPENSE_TRANSITIONS[current]:
+                raise ConflictError(f"Cannot resubmit an expense in {current.value}.")
+            updated = await self._repository.update_status(
+                conn,
+                expense_id,
+                status=ExpenseStatus.PENDING,
+                rejection_reason=row["rejection_reason"],
+                info_message=None,
+                info_requested_at=None,
+            )
+            assert updated is not None
+            await audit_service.log(
+                conn,
+                actor_id=actor_id,
+                action="expense.resubmit",
+                table_name="expenses",
+                record_id=str(expense_id),
+                old_values={"status": current.value},
+                new_values={"status": ExpenseStatus.PENDING.value},
+            )
+            for admin_id in await self._repository.list_admin_ids(conn, organization_id):
+                await self._notifications.insert(
+                    conn,
+                    NotificationCreate(
+                        employee_id=admin_id,
+                        title="Expense updated after info request",
+                        message=(f"Expense #{expense_id} is back in the pending queue."),
+                        type="expense.resubmit",
+                        reference_id=str(expense_id),
+                    ),
+                )
+            media = await self._repository.list_media(conn, expense_id)
+            return self._to_response(updated, media)
+
     async def _decide(
         self,
         conn: Conn,
@@ -203,6 +316,8 @@ class ExpenseService:
                 expense_id,
                 status=target,
                 rejection_reason=comments if target == ExpenseStatus.REJECTED else None,
+                info_message=None,
+                info_requested_at=None,
             )
             assert updated is not None
             await self._repository.insert_approval(

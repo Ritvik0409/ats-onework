@@ -26,7 +26,7 @@ class ExpenseCreate(BaseModel):
 
 
 class ApprovalActionRequest(BaseModel):
-    """Body for approve/reject (§49 #31-32). Comments required on reject."""
+    """Body for approve/reject/request-info (§49 #31-33). Required on reject and request-info."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -57,6 +57,8 @@ class ExpenseResponse(BaseModel):
     expense_date: date
     submission_date: datetime
     updated_at: datetime
+    info_message: str | None = None
+    info_requested_at: datetime | None = None
     receipts: list[MediaResponse] = Field(default_factory=list)
 
 
@@ -72,6 +74,7 @@ class ExpenseListItem(BaseModel):
     status: ExpenseStatus
     expense_date: date
     submission_date: datetime
+    info_message: str | None = None
 
 
 class ExpenseApprovalResponse(BaseModel):

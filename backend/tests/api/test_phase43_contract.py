@@ -43,7 +43,7 @@ def _user_dict() -> dict[str, Any]:
     return {
         "employee_id": 1,
         "name": "Asha Admin",
-        "email": "admin@acme.test",
+        "email": "admin@acme-corp.dev",
         "account_status": "active",
         "is_superuser": False,
         "last_login_at": None,
@@ -81,7 +81,7 @@ def _list_item() -> dict[str, Any]:
     return {
         "employee_id": 1,
         "name": "Asha Admin",
-        "email": "admin@acme.test",
+        "email": "admin@acme-corp.dev",
         "account_status": "active",
     }
 

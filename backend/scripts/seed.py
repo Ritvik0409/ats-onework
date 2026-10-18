@@ -36,10 +36,13 @@ ORGS = [
 
 USERS = [
     # (email, name, org_slug, is_admin)
-    ("admin@acme.test", "Asha Admin", "acme-corp", True),
-    ("employee@acme.test", "Evan Employee", "acme-corp", False),
-    ("admin@globex.test", "Gita Admin", "globex-inc", True),
-    ("employee@globex.test", "Guru Employee", "globex-inc", False),
+    # Domain is a plausible-but-never-to-be-registered .dev — it must pass the
+    # API's own email validation (RFC 2606 names like .test are rejected) so
+    # seeded users can actually log in through /auth/login.
+    ("admin@acme-corp.dev", "Asha Admin", "acme-corp", True),
+    ("employee@acme-corp.dev", "Evan Employee", "acme-corp", False),
+    ("admin@globex-inc.dev", "Gita Admin", "globex-inc", True),
+    ("employee@globex-inc.dev", "Guru Employee", "globex-inc", False),
 ]
 
 ROLES = ["employee", "manager"]

@@ -10,6 +10,7 @@ reimbursement ``pending → processing → paid`` flips the expense to
 from __future__ import annotations
 
 from app.common.audit import service as audit_service
+from app.common.permissions import has_permission
 from app.common.tenant import require_path_admin, require_path_member
 from app.core.constants import (
     REIMBURSEMENT_TRANSITIONS,
@@ -88,8 +89,22 @@ class ReimbursementService:
         before_id: int | None,
     ) -> list[ReimbursementListItem]:
         await self._require_member(conn, employee_id, organization_id)
+        # A caller who holds reimbursement.read_all sees the whole
+        # organization; anyone else sees only their own. The scope is
+        # decided by the capability, not by the client.
+        can_read_all = await has_permission(
+            conn,
+            employee_id=employee_id,
+            organization_id=organization_id,
+            api_name="reimbursement.read_all",
+        )
         rows = await self._repository.list_by_org(
-            conn, organization_id, status=status, limit=limit, before_id=before_id
+            conn,
+            organization_id,
+            status=status,
+            limit=limit,
+            before_id=before_id,
+            employee_id=None if can_read_all else employee_id,
         )
         return [ReimbursementListItem.model_validate(r) for r in rows]
 

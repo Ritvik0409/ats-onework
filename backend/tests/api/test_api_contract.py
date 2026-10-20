@@ -19,6 +19,7 @@ from app.api.v1 import deps as deps_module
 from app.api.v1.deps import CurrentUser
 from app.auth import router as auth_router_module
 from app.auth.schemas import TokenPair, UserResponse
+from app.common import permissions as permissions_module
 from app.common.pagination import Page
 from app.core.exceptions import NotFoundError
 from app.db.connection import get_connection
@@ -132,6 +133,23 @@ def app_with_overrides(monkeypatch: pytest.MonkeyPatch) -> Any:
     app.dependency_overrides[deps_module.require_membership] = lambda: AUTH_USER
     app.dependency_overrides[deps_module.require_admin] = lambda: AUTH_USER
 
+    # The route guards ask the database what the caller may do. These
+    # tests are about the HTTP contract, not about access, so the
+    # lookup is stubbed to grant everything.
+    class _AllGranted:
+        def __contains__(self, item: object) -> bool:
+            return True
+
+    async def _all_granted(
+        _conn: Any,
+        *,
+        employee_id: int,  # noqa: ARG001
+        organization_id: int,  # noqa: ARG001
+    ) -> _AllGranted:
+        return _AllGranted()
+
+    monkeypatch.setattr(permissions_module, "granted_permissions", _all_granted)
+
     async def _register(_conn: Any, _payload: Any) -> UserResponse:
         return UserResponse.model_validate(_user_dict())
 
@@ -154,7 +172,7 @@ def app_with_overrides(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(auth_svc, "logout", _logout)
     monkeypatch.setattr(auth_svc, "switch_organization", _switch)
 
-    async def _get_me(_conn: Any, _employee_id: int) -> UserResponse:
+    async def _get_me(_conn: Any, _employee_id: int, **_kwargs: Any) -> UserResponse:
         return UserResponse.model_validate(_user_dict())
 
     async def _list_users(_conn: Any, **_kwargs: Any) -> Page[UserListItem]:

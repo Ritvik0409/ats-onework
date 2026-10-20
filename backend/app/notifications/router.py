@@ -6,8 +6,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from app.api.v1.deps import CurrentUser, get_current_user
+from app.api.v1.deps import CurrentUser
 from app.common.pagination import Page
+from app.common.permissions import RequirePermission
 from app.db.connection import get_connection
 from app.db.types import Conn
 from app.notifications.schemas import NotificationListItem
@@ -30,7 +31,7 @@ def _parse_cursor(cursor: str | None) -> int | None:
 
 @router.get("", response_model=Page[NotificationListItem])
 async def list_notifications(
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("notification.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
     unread_only: Annotated[bool, Query()] = False,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -50,7 +51,7 @@ async def list_notifications(
 @router.post("/{notification_id}/read", status_code=status.HTTP_204_NO_CONTENT)
 async def mark_read(
     notification_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("notification.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> Response:
     await notification_service.mark_read(
@@ -61,7 +62,7 @@ async def mark_read(
 
 @router.post("/read-all", status_code=status.HTTP_204_NO_CONTENT)
 async def mark_all_read(
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("notification.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> Response:
     await notification_service.mark_all_read(conn, employee_id=user.employee_id)

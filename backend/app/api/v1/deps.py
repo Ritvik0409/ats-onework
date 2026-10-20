@@ -7,10 +7,19 @@ happens to expire. Token ``org``/``admin`` claims are never trusted
 beyond validation — ``require_membership`` re-reads the membership row
 and rebuilds the auth context from the database.
 
-Authorization is membership-based: an active admin membership grants all
-permissions in the organization. The role/permission tables exist in the
-schema but no endpoint grants capabilities from them yet, so the API
-does not pretend to enforce them.
+Authorization has two independent layers:
+
+* **membership** — is this person in this organization, and is the
+  account active. ``require_membership`` and the ``is_admin`` flag on
+  the membership row.
+* **capability** — may this person do this thing here. Checked by
+  ``app.common.permissions.RequirePermission`` against the roles and
+  grants in the database.
+
+A third, platform-wide tier exists for the super administrator
+(``users.is_superuser``): an account that administers the access model
+itself, across organizations. It is deliberately separate from an
+organization's ``is_admin``, which only governs that one organization.
 
 Scope note (§8, §49): these dependencies validate the **token's** org —
 correct for collection routes, but resource routes (``/expenses/{id}``,
@@ -43,6 +52,9 @@ class CurrentUser:
     employee_id: int
     organization_id: int
     is_admin: bool
+    #: Platform-wide administrator: may administer the access model
+    #: itself, across organizations.
+    is_superuser: bool = False
 
 
 async def get_current_user(
@@ -60,7 +72,7 @@ async def get_current_user(
     payload = decode_access_token(credentials.credentials)
     async with conn.cursor() as cur:
         await cur.execute(
-            "SELECT account_status FROM users WHERE employee_id = %s",
+            "SELECT account_status, is_superuser FROM users WHERE employee_id = %s",
             (payload["sub"],),
         )
         row = await cur.fetchone()
@@ -72,6 +84,7 @@ async def get_current_user(
         employee_id=payload["sub"],
         organization_id=payload["org"],
         is_admin=bool(payload.get("admin", False)),
+        is_superuser=bool(row["is_superuser"]),
     )
 
 
@@ -106,6 +119,7 @@ async def require_membership(
         employee_id=user.employee_id,
         organization_id=user.organization_id,
         is_admin=bool(row["is_admin"]),
+        is_superuser=user.is_superuser,
     )
 
 
@@ -114,4 +128,18 @@ async def require_admin(
 ) -> CurrentUser:
     if not user.is_admin:
         raise AuthorizationError("Administrator privileges required.")
+    return user
+
+
+async def require_superuser(
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    """Gate for the platform-wide administration endpoints.
+
+    A super administrator manages the access model itself — the
+    capability catalogue, and any organization's roles and grants. It is
+    not an organization role, so it does not require a membership.
+    """
+    if not user.is_superuser:
+        raise AuthorizationError("Super administrator privileges required.")
     return user

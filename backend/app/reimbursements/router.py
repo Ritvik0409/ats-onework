@@ -8,9 +8,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 
-from app.api.v1.deps import CurrentUser, get_current_user
+from app.api.v1.deps import CurrentUser
 from app.common.object_storage import get_object_storage
 from app.common.pagination import Page
+from app.common.permissions import RequireAnyPermission, RequirePermission
 from app.core.constants import ReimbursementStatus
 from app.core.exceptions import ValidationError
 from app.db.connection import get_connection
@@ -50,7 +51,7 @@ def _parse_cursor(cursor: str | None) -> int | None:
 async def create_reimbursement(
     expense_id: int,
     payload: ReimbursementCreate,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("reimbursement.create"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ReimbursementResponse:
     return await reimbursement_service.create_for_expense(
@@ -64,7 +65,10 @@ async def create_reimbursement(
 
 @router.get("", response_model=Page[ReimbursementListItem])
 async def list_reimbursements(
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[
+        CurrentUser,
+        Depends(RequireAnyPermission("reimbursement.read_own", "reimbursement.read_all")),
+    ],
     conn: Annotated[Conn, Depends(get_connection)],
     status_filter: Annotated[ReimbursementStatus | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -85,7 +89,7 @@ async def list_reimbursements(
 @router.post("/{reimbursement_id}/receipt", response_model=ReimbursementResponse)
 async def attach_payment_receipt(
     reimbursement_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("reimbursement.receipt"))],
     conn: Annotated[Conn, Depends(get_connection)],
     file: Annotated[UploadFile, File()],
 ) -> ReimbursementResponse:
@@ -124,7 +128,7 @@ async def attach_payment_receipt(
 async def transition_reimbursement(
     reimbursement_id: int,
     payload: ReimbursementTransitionRequest,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("reimbursement.transition"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ReimbursementResponse:
     return await reimbursement_service.transition(

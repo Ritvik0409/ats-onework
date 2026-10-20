@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:ats_onework/management/access_management_screen.dart';
 import 'package:ats_onework/management/manager_dashboard.dart';
 import 'package:ats_onework/management/director_dashboard.dart';
 import 'package:ats_onework/management/finance_dashboard.dart';
@@ -39,32 +40,28 @@ class _ManagementNavigationShellState extends State<ManagementNavigationShell> {
         final textMuted = store.textMuted;
 
         final String currentRole = store.currentUserRole;
-        final bool isHR = (currentRole == 'hr' || currentRole == 'admin' || currentRole == 'director');
-        final bool isDirector = (currentRole == 'director');
-        final bool isFinance = (currentRole == 'finance'); 
+
+        // The navigation is built from what the server says the user
+        // may do, not from the name of a role. A person who holds
+        // `reimbursement.transition` gets the payout screens; a person
+        // who holds `expense.approve` gets the review queue. The role
+        // only chooses which dashboard to open first.
+        final bool canApprove = store.canApproveExpenses;
+        final bool canPay = store.canPayReimbursements;
+        final bool canSubmit = store.can('expense.create');
+        final bool canReadProjects = store.can('project.read');
+        final bool canSeePaid = store.can('reimbursement.read_all') ||
+            store.can('reimbursement.read_own');
+        final bool canManageAccess = store.canManageAccess;
+        final bool isDirector = currentRole == 'director';
+        final bool isFinance = currentRole == 'finance';
+        final bool isHR = currentRole == 'hr';
 
         List<Widget> screens;
         List<BottomNavigationBarItem> navItems;
 
         // Explicit Role-Based Navigation Routing to prevent index mismatch offsets
-        if (isDirector) {
-          screens = [
-            const DirectorDashboard(),
-            const ManagerRequestsScreen(),
-            const AddExpenseScreen(),
-            const ManagementProjectsScreen(),
-            const PaidReimbursementsScreen(),
-            const ManagerProfileScreen(),
-          ];
-          navItems = const [
-            BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-            BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
-            BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
-            BottomNavigationBarItem(icon: Icon(Icons.business_center_rounded), label: 'Projects'),
-            BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
-            BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
-          ];
-        } else if (isFinance) {
+        if (isFinance && canPay) {
           screens = [
             const FinanceDashboard(),
             const FinanceToPayScreen(),
@@ -77,21 +74,52 @@ class _ManagementNavigationShellState extends State<ManagementNavigationShell> {
             BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
             BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
           ];
-        } else {
-          // Standard Manager
+        } else if (isDirector) {
           screens = [
-            const ManagerDashboardScreen(),
-            const ManagerRequestsScreen(),
-            const AddExpenseScreen(),
-            const ManagementProjectsScreen(),
+            const DirectorDashboard(),
+            if (canApprove) const ManagerRequestsScreen(),
+            if (canSubmit) const AddExpenseScreen(),
+            if (canReadProjects) const ManagementProjectsScreen(),
+            if (canSeePaid) const PaidReimbursementsScreen(),
             const ManagerProfileScreen(),
           ];
-          navItems = const [
-            BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-            BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
-            BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
-            BottomNavigationBarItem(icon: Icon(Icons.business_center_rounded), label: 'Projects'),
-            BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
+          navItems = [
+            const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
+            if (canApprove)
+              const BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
+            if (canSubmit)
+              const BottomNavigationBarItem(
+                  icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
+            if (canReadProjects)
+              const BottomNavigationBarItem(
+                  icon: Icon(Icons.business_center_rounded), label: 'Projects'),
+            if (canSeePaid)
+              const BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
+            const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
+          ];
+        } else {
+          // A manager — or anyone else who reviews expenses.
+          screens = [
+            const ManagerDashboardScreen(),
+            if (canApprove) const ManagerRequestsScreen(),
+            if (canSubmit) const AddExpenseScreen(),
+            if (canReadProjects) const ManagementProjectsScreen(),
+            if (canManageAccess) const AccessManagementScreen(),
+            const ManagerProfileScreen(),
+          ];
+          navItems = [
+            const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
+            if (canApprove)
+              const BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
+            if (canSubmit)
+              const BottomNavigationBarItem(
+                  icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
+            if (canReadProjects)
+              const BottomNavigationBarItem(
+                  icon: Icon(Icons.business_center_rounded), label: 'Projects'),
+            if (canManageAccess)
+              const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings_rounded), label: 'Access'),
+            const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
           ];
         }
 

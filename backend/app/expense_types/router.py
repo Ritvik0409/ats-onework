@@ -6,7 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.v1.deps import CurrentUser, get_current_user
+from app.api.v1.deps import CurrentUser
+from app.common.permissions import RequirePathPermission
 from app.db.connection import get_connection
 from app.db.types import Conn
 from app.expense_types.schemas import ExpenseTypeCreate, ExpenseTypeResponse
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/organizations", tags=["expense-types"])
 async def create_expense_type(
     organization_id: int,
     payload: ExpenseTypeCreate,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("expense_type.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ExpenseTypeResponse:
     return await expense_type_service.create_type(
@@ -34,7 +35,7 @@ async def create_expense_type(
 @router.get("/{organization_id}/expense-types", response_model=list[ExpenseTypeResponse])
 async def list_expense_types(
     organization_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("expense_type.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> list[ExpenseTypeResponse]:
     return await expense_type_service.list_types(

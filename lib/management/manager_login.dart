@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ats_onework/management/navigation_shell.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/shared/json_utils.dart';
 
 /// Management-portal login — FastAPI JWT (ADR-001), same flow as
 /// employee_login but gated on an admin membership: a non-admin login
@@ -92,7 +93,7 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
         orgId = (first['organization_id'] as num?)?.toInt();
         isAdmin = (first['is_admin'] as bool?) ?? false;
       }
-      if (token.isEmpty || !isAdmin) {
+      if (token.isEmpty) {
         // Never persist a token that cannot use the management portal.
         // The stale organization_id and is_admin flags are cleared too,
         // or the next person to use the device is routed into the
@@ -122,14 +123,35 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
       }
 
       // Resolve profile via GET /users/me (TokenPair carries no name/email).
+      // The same response carries the roles and capabilities the server
+      // grants — the management portal is open to whoever holds a
+      // management capability, not to whoever owns the organization.
       String userName = 'Manager';
+      List<String> roles = <String>[];
+      List<String> permissions = <String>[];
+      bool superuser = false;
       try {
         final me = await ApiClient.get('/users/me');
         if (me.statusCode == 200) {
           final profile = json.decode(me.body) as Map<String, dynamic>;
           userName = profile['name']?.toString() ?? userName;
+          roles = stringList(profile['roles']);
+          permissions = stringList(profile['permissions']);
+          superuser = profile['is_superuser'] == true;
         }
       } catch (_) {}
+
+      ExpenseStore.instance.currentOrganizationId = orgId;
+      ExpenseStore.instance.setUserAccess(
+        roles: roles,
+        permissions: permissions,
+        superuser: superuser,
+      );
+      if (!ExpenseStore.instance.hasManagementAccess) {
+        await ApiClient.signOut();
+        _showError('This portal is restricted to management accounts.');
+        return;
+      }
 
       ExpenseStore.instance.currentUserName = userName;
       ExpenseStore.instance.setCurrentManager(email: email);

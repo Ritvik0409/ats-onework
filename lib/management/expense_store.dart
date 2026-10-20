@@ -270,7 +270,14 @@ class ExpenseStore extends ChangeNotifier {
     return combined.toList();
   }
 
-  Future<int?> _orgId() => ApiClient.getOrganizationId();
+  /// The organization the signed-in user is working in. Set when the
+  /// session is established, so screens can read it without a round-trip.
+  int? currentOrganizationId;
+
+  Future<int?> _orgId() async {
+    if (currentOrganizationId != null) return currentOrganizationId;
+    return ApiClient.getOrganizationId();
+  }
 
   Future<void> fetchExpenseTypesFromBackend() async {
     try {
@@ -383,6 +390,10 @@ class ExpenseStore extends ChangeNotifier {
     projectRequests = [];
     notifications = [];
     employeeActiveStatus.clear();
+    currentUserRoles = <String>[];
+    grantedPermissions = <String>{};
+    isSuperUser = false;
+    currentOrganizationId = null;
     expensesLoaded = false;
     projectsLoaded = false;
     usersLoaded = false;
@@ -456,8 +467,95 @@ class ExpenseStore extends ChangeNotifier {
   String currentUserName = 'User';
   String currentUserEmail = '';
   String currentUserId = '';
-  
+
+  /// The roles the server reports for the signed-in user in the active
+  /// organization. Empty until the profile has been read.
+  List<String> currentUserRoles = <String>[];
+
+  /// Every capability the server reports for the signed-in user. The
+  /// API decides what the user may do; the client only reflects it.
+  Set<String> grantedPermissions = <String>{};
+
+  /// Whether the user is a platform super administrator — an account
+  /// that administers the access model itself, across organizations.
+  bool isSuperUser = false;
+
+  /// Whether the signed-in user holds a capability.
+  bool can(String capability) => grantedPermissions.contains(capability);
+
+  bool get canReadAllExpenses => can('expense.read_all');
+  bool get canApproveExpenses => can('expense.approve');
+  bool get canPayReimbursements => can('reimbursement.transition');
+  bool get canManagePeople => can('user.manage');
+  bool get canManageAccess => can('role.manage');
+  bool get canReadAuditLog => can('audit.read');
+  bool get canSeeReports => can('audit.read') || can('expense.read_all');
+
   bool get isHR => currentUserRole == 'hr';
+
+  /// The capabilities that make the management portal relevant.
+  ///
+  /// These are the ones a manager, finance user, director or HR user
+  /// holds. The ``is_admin`` flag is *not* the test: that flag means
+  /// "owns this organization", which is a different thing entirely.
+  static const Set<String> managementCapabilities = <String>{
+    'expense.read_all',
+    'expense.approve',
+    'expense.request_info',
+    'reimbursement.create',
+    'reimbursement.transition',
+    'reimbursement.receipt',
+    'project.create',
+    'project.manage',
+    'project.member.manage',
+    'project.access.review',
+    'budget.manage',
+    'user.read',
+    'user.manage',
+    'employee_status.manage',
+    'audit.read',
+    'organization.manage',
+    'role.manage',
+  };
+
+  /// Whether the signed-in user belongs in the management portal.
+  bool get hasManagementAccess =>
+      grantedPermissions.any(managementCapabilities.contains);
+
+  /// Records what the server says about the signed-in user.
+  ///
+  /// The role is derived from the roles the server reports, with the
+  /// most privileged first — a person who holds both `finance` and
+  /// `employee` is treated as finance. The capabilities are kept
+  /// separately: they are what actually decides what the user may do.
+  void setUserAccess({
+    List<String> roles = const <String>[],
+    List<String> permissions = const <String>[],
+    bool superuser = false,
+  }) {
+    currentUserRoles = roles;
+    grantedPermissions = permissions.toSet();
+    isSuperUser = superuser;
+    currentUserRole = _primaryRole(roles);
+    notifyListeners();
+  }
+
+  /// The role the interface branches on, most privileged first.
+  static String _primaryRole(List<String> roles) {
+    const precedence = <String>[
+      'admin',
+      'director',
+      'finance',
+      'hr',
+      'manager',
+      'employee',
+    ];
+    for (final role in precedence) {
+      if (roles.contains(role)) return role;
+    }
+    return 'employee';
+  }
+
   final Map<String, bool> employeeActiveStatus = {};
 
   double currentMonthBudget = 60000.0;
@@ -1149,15 +1247,10 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   Future<void> loadCurrentUserRole(String email) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      currentUserRole = (prefs.getBool('is_admin') ?? false) ? 'manager' : 'employee';
-    } catch (_) {
-      // Fail closed. Defaulting to the privileged role meant a failure
-      // reading the preference handed the management portal to anyone.
-      currentUserRole = 'employee';
-    }
-
+    // The role and the capabilities come from the server — they are set
+    // by setUserAccess when the profile is read. They are not guessed
+    // from a local flag any more: a manager is not the same thing as
+    // the owner of an organization.
     await _loadThemePreference();
     notifyListeners();
   }

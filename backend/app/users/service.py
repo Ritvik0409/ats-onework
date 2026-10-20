@@ -13,8 +13,10 @@ tenants' rosters.
 
 from __future__ import annotations
 
+from app.access.repository import AccessRepository
 from app.common.audit import service as audit_service
 from app.common.pagination import Page, decode_cursor, encode_cursor
+from app.common.permissions import granted_permissions
 from app.core.constants import AccountStatus
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.db.types import Conn, Row
@@ -28,17 +30,43 @@ from app.users.schemas import (
 )
 
 _repository = UserRepository()
+_access = AccessRepository()
 
 
 class UserService:
-    def __init__(self, repository: UserRepository | None = None) -> None:
+    def __init__(
+        self,
+        repository: UserRepository | None = None,
+        access: AccessRepository | None = None,
+    ) -> None:
         self._repository = repository or _repository
+        self._access = access or _access
 
-    async def get_me(self, conn: Conn, employee_id: int) -> UserResponse:
+    async def get_me(
+        self, conn: Conn, employee_id: int, organization_id: int | None = None
+    ) -> UserResponse:
+        """The caller's own profile.
+
+        When the organization is known, the response also carries the
+        roles the caller holds there and every capability those roles
+        grant, so a client can show the right portal without guessing.
+        """
         row = await self._repository.get_by_id(conn, employee_id)
         if row is None:
             raise NotFoundError("User not found.")
-        return UserResponse.model_validate(row)
+        response = UserResponse.model_validate(row)
+        if organization_id is None:
+            return response
+        roles = await self._access.list_member_roles(conn, organization_id, employee_id)
+        permissions = await granted_permissions(
+            conn, employee_id=employee_id, organization_id=organization_id
+        )
+        return response.model_copy(
+            update={
+                "roles": [role["name"] for role in roles],
+                "permissions": sorted(permissions),
+            }
+        )
 
     async def list_users(
         self,

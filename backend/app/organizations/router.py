@@ -12,6 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Response, status
 
 from app.api.v1.deps import CurrentUser, get_current_user
+from app.common.permissions import RequirePathPermission
 from app.db.connection import get_connection
 from app.db.types import Conn
 from app.organizations.schemas import (
@@ -50,7 +51,7 @@ async def list_organizations(
 @router.get("/{organization_id}", response_model=OrganizationResponse)
 async def get_organization(
     organization_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("organization.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> OrganizationResponse:
     return await organization_service.get_organization(
@@ -62,7 +63,7 @@ async def get_organization(
 async def update_organization(
     organization_id: int,
     payload: OrganizationUpdate,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("organization.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> OrganizationResponse:
     return await organization_service.update_organization(
@@ -81,7 +82,7 @@ async def update_organization(
 async def add_member(
     organization_id: int,
     payload: MembershipCreate,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("organization.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> MembershipResponse:
     return await organization_service.add_member(
@@ -99,7 +100,7 @@ async def add_member(
 async def remove_member(
     organization_id: int,
     employee_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("organization.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> Response:
     await organization_service.remove_member(
@@ -114,7 +115,7 @@ async def remove_member(
 @router.get("/{organization_id}/roles", response_model=list[RoleResponse])
 async def list_roles(
     organization_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("organization.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> list[RoleResponse]:
     return await organization_service.list_roles(
@@ -130,7 +131,7 @@ async def list_roles(
 async def create_role(
     organization_id: int,
     payload: RoleCreate,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("role.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> RoleResponse:
     return await organization_service.create_role(

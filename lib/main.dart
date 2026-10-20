@@ -1,13 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'employee/employee_login.dart';
 import 'employee/employee_navigation_shell.dart';
 import 'management/expense_store.dart';
 import 'management/navigation_shell.dart';
 import 'shared/api_client.dart';
+import 'shared/json_utils.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,14 +26,19 @@ Future<String> _resolveInitialRoute() async {
     if (me.statusCode != 200) return '/'; // dead/revoked session
     final profile = json.decode(me.body) as Map<String, dynamic>;
 
-    final prefs = await SharedPreferences.getInstance();
-    final isAdmin = prefs.getBool('is_admin') ?? false;
     final email = profile['email']?.toString() ?? '';
     final name = profile['name']?.toString() ?? 'User';
     final empId = (profile['employee_id'] ?? '').toString();
 
     final store = ExpenseStore.instance;
-    store.currentUserRole = isAdmin ? 'manager' : 'employee';
+    // The roles and capabilities come from the server. The portal is
+    // chosen by what the user may actually do, not by a local flag.
+    store.currentOrganizationId = await ApiClient.getOrganizationId();
+    store.setUserAccess(
+      roles: stringList(profile['roles']),
+      permissions: stringList(profile['permissions']),
+      superuser: profile['is_superuser'] == true,
+    );
     store.currentUserName = name;
     store.currentUserEmail = email;
     store.currentUserId = empId;
@@ -45,7 +50,8 @@ Future<String> _resolveInitialRoute() async {
     store.reloadThemePreference();
     await store.primeSessionData();
 
-    return isAdmin ? '/management_shell' : '/employee_shell';
+    if (store.hasManagementAccess) return '/management_shell';
+    return '/employee_shell';
   } catch (_) {
     // Backend unreachable or corrupt state — fall back to the login
     // screen (the interceptor will offer refresh + retry in-session).

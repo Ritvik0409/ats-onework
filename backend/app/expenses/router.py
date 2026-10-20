@@ -17,9 +17,10 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile, status
 from pydantic import ValidationError as PydanticValidationError
 
-from app.api.v1.deps import CurrentUser, require_admin, require_membership
+from app.api.v1.deps import CurrentUser
 from app.common.object_storage import get_object_storage
 from app.common.pagination import Page
+from app.common.permissions import RequireAnyPermission, RequirePermission
 from app.core.constants import ExpenseStatus
 from app.core.exceptions import ValidationError
 from app.db.connection import get_connection
@@ -62,7 +63,7 @@ def _page(items: list[ExpenseListItem]) -> Page[ExpenseListItem]:
 @router.post("", response_model=ExpenseResponse, status_code=status.HTTP_201_CREATED)
 async def submit_expense(
     background: BackgroundTasks,
-    user: Annotated[CurrentUser, Depends(require_membership)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("expense.create"))],
     conn: Annotated[Conn, Depends(get_connection)],
     project_id: Annotated[int, Form(gt=0)],
     expense_type_id: Annotated[int, Form(gt=0)],
@@ -130,7 +131,9 @@ async def submit_expense(
 
 @router.get("", response_model=Page[ExpenseListItem])
 async def list_expenses(
-    user: Annotated[CurrentUser, Depends(require_membership)],
+    user: Annotated[
+        CurrentUser, Depends(RequireAnyPermission("expense.read_own", "expense.read_all"))
+    ],
     conn: Annotated[Conn, Depends(get_connection)],
     status_filter: Annotated[ExpenseStatus | None, Query(alias="status")] = None,
     from_date: Annotated[date | None, Query(alias="from")] = None,
@@ -154,7 +157,9 @@ async def list_expenses(
 @router.get("/{expense_id}", response_model=ExpenseResponse)
 async def get_expense(
     expense_id: int,
-    user: Annotated[CurrentUser, Depends(require_membership)],
+    user: Annotated[
+        CurrentUser, Depends(RequireAnyPermission("expense.read_own", "expense.read_all"))
+    ],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ExpenseResponse:
     return await expense_service.get(
@@ -167,7 +172,7 @@ async def get_expense(
 
 @approvals_router.get("/pending", response_model=Page[ExpenseListItem])
 async def list_pending(
-    user: Annotated[CurrentUser, Depends(require_admin)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("expense.approve"))],
     conn: Annotated[Conn, Depends(get_connection)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
@@ -186,7 +191,7 @@ async def list_pending(
 async def approve_expense(
     expense_id: int,
     payload: ApprovalActionRequest,
-    user: Annotated[CurrentUser, Depends(require_admin)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("expense.approve"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ExpenseResponse:
     return await expense_service.approve(
@@ -202,7 +207,7 @@ async def approve_expense(
 async def reject_expense(
     expense_id: int,
     payload: ApprovalActionRequest,
-    user: Annotated[CurrentUser, Depends(require_admin)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("expense.approve"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ExpenseResponse:
     return await expense_service.reject(
@@ -218,7 +223,7 @@ async def reject_expense(
 async def request_expense_info(
     expense_id: int,
     payload: ApprovalActionRequest,
-    user: Annotated[CurrentUser, Depends(require_admin)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("expense.request_info"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ExpenseResponse:
     """Admin asks the employee for details — status becomes info_requested."""
@@ -234,7 +239,7 @@ async def request_expense_info(
 @router.post("/{expense_id}/resubmit", response_model=ExpenseResponse)
 async def resubmit_expense(
     expense_id: int,
-    user: Annotated[CurrentUser, Depends(require_membership)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("expense.resubmit"))],
     conn: Annotated[Conn, Depends(get_connection)],
     payload: ExpenseResubmit | None = None,
 ) -> ExpenseResponse:

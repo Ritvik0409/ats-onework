@@ -155,13 +155,11 @@ async def test_project_member_add_and_remove(
 
     admin_headers = _auth(admin_token)
 
-    # Member rows default to the org's 'employee' role — create it first.
-    role = await client.post(
-        f"/api/v1/organizations/{org_id}/roles",
-        json={"name": "employee"},
-        headers=admin_headers,
-    )
-    assert role.status_code == 201, role.text
+    # Member rows default to the org's 'employee' role, which the
+    # organisation already has from the access catalogue.
+    roles = await client.get(f"/api/v1/organizations/{org_id}/roles", headers=admin_headers)
+    assert roles.status_code == 200, roles.text
+    assert any(r["name"] == "employee" for r in roles.json())
     budget = await client.post(
         f"/api/v1/organizations/{org_id}/budgets",
         json={"amount": "10000.00", "start_date": "2026-01-01", "end_date": "2026-12-31"},

@@ -17,7 +17,12 @@ from app.core.constants import AccountStatus, EmployeeStatus
 
 
 class UserResponse(BaseModel):
-    """Public user shape — §49 #3/#8. No sensitive fields, ever."""
+    """Public user shape — §49 #3/#8. No sensitive fields, ever.
+
+    ``roles`` and ``permissions`` describe what the user may do in the
+    organization they are being read in. They are empty for a user who
+    is not a member of it.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -29,6 +34,10 @@ class UserResponse(BaseModel):
     last_login_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+    #: The roles the user holds in this organization.
+    roles: list[str] = Field(default_factory=list)
+    #: Every capability the user effectively holds there.
+    permissions: list[str] = Field(default_factory=list)
 
 
 class UserListItem(BaseModel):

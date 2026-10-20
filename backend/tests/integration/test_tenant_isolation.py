@@ -413,11 +413,13 @@ async def test_role_uniqueness_is_org_scoped(clean_db: AsyncConnection[dict]) ->
     )
     await clean_db.commit()
 
+    # A name of the organization's own choosing — the standard roles from
+    # the catalogue are already installed, so this one is new.
     await orgs.create_role(
         clean_db,
         actor_id=a_id,
         organization_id=first.organization_id,
-        payload=RoleCreate(name="manager"),
+        payload=RoleCreate(name="reviewer"),
     )
     await clean_db.commit()
     with pytest.raises(pg_errors.UniqueViolation):  # same org → 409 backstop
@@ -426,7 +428,7 @@ async def test_role_uniqueness_is_org_scoped(clean_db: AsyncConnection[dict]) ->
         async with clean_db.cursor() as cur:
             await cur.execute(
                 "INSERT INTO roles (name, organization_id) VALUES (%s, %s)",
-                ("manager", first.organization_id),
+                ("reviewer", first.organization_id),
             )
     await clean_db.rollback()
 
@@ -434,7 +436,7 @@ async def test_role_uniqueness_is_org_scoped(clean_db: AsyncConnection[dict]) ->
         clean_db,
         actor_id=a_id,
         organization_id=second.organization_id,
-        payload=RoleCreate(name="manager"),
+        payload=RoleCreate(name="reviewer"),
     )
     await clean_db.commit()
     assert same_name_other_org.organization_id == second.organization_id

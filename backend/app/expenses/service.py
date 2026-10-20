@@ -17,6 +17,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.common.audit import service as audit_service
+from app.common.permissions import has_permission
 from app.common.tenant import require_path_admin, require_path_member
 from app.core.constants import EXPENSE_TRANSITIONS, ApprovalAction, ExpenseStatus
 from app.core.exceptions import (
@@ -118,10 +119,26 @@ class ExpenseService:
     async def get(
         self, conn: Conn, *, employee_id: int, organization_id: int, expense_id: int
     ) -> ExpenseResponse:
+        """Read one expense.
+
+        Someone who may only read their own expenses gets a 404 for
+        anyone else's — the same answer as for a row that does not
+        exist, so the endpoint cannot be used to find out which expense
+        ids exist.
+        """
         await self._require_member(conn, employee_id, organization_id)
         row = await self._repository.get_by_id(conn, expense_id, organization_id)
         if row is None:
             raise NotFoundError("Expense not found.")
+        if int(row["employee_id"]) != employee_id:
+            can_read_all = await has_permission(
+                conn,
+                employee_id=employee_id,
+                organization_id=organization_id,
+                api_name="expense.read_all",
+            )
+            if not can_read_all:
+                raise NotFoundError("Expense not found.")
         media = await self._repository.list_media(conn, expense_id)
         return self._to_response(row, media)
 
@@ -137,7 +154,20 @@ class ExpenseService:
         limit: int,
         before_id: int | None,
     ) -> list[ExpenseListItem]:
+        """List expenses the caller is allowed to see.
+
+        A caller who holds ``expense.read_all`` sees the whole
+        organization. Anyone else sees only their own — the scope is
+        decided by the capability, not by the client, so an employee
+        cannot read their colleagues' expenses by asking for them.
+        """
         await self._require_member(conn, employee_id, organization_id)
+        can_read_all = await has_permission(
+            conn,
+            employee_id=employee_id,
+            organization_id=organization_id,
+            api_name="expense.read_all",
+        )
         rows = await self._repository.list_by_org(
             conn,
             organization_id,
@@ -146,6 +176,7 @@ class ExpenseService:
             to_date=to_date,
             limit=limit,
             before_id=before_id,
+            employee_id=None if can_read_all else employee_id,
         )
         return [ExpenseListItem.model_validate(r) for r in rows]
 
@@ -158,6 +189,12 @@ class ExpenseService:
         limit: int,
         before_id: int | None,
     ) -> list[ExpenseListItem]:
+        """The review queue — the expenses waiting for a decision.
+
+        This is a reviewer's queue, so it is not narrowed to the
+        caller's own expenses: holding ``expense.approve`` is what opens
+        it.
+        """
         await self._require_admin(conn, employee_id, organization_id)
         rows = await self._repository.list_pending(
             conn, organization_id, limit=limit, before_id=before_id

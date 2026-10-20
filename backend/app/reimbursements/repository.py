@@ -81,13 +81,20 @@ class ReimbursementRepository:
         status: ReimbursementStatus | None,
         limit: int,
         before_id: int | None,
+        employee_id: int | None = None,
     ) -> list[Row]:
+        """List reimbursements, newest first.
+
+        ``employee_id`` narrows the list to one employee — the scope
+        someone without ``reimbursement.read_all`` is given.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT " + _REIMB_COLUMNS + " FROM reimbursements"
                 " WHERE organization_id = %s"
                 " AND (%s::text IS NULL OR status = %s::text)"
                 " AND (%s::int IS NULL OR reimbursement_id < %s::int)"
+                " AND (%s::int IS NULL OR employee_id = %s::int)"
                 " ORDER BY reimbursement_id DESC LIMIT %s::int",
                 (
                     organization_id,
@@ -95,6 +102,8 @@ class ReimbursementRepository:
                     None if status is None else status.value,
                     before_id,
                     before_id,
+                    employee_id,
+                    employee_id,
                     limit,
                 ),
             )

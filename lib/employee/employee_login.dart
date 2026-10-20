@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
+import 'package:ats_onework/shared/json_utils.dart';
 
 class UniversalLoginScreen extends StatefulWidget {
   const UniversalLoginScreen({super.key});
@@ -36,10 +37,14 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
     super.dispose();
   }
 
+  /// Which portal a role belongs in.
+  ///
+  /// The capabilities are the authority; the role name is the fallback
+  /// for when they could not be read.
   String _getRouteForRole(String role) {
     switch (role.toLowerCase()) {
       case 'employee':
-        return '/employee_shell'; 
+        return '/employee_shell';
       case 'hr':
       case 'hr manager':
       case 'finance':
@@ -48,7 +53,7 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
       case 'administrator':
       case 'manager':
       case 'director':
-        return '/management_shell'; 
+        return '/management_shell';
       default:
         return '/employee_shell';
     }
@@ -107,9 +112,15 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         ApiClient.resetSessionExpiryNotification();
 
         // Resolve profile via GET /users/me (TokenPair carries no name/email).
+        // The same response carries the roles and capabilities the server
+        // grants, so the interface can show the right portal without
+        // guessing from a boolean.
         String userName = 'User';
         String userEmail = input.contains('@') ? input : '';
         String empId = '';
+        List<String> roles = <String>[];
+        List<String> permissions = <String>[];
+        bool superuser = false;
         try {
           final me = await ApiClient.get('/users/me');
           if (me.statusCode == 200) {
@@ -117,16 +128,22 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
             userName = profile['name']?.toString() ?? userName;
             userEmail = profile['email']?.toString() ?? userEmail;
             empId = profile['employee_id']?.toString() ?? empId;
+            roles = stringList(profile['roles']);
+            permissions = stringList(profile['permissions']);
+            superuser = profile['is_superuser'] == true;
           }
         } catch (_) {}
 
-        final userRole = isAdmin ? 'manager' : 'employee';
-
-        ExpenseStore.instance.currentUserRole = userRole.toLowerCase();
         ExpenseStore.instance.currentUserName = userName;
         ExpenseStore.instance.currentUserEmail = userEmail;
         ExpenseStore.instance.currentUserId = empId;
-        
+        ExpenseStore.instance.currentOrganizationId = orgId;
+        ExpenseStore.instance.setUserAccess(
+          roles: roles,
+          permissions: permissions,
+          superuser: superuser,
+        );
+
         ExpenseStore.instance.currentEmployeeName = userName;
         ExpenseStore.instance.currentEmployeeEmail = userEmail;
         ExpenseStore.instance.currentEmployeeId = empId;
@@ -156,20 +173,34 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
 
         if (!mounted) return;
 
-        if (userRole.toLowerCase() == 'employee') {
-          final isAssigned = ExpenseStore.instance.isEmployeeAssignedToAnyProject(empId) || 
-                             ExpenseStore.instance.isEmployeeAssignedToAnyProject(userEmail);
-          
-          if (isAssigned) {
-            Navigator.pushReplacementNamed(context, '/employee_shell');
-            return;
-          }
+        // A user who holds a management capability belongs in the
+        // management portal, whichever sign-in screen they used.
+        if (ExpenseStore.instance.hasManagementAccess) {
+          Navigator.pushReplacementNamed(context, '/management_shell');
+          return;
+        }
+
+        // The capabilities could not be read — fall back to the role.
+        if (ExpenseStore.instance.grantedPermissions.isEmpty) {
+          Navigator.pushReplacementNamed(
+            context,
+            _getRouteForRole(ExpenseStore.instance.currentUserRole),
+          );
+          return;
+        }
+
+        final isAssigned = ExpenseStore.instance.isEmployeeAssignedToAnyProject(empId) ||
+            ExpenseStore.instance.isEmployeeAssignedToAnyProject(userEmail);
+
+        if (isAssigned) {
+          Navigator.pushReplacementNamed(context, '/employee_shell');
+          return;
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Logged in as $userRole ($empId)',
+              'Logged in as ${ExpenseStore.instance.currentUserRole} ($empId)',
               style: const TextStyle(
                 color: Colors.black,
                 fontWeight: FontWeight.bold,
@@ -179,8 +210,7 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
           ),
         );
 
-        final targetRoute = _getRouteForRole(userRole);
-        Navigator.pushReplacementNamed(context, targetRoute);
+        Navigator.pushReplacementNamed(context, '/employee_shell');
 
       } else if (response.statusCode == 401 || response.statusCode == 404) {
         if (!mounted) return;

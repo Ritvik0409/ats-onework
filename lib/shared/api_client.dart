@@ -111,6 +111,15 @@ class ApiClient {
     );
   }
 
+  static Future<http.Response> put(String path, Map<String, dynamic> body) {
+    return _withAuth(
+      true,
+      (headers) => http
+          .put(v1(path), headers: headers, body: json.encode(body))
+          .timeout(requestTimeout),
+    );
+  }
+
   static Future<http.Response> delete(String path) {
     return _withAuth(
       true,

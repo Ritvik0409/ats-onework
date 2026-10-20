@@ -427,7 +427,9 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
           );
         }
         final isLocked = _store.isLocked(widget.expenseId);
-        final isFinance = _store.currentUserRole == 'finance';
+        // The capability decides, not the name of a role: disbursing is
+        // whoever holds `reimbursement.transition`.
+        final isFinance = _store.canPayReimbursements;
         
         // --- IDENTITY LOCK IMPLEMENTATION ---
         final isOwnExpense = employeeData.email.trim().toLowerCase() == _store.currentUserEmail.trim().toLowerCase();

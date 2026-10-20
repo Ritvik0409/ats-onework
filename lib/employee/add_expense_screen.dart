@@ -110,9 +110,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         description: _descriptionController.text.trim(),
         rawDate: _selectedDate,
         receiptBytes: _receiptBytes,
-        projectName: _selectedProject,
+        projectId: _selectedProject,
       );
-
       if (mounted) {
         setState(() => _isSubmitting = false);
         if (error != null) {
@@ -217,7 +216,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                           ),
                           items: [
                             DropdownMenuItem<String>(value: null, child: Text('No Project (General Expense)', style: TextStyle(color: textMuted))),
-                            ...availableProjects.map((p) => DropdownMenuItem<String>(value: p.name, child: Text(p.name))),
+                            // Keyed by backend id: display names are not
+                            // unique across budgets, and a duplicated
+                            // value crashes the DropdownButton assertion.
+                            ...availableProjects.map(
+                              (p) => DropdownMenuItem<String>(value: p.id, child: Text(p.name)),
+                            ),
                           ],
                           onChanged: (value) => setState(() => _selectedProject = value),
                         ),

@@ -39,7 +39,7 @@ from typing import Annotated
 from fastapi import Depends, Path
 
 from app.api.v1.deps import CurrentUser, get_current_user, require_membership
-from app.core.exceptions import AuthorizationError
+from app.core.exceptions import AuthorizationError, NotFoundError
 from app.db.connection import get_connection
 from app.db.types import Conn
 
@@ -93,6 +93,37 @@ async def has_permission(
         conn, employee_id=employee_id, organization_id=organization_id
     )
     return api_name in granted
+
+
+async def require_path_membership(
+    conn: Conn,
+    *,
+    employee_id: int,
+    organization_id: int,
+    is_superuser: bool = False,
+) -> None:
+    """404 unless the caller may be evaluated in the path organization.
+
+    A caller probing an organization they do not belong to gets the same
+    answer a nonexistent organization gives — a 404 — so an id's
+    existence cannot be probed (§49). A *member* without the capability
+    stays a 403: that person already knows the organization exists; they
+    are inside it.
+
+    A super administrator is not a member of the organizations they
+    administer, so their membership is not required (same rule as the
+    access service's ``_require_member``).
+    """
+    if is_superuser:
+        return
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "SELECT 1 FROM memberships WHERE employee_id = %s AND organization_id = %s",
+            (employee_id, organization_id),
+        )
+        row = await cur.fetchone()
+    if row is None:
+        raise NotFoundError("Organization not found.")
 
 
 async def require_capability(
@@ -176,7 +207,10 @@ class RequirePathPermission:
 
     The capability is evaluated in the **path** organization, not the
     caller's active one, so a caller cannot spend a capability they hold
-    in one organization on another organization's resource.
+    in one organization on another organization's resource. A caller who
+    is not a member of the path organization gets a 404 — the same
+    answer a nonexistent organization gives — and only a member lacking
+    the capability gets a 403.
     """
 
     def __init__(self, api_name: str) -> None:
@@ -188,6 +222,12 @@ class RequirePathPermission:
         user: Annotated[CurrentUser, Depends(get_current_user)],
         conn: Annotated[Conn, Depends(get_connection)],
     ) -> CurrentUser:
+        await require_path_membership(
+            conn,
+            employee_id=user.employee_id,
+            organization_id=organization_id,
+            is_superuser=user.is_superuser,
+        )
         granted = await granted_permissions(
             conn, employee_id=user.employee_id, organization_id=organization_id
         )
@@ -198,7 +238,12 @@ class RequirePathPermission:
 
 class RequireAnyPathPermission:
     """Route dependency: the caller must hold one of these, in the path's
-    organization."""
+    organization.
+
+    Same tenant rule as :class:`RequirePathPermission`: a non-member of
+    the path organization reads as a 404, a capability-less member as a
+    403.
+    """
 
     def __init__(self, *api_names: str) -> None:
         self.api_names = api_names
@@ -209,6 +254,12 @@ class RequireAnyPathPermission:
         user: Annotated[CurrentUser, Depends(get_current_user)],
         conn: Annotated[Conn, Depends(get_connection)],
     ) -> CurrentUser:
+        await require_path_membership(
+            conn,
+            employee_id=user.employee_id,
+            organization_id=organization_id,
+            is_superuser=user.is_superuser,
+        )
         granted = await granted_permissions(
             conn, employee_id=user.employee_id, organization_id=organization_id
         )

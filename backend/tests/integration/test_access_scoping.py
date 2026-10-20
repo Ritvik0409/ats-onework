@@ -148,6 +148,27 @@ async def test_an_employee_cannot_use_an_organizational_endpoint(
     assert denied.status_code == 403, denied.text
 
 
+async def test_a_path_probe_from_another_organization_is_a_404(
+    clean_db,  # noqa: ARG001
+    seeded_orgs: dict,
+    admin_token: str,
+    client: AsyncClient,
+) -> None:
+    """Probing another organization's org-scoped routes reads as a 404 —
+    the same answer a nonexistent organization gives, so an id's
+    existence cannot be discovered (§49). A member without the
+    capability stays a 403."""
+    other_org = seeded_orgs["b"]["organization_id"]
+
+    probed = await client.get(
+        f"/api/v1/organizations/{other_org}/budgets", headers=_auth(admin_token)
+    )
+    assert probed.status_code == 404, probed.text
+
+    missing = await client.get("/api/v1/organizations/999999/budgets", headers=_auth(admin_token))
+    assert missing.status_code == 404, missing.text
+
+
 async def test_an_employee_cannot_approve_an_expense(
     clean_db,  # noqa: ARG001
     admin_token: str,

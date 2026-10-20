@@ -1484,15 +1484,19 @@ class ExpenseStore extends ChangeNotifier {
   Future<String?> submitExpense({
     required String type,
     required double amount,
-    required String date, 
+    required String date,
     required String description,
     required DateTime rawDate,
-    Uint8List? receiptBytes, 
-    String? projectName, 
+    Uint8List? receiptBytes,
+    String? projectId,
   }) async {
-    if (projectName != null && projectName.isNotEmpty) {
+    // The dropdown is keyed by backend id: two projects may share a
+    // display name, and a name-keyed selection both crashed the
+    // DropdownButton assertion and could quietly tag the expense to the
+    // wrong project before that.
+    if (projectId != null && projectId.isNotEmpty) {
       final targetProject = projects.firstWhere(
-        (p) => p.name == projectName, 
+        (p) => p.id == projectId,
         orElse: () => ProjectRecord(id: '', name: '', budget: 0, assignedEmails: [], isActive: true)
       );
       if (!targetProject.isActive) {
@@ -1514,18 +1518,18 @@ class ExpenseStore extends ChangeNotifier {
       // Resolve backend IDs from cached lists (names are UI labels only).
       final orgId = await _orgId();
       if (orgId == null) return 'Not signed in to an organization.';
-      int? projectId;
-      if (projectName != null && projectName.isNotEmpty) {
-        final match = projects.where((p) => p.name == projectName).toList();
+      int? resolvedProjectId;
+      if (projectId != null && projectId.isNotEmpty) {
+        final match = projects.where((p) => p.id == projectId).toList();
         if (match.isEmpty) return 'Selected project is not synced from the backend.';
-        projectId = int.tryParse(match.first.id);
-        if (projectId == null) return 'Selected project has an invalid backend ID.';
+        resolvedProjectId = int.tryParse(match.first.id);
+        if (resolvedProjectId == null) return 'Selected project has an invalid backend ID.';
       } else {
         // General expenses still need a project in v1 — pick the first active one.
         final active = projects.where((p) => p.isActive).toList();
         if (active.isEmpty) return 'No synced project available — ask an admin to create one.';
-        projectId = int.tryParse(active.first.id);
-        if (projectId == null) return 'Synced project has an invalid backend ID.';
+        resolvedProjectId = int.tryParse(active.first.id);
+        if (resolvedProjectId == null) return 'Synced project has an invalid backend ID.';
       }
       final expenseTypeId = await _resolveExpenseTypeId(orgId, type);
       if (expenseTypeId == null) {
@@ -1537,7 +1541,7 @@ class ExpenseStore extends ChangeNotifier {
       final expenseDate =
           '${rawDate.year.toString().padLeft(4, '0')}-${rawDate.month.toString().padLeft(2, '0')}-${rawDate.day.toString().padLeft(2, '0')}';
       final fields = {
-        'project_id': projectId.toString(),
+        'project_id': resolvedProjectId.toString(),
         'expense_type_id': expenseTypeId.toString(),
         'amount': amount.toString(),
         'expense_date': expenseDate,

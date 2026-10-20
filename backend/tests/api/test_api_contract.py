@@ -151,6 +151,20 @@ def app_with_overrides(monkeypatch: pytest.MonkeyPatch) -> Any:
 
     monkeypatch.setattr(permissions_module, "granted_permissions", _all_granted)
 
+    # The path guards also prove membership in the path organization.
+    # These tests are about the HTTP contract, not about tenancy, so the
+    # membership check is stubbed out.
+    async def _member_of_any_org(
+        _conn: Any,
+        *,
+        employee_id: int,  # noqa: ARG001
+        organization_id: int,  # noqa: ARG001
+        is_superuser: bool = False,  # noqa: ARG001
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(permissions_module, "require_path_membership", _member_of_any_org)
+
     # The sign-in endpoints are rate limited, and these tests are about
     # the HTTP contract rather than about the limits.
     async def _no_limit(_conn: Any, **_kwargs: Any) -> None:

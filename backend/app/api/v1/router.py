@@ -11,6 +11,7 @@ from fastapi import APIRouter
 
 from app.access.router import org_router as access_org_router
 from app.access.router import system_router as access_system_router
+from app.analytics.router import router as analytics_router
 from app.audit_logs.router import router as audit_logs_router
 from app.auth.router import router as auth_router
 from app.budgets.router import router as budgets_router
@@ -43,5 +44,6 @@ api_v1_router.include_router(reimbursements_router)
 api_v1_router.include_router(expense_reimbursement_router)
 api_v1_router.include_router(notifications_router)
 api_v1_router.include_router(audit_logs_router)
+api_v1_router.include_router(analytics_router)
 api_v1_router.include_router(access_org_router)
 api_v1_router.include_router(access_system_router)

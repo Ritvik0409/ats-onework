@@ -102,8 +102,11 @@ async def test_register_login_refresh_logout_flow(clean_db: AsyncConnection[dict
     await clean_db.commit()
     assert rotated.refresh_token != pair.refresh_token
 
-    with pytest.raises(AuthenticationError):  # old token died in rotation
-        await svc.refresh(clean_db, RefreshRequest(refresh_token=pair.refresh_token))
+    # Presenting the rotated token once more is treated as a retry after a
+    # lost response, so the chain continues instead of ending the session.
+    retried = await svc.refresh(clean_db, RefreshRequest(refresh_token=pair.refresh_token))
+    await clean_db.commit()
+    assert retried.refresh_token not in (pair.refresh_token, rotated.refresh_token)
 
     me = await UserService().get_me(clean_db, user.employee_id)
     assert me.account_status == AccountStatus.ACTIVE

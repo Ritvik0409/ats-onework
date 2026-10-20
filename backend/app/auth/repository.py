@@ -8,6 +8,7 @@ service. Never called from routers.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from app.core.constants import TokenPurpose
@@ -122,17 +123,25 @@ class AuthRepository:
         token_hash: str,
         purpose: TokenPurpose,
         expires_at: datetime,
+        family_id: uuid.UUID | None = None,
     ) -> Row:
+        """Insert a token. A new family is started unless one is given."""
         async with conn.cursor() as cur:
             await cur.execute(
                 """
                 INSERT INTO authentication_tokens
-                    (employee_id, token_hash, purpose, expires_at)
-                VALUES (%s, %s, %s, %s)
+                    (employee_id, token_hash, purpose, expires_at, family_id)
+                VALUES (%s, %s, %s, %s, COALESCE(%s::uuid, gen_random_uuid()))
                 RETURNING token_id, employee_id, token_hash, purpose,
-                          expires_at, created_at
+                          expires_at, created_at, family_id
                 """,
-                (employee_id, token_hash, purpose.value, expires_at),
+                (
+                    employee_id,
+                    token_hash,
+                    purpose.value,
+                    expires_at,
+                    family_id,
+                ),
             )
             row = await cur.fetchone()
             assert row is not None  # INSERT ... RETURNING always yields a row
@@ -143,13 +152,65 @@ class AuthRepository:
             await cur.execute(
                 """
                 SELECT token_id, employee_id, token_hash, purpose,
-                       expires_at, created_at
+                       expires_at, created_at, family_id,
+                       replaced_by_token_id, revoked_at
                 FROM authentication_tokens
                 WHERE token_hash = %s AND purpose = %s
                 """,
                 (token_hash, purpose.value),
             )
             return await cur.fetchone()
+
+    async def get_token_by_id(self, conn: Conn, token_id: int) -> Row | None:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT token_id, employee_id, token_hash, purpose,
+                       expires_at, created_at, family_id,
+                       replaced_by_token_id, revoked_at
+                FROM authentication_tokens
+                WHERE token_id = %s
+                """,
+                (token_id,),
+            )
+            return await cur.fetchone()
+
+    async def mark_rotated(self, conn: Conn, token_id: int, *, replaced_by_token_id: int) -> None:
+        """Record that a token has been replaced by another one.
+
+        The row is kept rather than deleted: keeping it is what makes a
+        replayed token recognisable as a replay. Only the replacement is
+        recorded -- ``revoked_at`` stays empty, because a rotated token
+        is not a revoked one: a client that retries after a lost
+        response must still be able to continue the chain.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE authentication_tokens SET replaced_by_token_id = %s WHERE token_id = %s",
+                (replaced_by_token_id, token_id),
+            )
+
+    async def revoke_family(self, conn: Conn, family_id: uuid.UUID) -> int:
+        """Revoke every token of a family — the response to a replay."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE authentication_tokens"
+                " SET revoked_at = CURRENT_TIMESTAMP"
+                " WHERE family_id = %s AND revoked_at IS NULL",
+                (family_id,),
+            )
+            return cur.rowcount
+
+    async def revoke_refresh_tokens_for_employee(self, conn: Conn, *, employee_id: int) -> int:
+        """Revoke every refresh token of a user (used when switching org)."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE authentication_tokens"
+                " SET revoked_at = CURRENT_TIMESTAMP"
+                " WHERE employee_id = %s AND purpose = %s AND revoked_at IS NULL",
+                (employee_id, TokenPurpose.REFRESH.value),
+            )
+            return cur.rowcount
 
     async def delete_token(self, conn: Conn, token_hash: str) -> int:
         async with conn.cursor() as cur:

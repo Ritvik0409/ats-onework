@@ -6,15 +6,19 @@ import 'package:ats_onework/shared/session_store.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
 import 'package:ats_onework/shared/json_utils.dart';
 
+/// The app's single sign-in page — the `/` route.
+///
+/// There is no second "management" login page: management accounts sign
+/// in here too and land in the management portal, because the routing
+/// decision below reads the capabilities the server reports, not which
+/// screen was used. (A management_portal variant did exist, but nothing
+/// ever routed to it and it began to drift — it is gone.)
 class UniversalLoginScreen extends StatefulWidget {
   const UniversalLoginScreen({super.key});
 
   @override
   State<UniversalLoginScreen> createState() => _UniversalLoginScreenState();
 }
-
-// Alias to maintain compatibility across existing imports
-typedef EmployeeLoginScreen = UniversalLoginScreen;
 
 class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -152,26 +156,15 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         ExpenseStore.instance.currentManagerName = userName;
         ExpenseStore.instance.currentManagerEmail = userEmail;
 
-        // Fetch projects for the active org: GET /organizations/{id}/projects (paged).
-        try {
-          if (orgId != null) {
-            final projectsResponse = await ApiClient.get(
-              '/organizations/$orgId/projects',
-              query: {'limit': '100'},
-            );
-
-            if (projectsResponse.statusCode == 200) {
-              final projectsJson = ApiClient.pageItems(projectsResponse);
-              ExpenseStore.instance.setProjects(projectsJson
-                  .map((data) => ProjectRecord.fromJson(data as Map<String, dynamic>))
-                  .toList());
-            } else {
-              debugPrint('Failed to load projects: ${projectsResponse.statusCode}');
-            }
-          }
-        } catch (e) {
-          debugPrint('Network error fetching projects: $e');
-        }
+        // Prime the signed-in user's working set through the store —
+        // expenses, projects, request queues, directory, expense types
+        // and notifications. The screen used to inline-fetch just the
+        // project list and hand it to setProjects, which bypassed the
+        // store's fetch helpers — so expensesLoaded and projectsLoaded
+        // stayed false at fresh sign-in and the My Requests / Projects
+        // screens spun forever (and "my expenses" read as empty until
+        // the next session resume).
+        await ExpenseStore.instance.primeSessionData();
 
         if (!mounted) return;
 
@@ -191,27 +184,10 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
           return;
         }
 
-        final isAssigned = ExpenseStore.instance.isEmployeeAssignedToAnyProject(empId) ||
-            ExpenseStore.instance.isEmployeeAssignedToAnyProject(userEmail);
-
-        if (isAssigned) {
-          Navigator.pushReplacementNamed(context, '/employee_shell');
-          return;
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Logged in as ${ExpenseStore.instance.currentUserRole} ($empId)',
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            backgroundColor: _goldColor,
-          ),
-        );
-
+        // The employee shell's wait screen handles the unassigned case
+        // (it offers a project-access request), so the portal choice is
+        // simply: management capabilities -> management portal, else
+        // the employee portal.
         Navigator.pushReplacementNamed(context, '/employee_shell');
 
       } else if (response.statusCode == 401 || response.statusCode == 404) {

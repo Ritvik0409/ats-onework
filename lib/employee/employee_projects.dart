@@ -266,7 +266,18 @@ class EmployeeProjectDetailsScreen extends StatelessWidget {
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           decoration: BoxDecoration(color: darkCharcoal, borderRadius: BorderRadius.circular(12), border: Border.all(color: store.isDarkMode ? Colors.white.withValues(alpha: 0.05) : Colors.grey.withValues(alpha: 0.2)), boxShadow: cardShadows),
-                          child: ListTile(
+                          // ListTile paints its ink splash on the
+                          // nearest Material. Inside a plain Container
+                          // that Material is the Scaffold far below —
+                          // behind the card color — so the splashes
+                          // were invisible and the build spammed
+                          // "ListTile background color or ink splashes
+                          // may be invisible". Giving the tile its own
+                          // Material restores the ripple.
+                          child: Material(
+                            color: darkCharcoal,
+                            borderRadius: BorderRadius.circular(12),
+                            child: ListTile(
                             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             title: Text(expense.type, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
                             subtitle: Text(expense.date, style: TextStyle(color: textMuted, fontSize: 12)),
@@ -281,6 +292,7 @@ class EmployeeProjectDetailsScreen extends StatelessWidget {
                                   style: TextStyle(color: _getStatusColor(expense.status), fontSize: 11, fontWeight: FontWeight.bold),
                                 ),
                               ],
+                            ),
                             ),
                           ),
                         );

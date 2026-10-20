@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ats_onework/employee/employee_login.dart';
+import 'package:ats_onework/shared/login_screen.dart';
 
 import 'package:ats_onework/management/budget_allocation_screen.dart';
 import 'package:ats_onework/management/pending_approvals_screen.dart';

@@ -46,6 +46,9 @@ class ProjectResponse(BaseModel):
     updated_at: datetime
     budget_amount: Decimal
     member_count: int
+    #: Ids of the employees assigned to the project. A client needs these
+    #: to know which projects the signed-in employee can act in.
+    assigned_employee_ids: list[int] = Field(default_factory=list)
 
 
 class ProjectListItem(ProjectResponse):

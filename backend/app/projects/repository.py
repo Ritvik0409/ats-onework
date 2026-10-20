@@ -8,12 +8,17 @@ from app.db.types import Conn, Row
 
 # Every project read also surfaces the budget amount and the member count —
 # both belong to the project's business meaning and the Flutter app shows them.
+# The member ids come along too: without them a client cannot tell which
+# projects the signed-in employee actually has access to.
 _PROJECT_SELECT = (
     "p.project_id, p.budget_id, p.name, p.description, p.is_active,"
     " p.start_date, p.end_date, p.created_at, p.updated_at,"
     " b.amount AS budget_amount,"
     " (SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.project_id)"
-    " AS member_count"
+    " AS member_count,"
+    " COALESCE((SELECT ARRAY_AGG(pm.employee_id ORDER BY pm.employee_id)"
+    "           FROM project_members pm WHERE pm.project_id = p.project_id),"
+    "          ARRAY[]::int[]) AS assigned_employee_ids"
 )
 
 # Same fields re-read after INSERT/UPDATE: the joined aggregate columns

@@ -21,6 +21,7 @@ from app.auth import router as auth_router_module
 from app.auth.schemas import TokenPair, UserResponse
 from app.common import permissions as permissions_module
 from app.common.pagination import Page
+from app.core import rate_limit as rate_limit_module
 from app.core.exceptions import NotFoundError
 from app.db.connection import get_connection
 from app.main import create_app
@@ -149,6 +150,14 @@ def app_with_overrides(monkeypatch: pytest.MonkeyPatch) -> Any:
         return _AllGranted()
 
     monkeypatch.setattr(permissions_module, "granted_permissions", _all_granted)
+
+    # The sign-in endpoints are rate limited, and these tests are about
+    # the HTTP contract rather than about the limits.
+    async def _no_limit(_conn: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(rate_limit_module, "hit", _no_limit)
+    monkeypatch.setattr(rate_limit_module, "clear", _no_limit)
 
     async def _register(_conn: Any, _payload: Any) -> UserResponse:
         return UserResponse.model_validate(_user_dict())

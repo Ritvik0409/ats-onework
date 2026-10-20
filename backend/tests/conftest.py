@@ -157,6 +157,11 @@ def test_database() -> Iterator[str]:
 async def db_connection(test_database: str) -> AsyncIterator[AsyncConnection[dict]]:
     """Raw async connection to the throwaway test database."""
     async with await AsyncConnection.connect(test_database, row_factory=dict_row) as conn:
+        # The sign-in endpoints are rate limited, and every request in
+        # this suite arrives from the same address, so the counters are
+        # cleared for each test that uses a connection.
+        await conn.execute("DELETE FROM rate_limit_buckets")
+        await conn.commit()
         yield conn
 
 
@@ -258,7 +263,8 @@ async def truncate_all(conn: AsyncConnection[dict]) -> None:
                 expenses, project_members, project_categories, projects,
                 categories, budgets, authentication_tokens, membership_roles,
                 user_permissions, role_permissions, permissions, roles,
-                memberships, employee_status, users, organizations
+                memberships, employee_status, users, organizations,
+                rate_limit_buckets
             RESTART IDENTITY CASCADE
             """,
         )

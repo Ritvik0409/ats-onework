@@ -51,6 +51,25 @@ class AuthorizationError(AppException):
     message = "You do not have permission to perform this action."
 
 
+class RateLimitExceeded(AppException):
+    """Too many attempts — the caller is asked to wait.
+
+    The error body carries how long is left, so a client can say so
+    rather than "try again later".
+    """
+
+    status_code = 429
+    code = "rate_limited"
+    message = "Too many attempts. Please try again later."
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(
+            self.message,
+            details={"retry_after_seconds": retry_after_seconds},
+        )
+        self.retry_after_seconds = retry_after_seconds
+
+
 class NotFoundError(AppException):
     status_code = 404
     code = "not_found"

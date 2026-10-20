@@ -59,6 +59,31 @@ async def clean_db(
     await truncate_all(db_connection)
 
 
+async def _org_for(conn: AsyncConnection[dict], *employee_ids: int) -> int:
+    """Create an organization and make ``employee_ids`` admin members of it.
+
+    The user admin routes are scoped to the caller's organization, so a
+    membership has to exist before those routes will act on a user.
+    """
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "INSERT INTO organizations (name, slug, description) VALUES (%s, %s, %s)"
+            " RETURNING organization_id",
+            (f"Org {employee_ids[0]}", f"org-{employee_ids[0]}", "fixture"),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        organization_id = int(row["organization_id"])
+        for employee_id in employee_ids:
+            await cur.execute(
+                "INSERT INTO memberships (employee_id, organization_id, is_admin)"
+                " VALUES (%s, %s, %s)",
+                (employee_id, organization_id, True),
+            )
+    await conn.commit()
+    return organization_id
+
+
 async def test_register_login_refresh_logout_flow(clean_db: AsyncConnection[dict]) -> None:
     svc = AuthService()
     user = await svc.register(
@@ -236,10 +261,12 @@ async def test_employee_status_single_active_backstop(
         clean_db, UserCreate(name="S", email="s@example.com", password="StrongPass1!")
     )
     await clean_db.commit()
+    org_id = await _org_for(clean_db, user.employee_id)
 
     created = await users.create_status(
         clean_db,
         actor_id=user.employee_id,
+        organization_id=org_id,
         employee_id=user.employee_id,
         payload=EmployeeStatusCreate(status=EmployeeStatus.ACTIVE),
     )
@@ -251,6 +278,7 @@ async def test_employee_status_single_active_backstop(
     reopened = await users.create_status(
         clean_db,
         actor_id=user.employee_id,
+        organization_id=org_id,
         employee_id=user.employee_id,
         payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
     )
@@ -261,6 +289,7 @@ async def test_employee_status_single_active_backstop(
         await users.create_status(
             clean_db,
             actor_id=user.employee_id,
+            organization_id=org_id,
             employee_id=user.employee_id,
             payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
         )
@@ -280,16 +309,21 @@ async def test_user_search_treats_wildcards_literally(
     """LIKE escaping: searching for "%" must not match every user."""
     auth = AuthService()
     users = UserService()
-    await auth.register(
+    percent = await auth.register(
         clean_db,
         UserCreate(name="100% Legit", email="percent@example.com", password="StrongPass1!"),
     )
-    await auth.register(
+    plain = await auth.register(
         clean_db, UserCreate(name="Plain Jane", email="plain@example.com", password="StrongPass1!")
     )
     await clean_db.commit()
+    # Both users share an organization, so the only thing that can narrow
+    # the result set is the LIKE escaping itself.
+    org_id = await _org_for(clean_db, percent.employee_id, plain.employee_id)
 
-    page = await users.list_users(clean_db, limit=20, cursor=None, search="%")
+    page = await users.list_users(
+        clean_db, organization_id=org_id, limit=20, cursor=None, search="%"
+    )
     assert [u.name for u in page.items] == ["100% Legit"]
 
 
@@ -300,10 +334,12 @@ async def test_user_update_writes_audit_row(clean_db: AsyncConnection[dict]) -> 
         clean_db, UserCreate(name="U", email="u@example.com", password="StrongPass1!")
     )
     await clean_db.commit()
+    org_id = await _org_for(clean_db, user.employee_id)
 
     updated = await users.update_user(
         clean_db,
         actor_id=user.employee_id,
+        organization_id=org_id,
         employee_id=user.employee_id,
         payload=UserUpdate(name="Updated"),
     )

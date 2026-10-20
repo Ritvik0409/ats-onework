@@ -43,13 +43,19 @@ class UserListItem(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    """Admin-only patch body — §49 #10. All fields optional."""
+    """Admin-only patch body — §49 #10. All fields optional.
+
+    ``is_superuser`` is deliberately **not** patchable here: it is a
+    global (not organization-scoped) privilege flag with no consumer in
+    the authorization path, so letting any organization's admin set it
+    would be a privilege-escalation primitive. It stays readable on
+    :class:`UserResponse` for display purposes.
+    """
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
     account_status: AccountStatus | None = None
-    is_superuser: bool | None = None
 
 
 class EmployeeStatusCreate(BaseModel):

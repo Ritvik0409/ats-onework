@@ -3,6 +3,11 @@
 Auth levels: ``/me`` needs any authenticated user; every other route needs
 an admin membership (``require_admin`` → 403 for members, 401 without a
 token via ``get_current_user``).
+
+Tenant scope (§8): the admin routes operate on the **caller's**
+organization. A target who is not a member of it is reported as 404, so
+these endpoints cannot be used to read or modify another tenant's
+roster.
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ async def get_me(
 
 @router.get("", response_model=Page[UserListItem])
 async def list_users(
-    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
     conn: Annotated[Conn, Depends(get_connection)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
@@ -46,7 +51,12 @@ async def list_users(
     account_status: Annotated[AccountStatus | None, Query()] = None,
 ) -> Page[UserListItem]:
     return await user_service.list_users(
-        conn, limit=limit, cursor=cursor, search=search, account_status=account_status
+        conn,
+        organization_id=admin.organization_id,
+        limit=limit,
+        cursor=cursor,
+        search=search,
+        account_status=account_status,
     )
 
 
@@ -58,17 +68,23 @@ async def update_user(
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> UserResponse:
     return await user_service.update_user(
-        conn, actor_id=admin.employee_id, employee_id=employee_id, payload=payload
+        conn,
+        actor_id=admin.employee_id,
+        organization_id=admin.organization_id,
+        employee_id=employee_id,
+        payload=payload,
     )
 
 
 @router.get("/{employee_id}/statuses", response_model=list[EmployeeStatusResponse])
 async def list_statuses(
     employee_id: int,
-    _admin: Annotated[CurrentUser, Depends(require_admin)],
+    admin: Annotated[CurrentUser, Depends(require_admin)],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> list[EmployeeStatusResponse]:
-    return await user_service.list_statuses(conn, employee_id)
+    return await user_service.list_statuses(
+        conn, organization_id=admin.organization_id, employee_id=employee_id
+    )
 
 
 @router.post(
@@ -83,5 +99,9 @@ async def create_status(
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> EmployeeStatusResponse:
     return await user_service.create_status(
-        conn, actor_id=admin.employee_id, employee_id=employee_id, payload=payload
+        conn,
+        actor_id=admin.employee_id,
+        organization_id=admin.organization_id,
+        employee_id=employee_id,
+        payload=payload,
     )

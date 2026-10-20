@@ -68,21 +68,41 @@ class _UserRepositoryStub:
     def __init__(self) -> None:
         self.users: dict[int, dict[str, Any]] = {}
         self.statuses: list[dict[str, Any]] = []
+        self.memberships: dict[tuple[int, int], dict[str, Any]] = {}
         self._next_status = 1
 
     async def get_by_id(self, _conn: Any, employee_id: int) -> dict[str, Any] | None:
+        return self.users.get(employee_id)
+
+    async def get_membership(
+        self, _conn: Any, employee_id: int, organization_id: int
+    ) -> dict[str, Any] | None:
+        return self.memberships.get((employee_id, organization_id))
+
+    async def get_by_id_in_org(
+        self, _conn: Any, employee_id: int, organization_id: int
+    ) -> dict[str, Any] | None:
+        if (employee_id, organization_id) not in self.memberships:
+            return None
         return self.users.get(employee_id)
 
     async def list_users(
         self,
         _conn: Any,
         *,
+        organization_id: int,
         limit: int,
         after_id: int | None,
         search: str | None = None,
         account_status: AccountStatus | None = None,
     ) -> list[dict[str, Any]]:
-        rows = sorted(self.users.values(), key=lambda r: r["employee_id"])
+        members = {
+            uid for (uid, org_id) in self.memberships if org_id == organization_id
+        }
+        rows = sorted(
+            (row for uid, row in self.users.items() if uid in members),
+            key=lambda r: r["employee_id"],
+        )
         out = []
         for row in rows:
             if after_id is not None and row["employee_id"] <= after_id:
@@ -95,17 +115,23 @@ class _UserRepositoryStub:
         return out[: limit + 1]
 
     async def update_user(
-        self, _conn: Any, employee_id: int, **fields: Any
+        self,
+        _conn: Any,
+        employee_id: int,
+        *,
+        organization_id: int,
+        name: str | None = None,
+        account_status: AccountStatus | None = None,
     ) -> dict[str, Any] | None:
+        if (employee_id, organization_id) not in self.memberships:
+            return None
         row = self.users.get(employee_id)
         if row is None:
             return None
-        if fields.get("name") is not None:
-            row["name"] = fields["name"]
-        if fields.get("account_status") is not None:
-            row["account_status"] = fields["account_status"].value
-        if fields.get("is_superuser") is not None:
-            row["is_superuser"] = fields["is_superuser"]
+        if name is not None:
+            row["name"] = name
+        if account_status is not None:
+            row["account_status"] = account_status.value
         return row
 
     async def list_statuses(self, _conn: Any, employee_id: int) -> list[dict[str, Any]]:
@@ -284,6 +310,10 @@ def user_repo() -> _UserRepositoryStub:
     repo = _UserRepositoryStub()
     repo.users[1] = _user_row(1)
     repo.users[2] = _user_row(2, account_status=AccountStatus.SUSPENDED.value)
+    # Org 1 owns both users; org 2 owns neither — the tenant boundary the
+    # admin routes are scoped against.
+    repo.memberships[(1, 1)] = {"employee_id": 1, "organization_id": 1, "is_admin": True}
+    repo.memberships[(2, 1)] = {"employee_id": 2, "organization_id": 1, "is_admin": False}
     return repo
 
 
@@ -323,17 +353,28 @@ async def test_get_me_unknown_user_404(user_svc: UserService) -> None:
 
 
 async def test_list_users_keyset_pagination(user_svc: UserService) -> None:
-    first = await user_svc.list_users(object(), limit=1, cursor=None)
+    first = await user_svc.list_users(object(), organization_id=1, limit=1, cursor=None)
     assert [u.employee_id for u in first.items] == [1]
     assert first.next_cursor is not None
-    second = await user_svc.list_users(object(), limit=1, cursor=first.next_cursor)
+    second = await user_svc.list_users(
+        object(), organization_id=1, limit=1, cursor=first.next_cursor
+    )
     assert [u.employee_id for u in second.items] == [2]
     assert second.next_cursor is None
 
 
+async def test_list_users_scoped_to_caller_organization(user_svc: UserService) -> None:
+    """An admin only sees their own organization's directory (§8)."""
+    page = await user_svc.list_users(object(), organization_id=1, limit=10, cursor=None)
+    assert [u.employee_id for u in page.items] == [1, 2]
+    # The same user is not a member of org 2 → not in org 2's roster.
+    other = await user_svc.list_users(object(), organization_id=2, limit=10, cursor=None)
+    assert other.items == []
+
+
 async def test_list_users_invalid_cursor_422(user_svc: UserService) -> None:
     with pytest.raises(ValidationError):
-        await user_svc.list_users(object(), limit=10, cursor="bogus")
+        await user_svc.list_users(object(), organization_id=1, limit=10, cursor="bogus")
 
 
 async def test_list_users_null_cursor_422(user_svc: UserService) -> None:
@@ -341,13 +382,31 @@ async def test_list_users_null_cursor_422(user_svc: UserService) -> None:
     from app.common.pagination import encode_cursor
 
     with pytest.raises(ValidationError):
-        await user_svc.list_users(object(), limit=10, cursor=encode_cursor(after_id=None))
+        await user_svc.list_users(
+            object(), organization_id=1, limit=10, cursor=encode_cursor(after_id=None)
+        )
 
 
 async def test_update_user_unknown_404(user_svc: UserService) -> None:
     with pytest.raises(NotFoundError):
         await user_svc.update_user(
-            object(), actor_id=1, employee_id=999, payload=UserUpdate(name="X")
+            object(),
+            actor_id=1,
+            organization_id=1,
+            employee_id=999,
+            payload=UserUpdate(name="X"),
+        )
+
+
+async def test_update_user_outside_caller_org_404(user_svc: UserService) -> None:
+    """A target outside the caller's organization reads as 404, not 403."""
+    with pytest.raises(NotFoundError):
+        await user_svc.update_user(
+            object(),
+            actor_id=1,
+            organization_id=2,
+            employee_id=1,
+            payload=UserUpdate(name="Hijacked"),
         )
 
 
@@ -362,7 +421,9 @@ async def test_update_user_noop_writes_no_audit(
     monkeypatch.setattr(user_service_module, "audit_service", audit)
     svc = UserService(repository=user_repo)  # type: ignore[arg-type]
     before = dict(user_repo.users[1])
-    response = await svc.update_user(object(), actor_id=1, employee_id=1, payload=UserUpdate())
+    response = await svc.update_user(
+        object(), actor_id=1, organization_id=1, employee_id=1, payload=UserUpdate()
+    )
     assert response.name == before["name"]
     assert audit.calls == []
 
@@ -372,6 +433,7 @@ async def test_create_status_auto_closes_active(user_svc: UserService) -> None:
     created = await user_svc.create_status(
         object(),
         actor_id=1,
+        organization_id=1,
         employee_id=1,
         payload=EmployeeStatusCreate(status=EmployeeStatus.ACTIVE),
     )
@@ -380,6 +442,7 @@ async def test_create_status_auto_closes_active(user_svc: UserService) -> None:
         await user_svc.create_status(
             object(),
             actor_id=1,
+            organization_id=1,
             employee_id=1,
             payload=EmployeeStatusCreate(status=EmployeeStatus.ACTIVE),
         )
@@ -387,6 +450,7 @@ async def test_create_status_auto_closes_active(user_svc: UserService) -> None:
     reopened = await user_svc.create_status(  # different status auto-closes
         object(),
         actor_id=1,
+        organization_id=1,
         employee_id=1,
         payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
     )
@@ -404,9 +468,27 @@ async def test_create_status_unknown_user_404(user_svc: UserService) -> None:
         await user_svc.create_status(
             object(),
             actor_id=1,
+            organization_id=1,
             employee_id=999,
             payload=EmployeeStatusCreate(status=EmployeeStatus.ACTIVE),
         )
+
+
+async def test_create_status_outside_caller_org_404(user_svc: UserService) -> None:
+    """The status log is global — the tenant gate lives in the service."""
+    with pytest.raises(NotFoundError):
+        await user_svc.create_status(
+            object(),
+            actor_id=1,
+            organization_id=2,
+            employee_id=1,
+            payload=EmployeeStatusCreate(status=EmployeeStatus.ACTIVE),
+        )
+
+
+async def test_list_statuses_outside_caller_org_404(user_svc: UserService) -> None:
+    with pytest.raises(NotFoundError):
+        await user_svc.list_statuses(object(), organization_id=2, employee_id=1)
 
 
 # -- organizations ---------------------------------------------------------------

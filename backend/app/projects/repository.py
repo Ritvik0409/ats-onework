@@ -170,6 +170,13 @@ class ProjectRepository:
     async def list_members(
         self, conn: Conn, project_id: int, *, before_id: int | None, limit: int
     ) -> list[Row]:
+        """Members newest-first, keyset-paginated.
+
+        The cursor is the last row's id and the next page selects rows
+        *below* it, so the ordering must be descending to match. Pairing
+        a descending cursor with an ascending order returned the same
+        page forever.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT "
@@ -178,7 +185,7 @@ class ProjectRepository:
                 + " JOIN roles r ON r.role_id = pm.role_id"
                 + " WHERE pm.project_id = %s"
                 + " AND (%s::int IS NULL OR pm.project_member_id < %s::int)"
-                + " ORDER BY pm.project_member_id ASC LIMIT %s::int",
+                + " ORDER BY pm.project_member_id DESC LIMIT %s::int",
                 (project_id, before_id, before_id, limit),
             )
             return list(await cur.fetchall())

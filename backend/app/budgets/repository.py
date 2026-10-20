@@ -4,6 +4,11 @@
 approved + reimbursed expenses across every project that references the
 budget. Rejected and still-pending expenses deliberately do not count
 against the budget.
+
+A budget covers a period (``start_date``/``end_date``), so only expenses
+*dated inside that period* count against it — otherwise a single annual
+budget would report the spend of every month as if it fell in the
+period being reported.
 """
 
 from __future__ import annotations
@@ -17,12 +22,18 @@ _BUDGET_COLUMNS = (
     "budget_id, amount, employee_id, organization_id, start_date, end_date, created_at, updated_at"
 )
 
+# Only expenses dated within the budget's own period count against it.
+_SPENT_DATE_WINDOW = (
+    " AND (b.start_date IS NULL OR e.expense_date >= b.start_date)"
+    " AND (b.end_date IS NULL OR e.expense_date <= b.end_date)"
+)
+
 # Aggregates included in every read the API returns.
 _SPENT_EXPR = (
     "COALESCE((SELECT SUM(e.amount) FROM expenses e"
     " JOIN projects p ON p.project_id = e.project_id"
     " WHERE p.budget_id = b.budget_id"
-    " AND e.status IN ('approved', 'reimbursed')), 0) AS spent"
+    " AND e.status IN ('approved', 'reimbursed')" + _SPENT_DATE_WINDOW + "), 0) AS spent"
 )
 
 _BUDGET_SELECT = (
@@ -39,7 +50,9 @@ _BUDGET_SELECT_NAMED = (
     " COALESCE((SELECT SUM(e.amount) FROM expenses e"
     " JOIN projects p ON p.project_id = e.project_id"
     " WHERE p.budget_id = budgets.budget_id"
-    " AND e.status IN ('approved', 'reimbursed')), 0) AS spent"
+    " AND e.status IN ('approved', 'reimbursed')"
+    " AND (budgets.start_date IS NULL OR e.expense_date >= budgets.start_date)"
+    " AND (budgets.end_date IS NULL OR e.expense_date <= budgets.end_date)), 0) AS spent"
 )
 
 
@@ -100,7 +113,12 @@ class BudgetRepository:
         before_id: int | None,
     ) -> list[Row]:
         """Budgets ordered newest-first; an optional (start, end) window
-        keeps only budgets whose [start_date, end_date] overlap it."""
+        keeps only budgets whose [start_date, end_date] overlap it.
+
+        ``range_end`` is exclusive — it is the first day *after* the
+        period, so a budget that starts exactly on that day belongs to
+        the next period and is excluded.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT "
@@ -108,7 +126,7 @@ class BudgetRepository:
                 + " FROM budgets b"
                 + " WHERE b.organization_id = %s"
                 + " AND (%s::date IS NULL OR b.end_date >= %s::date)"
-                + " AND (%s::date IS NULL OR b.start_date <= %s::date)"
+                + " AND (%s::date IS NULL OR b.start_date < %s::date)"
                 + " AND (%s::int IS NULL OR b.budget_id < %s::int)"
                 + " ORDER BY b.budget_id DESC LIMIT %s::int",
                 (

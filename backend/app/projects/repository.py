@@ -16,14 +16,14 @@ _PROJECT_SELECT = (
     " AS member_count"
 )
 
-# Same select spelled against INSERT ... RETURNING / UPDATE ... RETURNING
-# (no aliases exist there, so tables are referenced by name).
-_PROJECT_SELECT_NAMED = (
-    "projects.project_id, projects.budget_id, projects.name, projects.description,"
-    " projects.is_active, projects.start_date, projects.end_date, projects.created_at,"
-    " projects.updated_at, budgets.amount AS budget_amount,"
-    " (SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = projects.project_id)"
-    " AS member_count"
+# Same fields re-read after INSERT/UPDATE: the joined aggregate columns
+# (budget_amount, member_count) cannot appear in those statements'
+# RETURNING clauses — ``budgets.amount`` is not the target table and
+# plain RETURNING only sees the mutated row — so write-backs return their
+# own fields and the caller re-fetches with the joined SELECT.
+_PROJECT_RETURNING = (
+    "project_id, budget_id, name, description, is_active, start_date,"
+    " end_date, created_at, updated_at"
 )
 
 
@@ -31,6 +31,12 @@ _MEMBER_SELECT = (
     "pm.project_member_id, pm.project_id, pm.employee_id, pm.role_id,"
     " r.name AS role_name, u.name AS employee_name, u.email AS employee_email"
 )
+
+
+# Member fields WITHOUT the joined names — write statements (INSERT /
+# DELETE ... RETURNING) can only reference the target table, so they
+# return these and ``insert_member`` re-reads the joined SELECT.
+_MEMBER_RETURNING = "project_member_id, project_id, employee_id, role_id"
 
 
 class ProjectRepository:
@@ -76,12 +82,16 @@ class ProjectRepository:
         async with conn.cursor() as cur:
             await cur.execute(
                 "INSERT INTO projects (budget_id, name, description, start_date, end_date)"
-                " VALUES (%s, %s, %s, %s, %s) RETURNING " + _PROJECT_SELECT_NAMED,
+                " VALUES (%s, %s, %s, %s, %s) RETURNING " + _PROJECT_RETURNING,
                 (budget_id, name, description, start_date, end_date),
             )
             row = await cur.fetchone()
             assert row is not None
-            return row
+            # Re-read with the joined SELECT so the response carries
+            # budget_amount + member_count like every other project read.
+            inserted = await self.get_by_id(conn, row["project_id"])
+            assert inserted is not None
+            return inserted
 
     async def get_by_id(self, conn: Conn, project_id: int) -> Row | None:
         async with conn.cursor() as cur:
@@ -144,13 +154,16 @@ class ProjectRepository:
             await cur.execute(
                 "UPDATE projects SET "
                 + ", ".join(assignments)
-                + " FROM budgets b"
-                + " WHERE projects.project_id = %s AND budgets.budget_id = projects.budget_id"
+                + " WHERE project_id = %s"
                 + " RETURNING "
-                + _PROJECT_SELECT_NAMED,
+                + _PROJECT_RETURNING,
                 tuple(params),
             )
-            return await cur.fetchone()
+            row = await cur.fetchone()
+            assert row is not None
+            updated = await self.get_by_id(conn, row["project_id"])
+            assert updated is not None
+            return updated
 
     # -- project members ---------------------------------------------------
 
@@ -178,25 +191,40 @@ class ProjectRepository:
             )
             return (await cur.fetchone()) is not None
 
+    async def get_member(self, conn: Conn, member_id: int) -> Row | None:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT "
+                + _MEMBER_SELECT
+                + " FROM project_members pm JOIN users u ON u.employee_id = pm.employee_id"
+                + " JOIN roles r ON r.role_id = pm.role_id"
+                + " WHERE pm.project_member_id = %s",
+                (member_id,),
+            )
+            return await cur.fetchone()
+
     async def insert_member(
         self, conn: Conn, *, project_id: int, employee_id: int, role_id: int
     ) -> Row:
         async with conn.cursor() as cur:
             await cur.execute(
                 "INSERT INTO project_members (project_id, employee_id, role_id)"
-                " VALUES (%s, %s, %s) RETURNING " + _MEMBER_SELECT,
+                " VALUES (%s, %s, %s) RETURNING " + _MEMBER_RETURNING,
                 (project_id, employee_id, role_id),
             )
             row = await cur.fetchone()
             assert row is not None
-            return row
+            # Re-read with the joined SELECT so the response carries
+            # role_name / employee identity like every other member read.
+            inserted = await self.get_member(conn, row["project_member_id"])
+            assert inserted is not None
+            return inserted
 
     async def delete_member(self, conn: Conn, project_id: int, employee_id: int) -> Row | None:
         async with conn.cursor() as cur:
             await cur.execute(
                 "DELETE FROM project_members WHERE project_id = %s AND employee_id = %s"
-                + " RETURNING "
-                + _MEMBER_SELECT,
+                " RETURNING " + _MEMBER_RETURNING,
                 (project_id, employee_id),
             )
             return await cur.fetchone()

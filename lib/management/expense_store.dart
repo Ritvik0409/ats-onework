@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/core/formatting.dart';
+import 'package:ats_onework/ui/tokens.dart';
 
 /// Tolerant double parse — backend money fields (pydantic ``Decimal``) can
 /// arrive as either a JSON number or a string depending on serialization.
@@ -251,14 +253,23 @@ class ExpenseStore extends ChangeNotifier {
 
   static final ExpenseStore instance = ExpenseStore._internal();
 
-  bool isDarkMode = true; 
+  bool isDarkMode = true;
 
-  Color get bg => isDarkMode ? const Color(0xFF0D0D11) : const Color(0xFFF8F9FA);
-  Color get card => isDarkMode ? const Color(0xFF16161F) : const Color(0xFFFFFFFF);
-  Color get textFrost => isDarkMode ? const Color(0xFFF3F4F6) : const Color(0xFF1F2937);
-  Color get textMuted => isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
-  Color get accentGold => const Color(0xFFD4AF37);
-  Color get border => isDarkMode ? const Color(0xFFE2B93B).withValues(alpha: 0.15) : const Color(0xFFE5E7EB);
+  // Palette aliases kept for the screens that still read colours from the
+  // store. New code uses `context.palette`; both resolve to AppTokens, so
+  // there is one source of truth and the light theme is never a different
+  // gold.
+  Color get bg => isDarkMode ? AppTokens.darkBg : AppTokens.lightBg;
+  Color get card =>
+      isDarkMode ? AppTokens.darkSurface : AppTokens.lightSurface;
+  Color get textFrost =>
+      isDarkMode ? AppTokens.darkText : AppTokens.lightText;
+  Color get textMuted =>
+      isDarkMode ? AppTokens.darkMuted : AppTokens.lightMuted;
+  Color get accentGold => isDarkMode ? AppTokens.gold : AppTokens.goldDeep;
+  Color get border =>
+      isDarkMode ? AppTokens.darkBorder : AppTokens.lightBorder;
+
  
   Future<void> _loadThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
@@ -267,7 +278,32 @@ class ExpenseStore extends ChangeNotifier {
     final key = activeEmail.isNotEmpty ? 'theme_${activeEmail}_$currentUserRole' : 'isDarkMode_$currentUserRole';
     
     isDarkMode = prefs.getBool(key) ?? true;
+    lastSeenNotificationCount =
+        prefs.getInt(_notificationSeenKey(activeEmail)) ?? 0;
     notifyListeners();
+  }
+
+  /// How many notifications had been seen when the feed was last opened.
+  int lastSeenNotificationCount = 0;
+
+  int get unreadNotificationCount {
+    final int unread = notifications.length - lastSeenNotificationCount;
+    return unread > 0 ? unread : 0;
+  }
+
+  String _notificationSeenKey(String activeEmail) =>
+      'notifications_seen_${activeEmail.isEmpty ? currentUserRole : activeEmail}';
+
+  /// Called when the notification hub opens. Persisted per user so the
+  /// badge does not reappear on every launch.
+  Future<void> markNotificationsSeen() async {
+    if (notifications.isEmpty) return;
+    lastSeenNotificationCount = notifications.length;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    final activeEmail =
+        currentUserRole == 'employee' ? currentEmployeeEmail : currentManagerEmail;
+    await prefs.setInt(_notificationSeenKey(activeEmail), lastSeenNotificationCount);
   }
 
   /// Public re-read of the persisted theme for the active user/role —
@@ -423,6 +459,9 @@ class ExpenseStore extends ChangeNotifier {
     usersList = [];
     projectRequests = [];
     notifications = [];
+    // The seen-count belongs to the person who just signed out — the next
+    // user must not inherit their badge.
+    lastSeenNotificationCount = 0;
     employeeActiveStatus.clear();
     currentUserRoles = <String>[];
     grantedPermissions = <String>{};
@@ -683,39 +722,12 @@ class ExpenseStore extends ChangeNotifier {
     return status == 'Approved' || status == 'Rejected' || status == 'Paid';
   }
 
-  DateTime? _parseDate(String dateStr) {
-    try {
-      if (dateStr.contains(RegExp(r'[a-zA-Z]'))) {
-        final parts = dateStr.trim().split(RegExp(r'\s+'));
-        if (parts.length >= 3) {
-          int d = int.parse(parts[0]);
-          String mStr = parts[1].toLowerCase().substring(0, 3);
-          int y = int.parse(parts[2]);
-          const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-          int m = months.indexOf(mStr) + 1;
-          if (m > 0) return DateTime(y, m, d);
-        }
-      }
-      if (dateStr.contains('-')) {
-        final parts = dateStr.split('-');
-        if (parts.length >= 3) {
-          if (parts[0].length == 4) return DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-          if (parts[2].length == 4) return DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
-        }
-      } else if (dateStr.contains('/')) {
-        final parts = dateStr.split('/');
-        if (parts.length >= 3) {
-          if (parts[2].length == 4) {
-            int m = int.parse(parts[0]);
-            int d = int.parse(parts[1]);
-            if (m > 12) { m = int.parse(parts[1]); d = int.parse(parts[0]); }
-            return DateTime(int.parse(parts[2]), m, d);
-          }
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
+  /// Single tolerant date parser. ISO dates *and* ISO datetimes
+  /// ("2026-10-20T09:15:00") are handled by `parseLooseDate`; the old
+  /// splitter parsed `2026-10-20T09:15:00` as day `20T09:15:00` and
+  /// dropped the row.
+  DateTime? _parseDate(String dateStr) => parseLooseDate(dateStr);
+
 
   /// Public single date parser — dashboards previously kept three
   /// divergent private copies ("5 Jan 2026" legacy vs ISO "2026-01-05").
@@ -1098,20 +1110,31 @@ class ExpenseStore extends ChangeNotifier {
     }
   }
 
-  bool _canViewExpense(ExpenseRecord e) {
-    final uploaderEmail = e.email.trim().toLowerCase();
-    final myEmployeeEmail = currentEmployeeEmail.trim().toLowerCase();
-    final myManagerEmail = currentManagerEmail.trim().toLowerCase();
-    
-    if (uploaderEmail == myEmployeeEmail || uploaderEmail == myManagerEmail) {
-      return false; 
-    }
-    return true; 
+  /// True when the signed-in user submitted the expense themselves.
+  bool _isOwnExpense(ExpenseRecord e) {
+    final String uploaderEmail = e.email.trim().toLowerCase();
+    if (uploaderEmail.isEmpty) return false;
+    return uploaderEmail == currentEmployeeEmail.trim().toLowerCase() ||
+        uploaderEmail == currentManagerEmail.trim().toLowerCase() ||
+        (currentUserId.isNotEmpty && e.employeeId == currentUserId);
   }
 
-  int get pendingCount => expenses.where((e) => e.status == 'Pending Verification' && _isCurrentMonth(e.date) && _canViewExpense(e)).length;
-  int get approvedCount => expenses.where((e) => e.status == 'Approved' && _isCurrentMonth(e.date) && _canViewExpense(e)).length;
-  int get rejectedCount => expenses.where((e) => e.status == 'Rejected' && _isCurrentMonth(e.date) && _canViewExpense(e)).length;
+  /// Review queue visibility: you never review your own request. KPI
+  /// counts intentionally do *not* use this filter — the dashboard used
+  /// to hide the manager's own claims from the totals while "All
+  /// requests" showed them, so the two screens disagreed.
+  bool _isReviewable(ExpenseRecord e) => !_isOwnExpense(e);
+
+  int get pendingCount => expenses
+      .where((e) =>
+          e.status == 'Pending Verification' && _isCurrentMonth(e.date))
+      .length;
+  int get approvedCount => expenses
+      .where((e) => e.status == 'Approved' && _isCurrentMonth(e.date))
+      .length;
+  int get rejectedCount => expenses
+      .where((e) => e.status == 'Rejected' && _isCurrentMonth(e.date))
+      .length;
 
   double get currentMonthBurnAmount {
     double total = 0;
@@ -1145,7 +1168,13 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   List<Map<String, dynamic>> get urgentRequests {
-    final pending = expenses.where((e) => e.status == 'Pending Verification' && _canViewExpense(e)).toList();
+    // Only approvers have a review queue, and never their own claims.
+    if (!canApproveExpenses) return const <Map<String, dynamic>>[];
+    final pending = expenses
+        .where((e) =>
+            e.status == 'Pending Verification' && _isReviewable(e))
+        .toList();
+
     List<Map<String, dynamic>> urgent = [];
     final now = DateTime.now();
 
@@ -1183,11 +1212,15 @@ class ExpenseStore extends ChangeNotifier {
     return urgent;
   }
 
+  /// Legacy monthly series. Kept for screens not yet on the analytics
+  /// endpoint; the percentage is now relative to the largest month in the
+  /// window instead of the *current* month's budget, which made every
+  /// earlier month look over-budget and capped the bars at 100%.
   List<Map<String, dynamic>> getChartData(String timeframe) {
     final now = DateTime.now();
-    int monthsToFetch = 5; 
+    int monthsToFetch = 5;
 
-   if (timeframe == 'This Month') {
+    if (timeframe == 'This Month') {
       monthsToFetch = 1;
     } else if (timeframe == 'Last 3 Months') {
       monthsToFetch = 3;
@@ -1198,12 +1231,13 @@ class ExpenseStore extends ChangeNotifier {
     }
 
     final List<Map<String, dynamic>> chartData = [];
-    const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthLabels = <String>[
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
 
-    double maxAmount = currentMonthBudget > 0 ? currentMonthBudget : 1.0; 
-    
-    List<double> monthlyTotals = List.filled(monthsToFetch, 0.0);
-    List<String> labels = [];
+    final List<double> monthlyTotals = List<double>.filled(monthsToFetch, 0);
+    final List<String> labels = <String>[];
 
     for (int i = monthsToFetch - 1; i >= 0; i--) {
       int m = now.month - i;
@@ -1215,9 +1249,9 @@ class ExpenseStore extends ChangeNotifier {
       labels.add(monthLabels[m - 1]);
 
       double total = 0;
-      for (var e in expenses) {
+      for (final ExpenseRecord e in expenses) {
         if (e.status == 'Approved' || e.status == 'Paid') {
-          final d = _parseDate(e.date);
+          final DateTime? d = _parseDate(e.date);
           if (d != null && d.month == m && d.year == y) {
             total += e.amount;
           }
@@ -1226,17 +1260,24 @@ class ExpenseStore extends ChangeNotifier {
       monthlyTotals[(monthsToFetch - 1) - i] = total;
     }
 
+    final double maxAmount = monthlyTotals.fold<double>(
+      0,
+      (double best, double value) => value > best ? value : best,
+    );
+
     for (int i = 0; i < monthsToFetch; i++) {
-      double pct = monthlyTotals[i] / maxAmount;
-      if (pct > 1.0) pct = 1.0; 
-      
-      chartData.add({
+      final double amount = monthlyTotals[i];
+      final double pct =
+          maxAmount > 0 ? (amount / maxAmount).clamp(0.0, 1.0) : 0.0;
+      chartData.add(<String, dynamic>{
         'label': labels[i],
         'percentage': pct,
+        'amount': amount,
       });
     }
     return chartData;
   }
+
 
   void setCurrentManager({required String email}) {
     currentManagerEmail = email;

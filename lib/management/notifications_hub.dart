@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/expense_store.dart';
 
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+import 'expense_store.dart';
+/// The single notification feed. The backend endpoint is owner-scoped,
+/// so the same screen serves employees and managers; grouping is done
+/// with filters instead of four PageViews.
 class NotificationsHubScreen extends StatefulWidget {
   const NotificationsHubScreen({super.key});
 
@@ -9,43 +14,43 @@ class NotificationsHubScreen extends StatefulWidget {
 }
 
 class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
-  static const List<String> _tabs = ['All', 'Pending', 'Approved', 'Rejected'];
+  static const List<String> _filters = <String>[
+    'All',
+    'Action needed',
+    'Approved',
+    'Rejected',
+  ];
 
   final ExpenseStore _store = ExpenseStore.instance;
-  late final PageController _pageController;
-  int _selectedIndex = 0;
+  String _filter = 'All';
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 0);
-    // Real feed: GET /notifications (owner-scoped) each time the hub opens.
-    _store.fetchNotificationsFromBackend();
+    _refresh();
   }
 
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
+  Future<void> _refresh() async {
+    await _store.fetchNotificationsFromBackend();
+    await _store.markNotificationsSeen();
   }
 
-  void _selectTab(int index) {
-    setState(() => _selectedIndex = index);
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 450),
-      curve: Curves.easeInOutCubic,
-    );
-  }
-
-  List<AppNotification> _filterFor(String tab, List<AppNotification> all) {
-    switch (tab) {
-      case 'Pending':
-        return all.where((n) => n.type == 'info').toList();
+  List<AppNotification> _visible() {
+    final List<AppNotification> all = _store.notifications;
+    switch (_filter) {
+      case 'Action needed':
+        return all
+            .where((AppNotification n) =>
+                n.type == 'info' || n.type == 'resubmit')
+            .toList(growable: false);
       case 'Approved':
-        return all.where((n) => n.type == 'approved').toList();
+        return all
+            .where((AppNotification n) => n.type == 'approved')
+            .toList(growable: false);
       case 'Rejected':
-        return all.where((n) => n.type == 'rejected').toList();
+        return all
+            .where((AppNotification n) => n.type == 'rejected')
+            .toList(growable: false);
       default:
         return all;
     }
@@ -55,156 +60,153 @@ class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _store,
-      builder: (context, _) {
-        final obsidianBlack = _store.bg;
-        final darkCharcoal = _store.card;
-        final champagneGold = _store.accentGold;
-        final textFrost = _store.textFrost;
-        final textMuted = _store.textMuted;
-        
-        final List<BoxShadow> cardShadows = _store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 4)),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 12), spreadRadius: -4),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
-              ];
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
+        final List<AppNotification> items = _visible();
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
+          backgroundColor: palette.bg,
           appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            foregroundColor: textFrost,
-            title: Text('Notifications', style: TextStyle(fontWeight: FontWeight.bold, color: textFrost)),
-            elevation: 0,
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(46),
-              child: Row(
-                children: List.generate(_tabs.length, (index) {
-                  final isSelected = _selectedIndex == index;
-                  return Expanded(
-                    child: GestureDetector(
-                      onTap: () => _selectTab(index),
-                      behavior: HitTestBehavior.opaque,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(
-                              color: isSelected ? champagneGold : Colors.transparent,
-                              width: 2.5,
-                            ),
-                          ),
-                        ),
-                        child: AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                          style: TextStyle(
-                            color: isSelected ? champagneGold : textMuted,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                          child: Text(_tabs[index], textAlign: TextAlign.center),
-                        ),
-                      ),
-                    ),
-                  );
-                }),
+            title: const Text('Notifications'),
+            actions: <Widget>[
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: _refresh,
+                icon: const Icon(Icons.refresh_rounded),
               ),
-            ),
+            ],
           ),
-          body: PageView(
-            controller: _pageController,
-            physics: const BouncingScrollPhysics(),
-            onPageChanged: (index) => setState(() => _selectedIndex = index),
-            children: _tabs.map((tab) {
-              final items = _filterFor(tab, _store.notifications);
-              return Center(
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 600),
-                  padding: const EdgeInsets.all(16.0),
-                  child: items.isEmpty
-                      ? Center(
-                          child: Text('No notifications here yet.', style: TextStyle(color: textMuted)),
-                        )
-                      : ListView.builder(
-                          itemCount: items.length,
-                          itemBuilder: (context, index) {
-                            final item = items[index];
-
-                            IconData iconData = Icons.info_rounded;
-                            Color accentColor = champagneGold;
-
-                            if (item.type == 'approved') {
-                              iconData = Icons.check_circle_rounded;
-                              accentColor = Colors.greenAccent.shade400;
-                            } else if (item.type == 'rejected') {
-                              iconData = Icons.cancel_rounded;
-                              accentColor = Colors.redAccent.shade400;
-                            }
-
-                            return TweenAnimationBuilder<double>(
-                              tween: Tween(begin: 0.0, end: 1.0),
-                              duration: Duration(milliseconds: 250 + (index * 40)),
-                              curve: Curves.easeOut,
-                              builder: (context, value, child) {
-                                return Opacity(
-                                  opacity: value,
-                                  child: Transform.translate(
-                                    offset: Offset(0, (1 - value) * 12),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: _store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2), width: 1),
-                                  boxShadow: cardShadows,
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16.0),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Icon(iconData, color: accentColor, size: 24),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              item.title,
-                                              style: TextStyle(fontWeight: FontWeight.bold, color: textFrost, fontSize: 15),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              item.subtitle.replaceAll('. Reason:', '.\nReason:'), style: TextStyle(color: textMuted.withValues(alpha: 0.85), fontSize: 13)),
-                                            const SizedBox(height: 10),
-                                            Text(
-                                              item.time,
-                                              style: TextStyle(color: textMuted.withValues(alpha: 0.5), fontSize: 11, fontWeight: FontWeight.w500),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
+          body: AppPage(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _filters
+                      .map(
+                        (String filter) => ChoiceChip(
+                          label: Text(filter),
+                          selected: _filter == filter,
+                          onSelected: (bool selected) {
+                            if (selected) setState(() => _filter = filter);
                           },
                         ),
+                      )
+                      .toList(growable: false),
                 ),
-              );
-            }).toList(),
+                const SizedBox(height: 16),
+                if (items.isEmpty)
+                  AppCard(
+                    child: EmptyState(
+                      icon: Icons.notifications_none_rounded,
+                      title: _filter == 'All'
+                          ? 'No activity yet'
+                          : 'Nothing in this filter',
+                      message: _filter == 'All'
+                          ? 'Approvals, questions and payments will appear here.'
+                          : 'Try another filter to see the rest of your feed.',
+                    ),
+                  )
+                else
+                  ...items.map(
+                    (AppNotification item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _NotificationCard(item: item),
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
     );
   }
+}
+
+class _NotificationCard extends StatelessWidget {
+  const _NotificationCard({required this.item});
+
+  final AppNotification item;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    final (IconData icon, Color color) = switch (item.type) {
+      'approved' => (Icons.check_circle_rounded, palette.success),
+      'rejected' => (Icons.cancel_rounded, palette.danger),
+      'info' => (Icons.help_outline_rounded, palette.warning),
+      'paid' => (Icons.payments_rounded, palette.success),
+      'resubmit' => (Icons.replay_rounded, palette.info),
+      'project-added' => (Icons.workspaces_rounded, palette.info),
+      'project-approved' => (Icons.verified_rounded, palette.success),
+      'project-rejected' => (Icons.block_rounded, palette.danger),
+      _ => (Icons.notifications_none_rounded, palette.gold),
+    };
+
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+            ),
+            child: Icon(icon, color: color, size: 19),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  item.title.isEmpty ? 'Notification' : item.title,
+                  style: TextStyle(
+                    color: palette.text,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
+                ),
+                if (item.subtitle.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(
+                    item.subtitle,
+                    style: TextStyle(
+                      color: palette.muted,
+                      fontSize: 12.5,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+                if (item.time.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Text(
+                    item.time,
+                    style: TextStyle(
+                      color: palette.muted.withValues(alpha: 0.75),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Kept for existing deep links; the employee feed is now the shared hub
+/// so both portals show the same notifications with the same styling.
+class EmployeeNotificationsScreen extends StatelessWidget {
+  const EmployeeNotificationsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => const NotificationsHubScreen();
 }

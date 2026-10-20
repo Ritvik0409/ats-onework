@@ -4,6 +4,14 @@ import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/download_stub.dart'
     if (dart.library.html) 'package:ats_onework/management/download_web.dart';
 
+/// Project progress that cannot produce NaN or Infinity when a project
+/// has no budget (or a non-finite one). Two call sites shared this bug.
+double _progress(double burn, double budget) {
+  if (!budget.isFinite || budget <= 0) return 0;
+  final double fraction = burn / budget;
+  return fraction.isFinite ? fraction.clamp(0.0, 1.0).toDouble() : 0;
+}
+
 class EmployeeProjectsScreen extends StatefulWidget {
   const EmployeeProjectsScreen({super.key});
 
@@ -69,7 +77,7 @@ class _EmployeeProjectsScreenState extends State<EmployeeProjectsScreen> {
                       itemBuilder: (context, index) {
                         final project = projects[index];
                         final burnAmount = store.getProjectBurnAmount(project.name);
-                        final double pct = (burnAmount / project.budget).clamp(0.0, 1.0);
+                        final double pct = _progress(burnAmount, project.budget);
 
                         return GestureDetector(
                           onTap: () {
@@ -157,7 +165,7 @@ class EmployeeProjectDetailsScreen extends StatelessWidget {
 
         final projectExpenses = store.myExpenses.where((e) => e.projectName == project.name).toList();
         final burnAmount = store.getProjectBurnAmount(project.name);
-        final double pct = (burnAmount / project.budget).clamp(0.0, 1.0);
+        final double pct = _progress(burnAmount, project.budget);
 
         return Scaffold(
           backgroundColor: obsidianBlack,

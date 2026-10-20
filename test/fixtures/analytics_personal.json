@@ -1,0 +1,89 @@
+{
+  "from_date": "2026-05-01",
+  "to_date": "2026-10-20",
+  "summary": {
+    "total_spend": "48500.00",
+    "pending_count": 2,
+    "pending_amount": "9400.00",
+    "info_requested_count": 1,
+    "info_requested_amount": "2100.00",
+    "approved_count": 6,
+    "approved_amount": "19500.00",
+    "rejected_count": 1,
+    "rejected_amount": "1500.00",
+    "reimbursed_count": 8,
+    "reimbursed_amount": "29000.00",
+    "total_claims": 18,
+    "avg_approval_days": 1.8
+  },
+  "monthly": [
+    {
+      "month": "2026-09",
+      "label": "Sep",
+      "spend": "12000.00",
+      "budget": "0",
+      "pending_count": 1,
+      "pending_amount": "4000.00",
+      "approved_count": 3,
+      "approved_amount": "8000.00",
+      "rejected_count": 0,
+      "rejected_amount": "0"
+    },
+    {
+      "month": "2026-10",
+      "label": "Oct",
+      "spend": "18500.00",
+      "budget": "0",
+      "pending_count": 1,
+      "pending_amount": "5400.00",
+      "approved_count": 3,
+      "approved_amount": "11500.00",
+      "rejected_count": 1,
+      "rejected_amount": "1500.00"
+    }
+  ],
+  "categories": [
+    {
+      "name": "Travel",
+      "amount": "31000.00",
+      "count": 5
+    },
+    {
+      "name": "Meals",
+      "amount": "17500.00",
+      "count": 13
+    }
+  ],
+  "status_breakdown": [
+    {
+      "status": "pending",
+      "label": "Pending review",
+      "count": 2,
+      "amount": "9400.00"
+    },
+    {
+      "status": "info_requested",
+      "label": "Info requested",
+      "count": 1,
+      "amount": "2100.00"
+    },
+    {
+      "status": "approved",
+      "label": "Approved",
+      "count": 6,
+      "amount": "19500.00"
+    },
+    {
+      "status": "rejected",
+      "label": "Rejected",
+      "count": 1,
+      "amount": "1500.00"
+    },
+    {
+      "status": "reimbursed",
+      "label": "Reimbursed",
+      "count": 8,
+      "amount": "29000.00"
+    }
+  ]
+}

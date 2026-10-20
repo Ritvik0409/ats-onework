@@ -40,14 +40,11 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                 BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
               ];
 
-        // STRICT IDENTITY SYNC: Reads both login states to guarantee your list is never empty
-        final myEmployeeEmail = _store.currentEmployeeEmail.trim().toLowerCase();
-        final myManagerEmail = _store.currentManagerEmail.trim().toLowerCase();
-        
-        final all = _store.myExpenses.where((e) {
-          final uploaderEmail = e.email.trim().toLowerCase();
-          return uploaderEmail == myEmployeeEmail || uploaderEmail == myManagerEmail;
-        }).toList();
+        // `myExpenses` already scopes by the signed-in employee id (with an
+        // email fallback for legacy rows). Re-filtering by email here hid
+        // rows whose record carried an id but no email, so the list could
+        // be empty even though the dashboard counted claims.
+        final all = _store.myExpenses.toList();
         
         // Newest first — backend ids are numeric; the old string compare
         // on the id field put "10" before "9".

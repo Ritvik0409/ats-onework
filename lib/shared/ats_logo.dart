@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../ui/tokens.dart';
+
 class ATSLogo extends StatelessWidget {
   final double size;
   final bool showText;
@@ -12,37 +14,40 @@ class ATSLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Color goldPrimary = Color(0xFFE2B93B);
-    const Color goldLight = Color(0xFFF3E5AB);
-    const Color obsidianDark = Color(0xFF0D0D11);
-    const Color cardSurface = Color(0xFF16161F);
+    final AppPalette palette = context.palette;
+    const Color goldPrimary = AppTokens.gold;
+    const Color goldLight = AppTokens.goldSoft;
+    const Color obsidianDark = AppTokens.darkBg;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
+      children: <Widget>[
         // --- Geometric App Icon Container ---
         Container(
           width: size,
           height: size,
           decoration: BoxDecoration(
-            color: cardSurface,
+            color: palette.isDark
+                ? AppTokens.darkSurface
+                : AppTokens.lightSurfaceAlt,
             borderRadius: BorderRadius.circular(size * 0.28),
             border: Border.all(
               color: goldPrimary.withValues(alpha: 0.5),
               width: 1.5,
             ),
-            boxShadow: [
+            boxShadow: <BoxShadow>[
               BoxShadow(
                 color: goldPrimary.withValues(alpha: 0.15),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
+              if (palette.isDark)
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
             ],
           ),
           child: Center(
@@ -66,11 +71,11 @@ class ATSLogo extends StatelessWidget {
           Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+            children: <Widget>[
               Text(
                 'ATS',
                 style: TextStyle(
-                  color: Colors.white,
+                  color: palette.text,
                   fontSize: size * 0.42,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 2.0,
@@ -81,7 +86,7 @@ class ATSLogo extends StatelessWidget {
               Text(
                 'ONEWORK',
                 style: TextStyle(
-                  color: goldPrimary,
+                  color: palette.gold,
                   fontSize: size * 0.17,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 3.5,

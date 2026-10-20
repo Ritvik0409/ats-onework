@@ -368,14 +368,17 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                           _buildDivider(store),
                           _buildListTile(Icons.account_balance_wallet_rounded, 'Reimbursement Details', 'How and when you get paid', _showReimbursementDetails, store),
                           _buildDivider(store),
-                          ListTile(
-                            leading: Icon(Icons.contrast_rounded, color: champagneGold, size: 20),
-                            title: Text('Dark Mode', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
-                            subtitle: Text('Toggle application appearance', style: TextStyle(color: textMuted, fontSize: 12)),
-                            trailing: Switch(
-                              value: store.isDarkMode,
-                              activeThumbColor: champagneGold,
-                              onChanged: (val) => store.toggleTheme(),
+                          Material(
+                            color: darkCharcoal,
+                            child: ListTile(
+                              leading: Icon(Icons.contrast_rounded, color: champagneGold, size: 20),
+                              title: Text('Dark Mode', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
+                              subtitle: Text('Toggle application appearance', style: TextStyle(color: textMuted, fontSize: 12)),
+                              trailing: Switch(
+                                value: store.isDarkMode,
+                                activeThumbColor: champagneGold,
+                                onChanged: (val) => store.toggleTheme(),
+                              ),
                             ),
                           ),
                         ],
@@ -416,12 +419,18 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
   }
 
   Widget _buildListTile(IconData icon, String title, String subtitle, VoidCallback onTap, ExpenseStore store) {
-    return ListTile(
-      leading: Icon(icon, color: store.accentGold, size: 20),
-      title: Text(title, style: TextStyle(color: store.textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
-      subtitle: Text(subtitle, style: TextStyle(color: store.textMuted, fontSize: 12)),
-      trailing: Icon(Icons.chevron_right_rounded, color: store.textMuted, size: 20),
-      onTap: onTap,
+    // The tile's own Material: without it the ripple paints on the
+    // Scaffold below the group's card color and every build logs
+    // "ListTile background color or ink splashes may be invisible".
+    return Material(
+      color: store.card,
+      child: ListTile(
+        leading: Icon(icon, color: store.accentGold, size: 20),
+        title: Text(title, style: TextStyle(color: store.textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
+        subtitle: Text(subtitle, style: TextStyle(color: store.textMuted, fontSize: 12)),
+        trailing: Icon(Icons.chevron_right_rounded, color: store.textMuted, size: 20),
+        onTap: onTap,
+      ),
     );
   }
 

@@ -76,7 +76,10 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
 
       double spent = 0.0;
       for (var e in _store.expenses) {
-        if (e.status == 'Rejected') continue;
+        // Spend is approved + reimbursed, matching the budgets API and the
+        // analytics endpoint. Pending claims are not money out yet, and
+        // counting them under-reported the remaining budget.
+        if (e.status != 'Approved' && e.status != 'Paid') continue;
         // The API sends an ISO date ("2026-10-20"). Matching it against a
         // month abbreviation never matched, so every month reported a
         // spend of zero.

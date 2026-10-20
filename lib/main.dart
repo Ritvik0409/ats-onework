@@ -7,6 +7,7 @@ import 'management/expense_store.dart';
 import 'shared/portal_shell.dart';
 import 'shared/api_client.dart';
 import 'shared/json_utils.dart';
+import 'ui/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,7 +61,7 @@ Future<String> _resolveInitialRoute() async {
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key, required this.initialRoute});
 
   final String initialRoute;
@@ -69,33 +70,52 @@ class MyApp extends StatelessWidget {
       GlobalKey<NavigatorState>();
 
   @override
-  Widget build(BuildContext context) {
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  ExpenseStore get _store => ExpenseStore.instance;
+  late bool _dark = _store.isDarkMode;
+
+  @override
+  void initState() {
+    super.initState();
+    // Rebuild only when the theme actually changes. Listening to every
+    // store notification would rebuild the whole MaterialApp on each
+    // page fetch.
+    _store.addListener(_syncTheme);
     // Any 401 that survives a refresh attempt (dead refresh token) pushes
     // the login screen and wipes the stack — no more silent session death.
     ApiClient.onSessionExpired = () {
-      navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      MyApp.navigatorKey.currentState?.pushNamedAndRemoveUntil(
         '/',
         (Route<dynamic> route) => false,
       );
     };
+  }
 
+  void _syncTheme() {
+    if (_store.isDarkMode != _dark && mounted) {
+      setState(() => _dark = _store.isDarkMode);
+    }
+  }
+
+  @override
+  void dispose() {
+    _store.removeListener(_syncTheme);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp(
       title: 'ATS OneWork',
       debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFD4AF37)),
-        useMaterial3: true,
-        snackBarTheme: const SnackBarThemeData(
-          backgroundColor: Color(0xFFD4AF37),
-          contentTextStyle: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      ),
-      initialRoute: initialRoute,
+      navigatorKey: MyApp.navigatorKey,
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: _dark ? ThemeMode.dark : ThemeMode.light,
+      initialRoute: widget.initialRoute,
       routes: {
         '/': (context) => const UniversalLoginScreen(),
         // One portal for everyone — tabs are built from capabilities.

@@ -37,9 +37,7 @@ async def clean_db(
     await truncate_all(db_connection)
 
 
-async def _make_user(
-    conn: AsyncConnection[dict], name: str, org_id: int, *, is_admin: bool
-) -> int:
+async def _make_user(conn: AsyncConnection[dict], name: str, org_id: int, *, is_admin: bool) -> int:
     """Create a user plus their membership in ``org_id``; return the id."""
     email = f"{uuid.uuid4().hex}@test.invalid"
     async with conn.cursor() as cur:
@@ -52,8 +50,7 @@ async def _make_user(
         assert row is not None
         employee_id = int(row["employee_id"])
         await cur.execute(
-            "INSERT INTO memberships (employee_id, organization_id, is_admin)"
-            " VALUES (%s, %s, %s)",
+            "INSERT INTO memberships (employee_id, organization_id, is_admin) VALUES (%s, %s, %s)",
             (employee_id, org_id, is_admin),
         )
     await conn.commit()
@@ -134,9 +131,7 @@ async def test_update_user_cannot_touch_another_organization_status_log(
             payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
         )
     with pytest.raises(NotFoundError):
-        await svc.list_statuses(
-            clean_db, organization_id=org_a, employee_id=b_member
-        )
+        await svc.list_statuses(clean_db, organization_id=org_a, employee_id=b_member)
 
     async with clean_db.cursor() as cur:
         await cur.execute("SELECT count(*) AS n FROM employee_status")
@@ -153,8 +148,7 @@ async def test_user_in_two_organizations_appears_in_both_rosters(
     shared = await _make_user(clean_db, "Shared", org_a, is_admin=False)
     async with clean_db.cursor() as cur:
         await cur.execute(
-            "INSERT INTO memberships (employee_id, organization_id, is_admin)"
-            " VALUES (%s, %s, %s)",
+            "INSERT INTO memberships (employee_id, organization_id, is_admin) VALUES (%s, %s, %s)",
             (shared, org_b, False),
         )
     await clean_db.commit()

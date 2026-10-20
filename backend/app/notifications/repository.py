@@ -60,12 +60,18 @@ class NotificationRepository:
             return list(await cur.fetchall())
 
     async def mark_read(self, conn: Conn, *, employee_id: int, notification_id: int) -> Row | None:
+        """Mark one notification read.
+
+        The update is not restricted to unread rows: marking an already
+        read notification read again is a no-op that still returns the
+        row, so a retried request does not turn into a 404.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 """
                 UPDATE notifications
                 SET is_read = TRUE
-                WHERE notification_id = %s AND employee_id = %s AND NOT is_read
+                WHERE notification_id = %s AND employee_id = %s
                 RETURNING notification_id, employee_id, title, message,
                           type, reference_id, is_read, created_at
                 """,

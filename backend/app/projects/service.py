@@ -51,6 +51,7 @@ class ProjectService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="project.create",
             table_name="projects",
             record_id=str(row["project_id"]),
@@ -102,6 +103,7 @@ class ProjectService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=org_id,
             action="project.update",
             table_name="projects",
             record_id=str(project_id),
@@ -178,6 +180,7 @@ class ProjectService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=org_id,
                 action="project_member.add",
                 table_name="project_members",
                 record_id=str(row["project_member_id"]),
@@ -207,6 +210,7 @@ class ProjectService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=org_id,
                 action="project_member.remove",
                 table_name="project_members",
                 record_id=str(row["project_member_id"]),

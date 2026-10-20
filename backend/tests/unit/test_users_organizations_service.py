@@ -96,9 +96,7 @@ class _UserRepositoryStub:
         search: str | None = None,
         account_status: AccountStatus | None = None,
     ) -> list[dict[str, Any]]:
-        members = {
-            uid for (uid, org_id) in self.memberships if org_id == organization_id
-        }
+        members = {uid for (uid, org_id) in self.memberships if org_id == organization_id}
         rows = sorted(
             (row for uid, row in self.users.items() if uid in members),
             key=lambda r: r["employee_id"],

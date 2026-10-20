@@ -61,6 +61,7 @@ class ProjectAccessService:
             await audit_service.log(
                 conn,
                 actor_id=employee_id,
+                organization_id=org_id,
                 action="project_access.request",
                 table_name="project_access_requests",
                 record_id=str(row["access_request_id"]),
@@ -205,6 +206,7 @@ class ProjectAccessService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=org_id,
                 action=f"project_access.{status.value}",
                 table_name="project_access_requests",
                 record_id=str(request_id),

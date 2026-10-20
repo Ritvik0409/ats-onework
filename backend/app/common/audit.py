@@ -6,10 +6,10 @@ inside their workflow transaction, so the audit row commits or rolls back
 atomically with the business change. Repositories never write audit rows
 directly; routers never call this helper — only services do.
 
-The schema's ``audit_logs`` table carries no ``organization_id`` column, so
-tenant scoping for the read endpoint (Phase 4.7) is derived via the actor's
-membership; the service-level invariant ``actor_id``/``organization_id``
-pair is still passed through for future-proofing.
+Audit rows carry the organization the change happened in. Deriving the
+tenant from the actor's membership instead would expose a person who
+belongs to two organizations to both of them, because their actions in
+one organization would show up in the other's audit log.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ class AuditService:
         action: str,
         table_name: str,
         record_id: str,
+        organization_id: int | None = None,
         old_values: dict[str, Any] | None = None,
         new_values: dict[str, Any] | None = None,
     ) -> Row:
@@ -38,13 +39,15 @@ class AuditService:
             await cur.execute(
                 """
                 INSERT INTO audit_logs
-                    (actor_id, action, table_name, record_id, old_values, new_values)
-                VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb)
-                RETURNING log_id, actor_id, action, table_name, record_id,
-                          old_values, new_values, created_at
+                    (actor_id, organization_id, action, table_name, record_id,
+                     old_values, new_values)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                RETURNING log_id, actor_id, organization_id, action, table_name,
+                          record_id, old_values, new_values, created_at
                 """,
                 (
                     actor_id,
+                    organization_id,
                     action,
                     table_name,
                     record_id,

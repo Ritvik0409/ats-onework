@@ -64,6 +64,12 @@ class _RepositoryStub:
     ) -> dict[str, Any] | None:
         return self.expenses.get(expense_id)
 
+    async def get_by_id(
+        self, _conn: Any, expense_id: int, _organization_id: int
+    ) -> dict[str, Any] | None:
+        row = self.expenses.get(expense_id)
+        return dict(row) if row is not None else None
+
     async def update_status(
         self,
         _conn: Any,
@@ -73,6 +79,7 @@ class _RepositoryStub:
         rejection_reason: str | None,
         info_message: str | None,
         info_requested_at: Any,
+        info_response: str | None = None,
     ) -> dict[str, Any] | None:
         row = self.expenses.get(expense_id)
         if row is None:
@@ -81,6 +88,7 @@ class _RepositoryStub:
         row["rejection_reason"] = rejection_reason
         row["info_message"] = info_message
         row["info_requested_at"] = info_requested_at
+        row["info_response"] = info_response
         return dict(row)
 
     async def list_media(self, _conn: Any, expense_id: int) -> list[dict[str, Any]]:  # noqa: ARG002
@@ -254,10 +262,27 @@ async def test_resubmit_happy_path_notifies_admins(
         _Conn(), actor_id=5, organization_id=10, expense_id=8
     )
     assert response.status == ExpenseStatus.PENDING
-    assert response.info_message is None
-    assert repo.expenses[8]["info_message"] is None
+    # The manager's question survives the answer — it is kept on the
+    # expense and in the approval history, so it is never lost.
+    assert response.info_message == "Where is the invoice?"
+    assert repo.expenses[8]["info_message"] == "Where is the invoice?"
     assert [n.type for n in notifications.sent] == ["expense.resubmit"]
     assert [n.employee_id for n in notifications.sent] == [1]
+
+
+async def test_resubmit_stores_the_answer(
+    deps: tuple[_RepositoryStub, _NotificationsStub, _AuditStub],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The employee's answer to the question is recorded on the expense."""
+    repo, notifications, audit = deps
+    _patch_audit(monkeypatch, audit)
+    repo.expenses[8]["info_message"] = "Where is the invoice?"
+    response = await _service(repo, notifications).resubmit(
+        _Conn(), actor_id=5, organization_id=10, expense_id=8, response="Attached invoice"
+    )
+    assert response.info_response == "Attached invoice"
+    assert repo.expenses[8]["info_response"] == "Attached invoice"
 
 
 async def test_resubmit_owner_only(

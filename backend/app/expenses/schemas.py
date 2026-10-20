@@ -23,6 +23,20 @@ class ExpenseCreate(BaseModel):
     expense_type_id: int = Field(gt=0)
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
     expense_date: date
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class ExpenseResubmit(BaseModel):
+    """Body for ``POST /expenses/{id}/resubmit`` (§49 #32b).
+
+    The employee answers the manager's question here. Without it the
+    request-for-information workflow had no way to carry the information
+    it asked for.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    response: str | None = Field(default=None, max_length=2000)
 
 
 class ApprovalActionRequest(BaseModel):
@@ -54,27 +68,45 @@ class ExpenseResponse(BaseModel):
     amount: Decimal
     status: ExpenseStatus
     rejection_reason: str | None = None
+    description: str | None = None
     expense_date: date
     submission_date: datetime
     updated_at: datetime
     info_message: str | None = None
     info_requested_at: datetime | None = None
+    info_response: str | None = None
+    employee_name: str | None = None
+    employee_email: str | None = None
+    project_name: str | None = None
+    expense_type_name: str | None = None
     receipts: list[MediaResponse] = Field(default_factory=list)
 
 
 class ExpenseListItem(BaseModel):
-    """Cursor-list row — same scalar shape as response minus receipts (§11)."""
+    """Cursor-list row — the expense plus the names it refers to (§11).
+
+    A client cannot derive the submitter, the project or the category from
+    the ids alone without extra round-trips, so the read model carries the
+    names as well.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     expense_id: int
+    employee_id: int
     project_id: int
     expense_type_id: int
     amount: Decimal
     status: ExpenseStatus
+    description: str | None = None
+    rejection_reason: str | None = None
     expense_date: date
     submission_date: datetime
     info_message: str | None = None
+    employee_name: str | None = None
+    employee_email: str | None = None
+    project_name: str | None = None
+    expense_type_name: str | None = None
 
 
 class ExpenseApprovalResponse(BaseModel):

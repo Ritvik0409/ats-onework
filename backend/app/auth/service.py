@@ -62,6 +62,7 @@ class AuthService:
         await audit_service.log(
             conn,
             actor_id=row["employee_id"],
+            organization_id=None,
             action="user.register",
             table_name="users",
             record_id=str(row["employee_id"]),

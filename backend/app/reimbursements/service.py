@@ -69,6 +69,7 @@ class ReimbursementService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=organization_id,
                 action="reimbursement.create",
                 table_name="reimbursements",
                 record_id=str(row["reimbursement_id"]),
@@ -132,6 +133,7 @@ class ReimbursementService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=organization_id,
                 action=f"reimbursement.{payload.target_status.value}",
                 table_name="reimbursements",
                 record_id=str(reimbursement_id),

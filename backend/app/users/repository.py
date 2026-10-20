@@ -153,13 +153,10 @@ class UserRepository:
         params.extend((employee_id, organization_id))
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE users SET "
-                + ", ".join(assignments)
-                + " WHERE employee_id = %s"
+                "UPDATE users SET " + ", ".join(assignments) + " WHERE employee_id = %s"
                 " AND EXISTS (SELECT 1 FROM memberships m"
                 "             WHERE m.employee_id = users.employee_id"
-                "             AND m.organization_id = %s) RETURNING "
-                + _USER_COLUMNS,
+                "             AND m.organization_id = %s) RETURNING " + _USER_COLUMNS,
                 tuple(params),
             )
             return await cur.fetchone()

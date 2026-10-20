@@ -58,16 +58,12 @@ class _RecordingConn(_FakeConn):
 
 async def test_permission_granted_through_a_role() -> None:
     conn = _FakeConn([{"exists": True}, {"exists": False}])
-    assert await has_permission(
-        conn, employee_id=1, organization_id=2, api_name="expense.create"
-    )
+    assert await has_permission(conn, employee_id=1, organization_id=2, api_name="expense.create")
 
 
 async def test_permission_granted_directly() -> None:
     conn = _FakeConn([{"exists": False}, {"exists": True}])
-    assert await has_permission(
-        conn, employee_id=1, organization_id=2, api_name="expense.create"
-    )
+    assert await has_permission(conn, employee_id=1, organization_id=2, api_name="expense.create")
 
 
 async def test_permission_not_granted() -> None:

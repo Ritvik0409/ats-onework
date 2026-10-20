@@ -129,6 +129,13 @@ def to_app_exception(exc: PsycopgError) -> AppException:
         )
     if isinstance(exc, (pg_errors.CheckViolation, pg_errors.NotNullViolation)):
         return ValidationError("The request violates a data constraint.")
+    # A value that does not fit its column (22001) or its numeric range
+    # (22003) is a bad request, not a server fault: these used to fall
+    # through to a 500.
+    if isinstance(exc, pg_errors.StringDataRightTruncation):
+        return ValidationError("A submitted value is too long for its field.")
+    if isinstance(exc, pg_errors.NumericValueOutOfRange):
+        return ValidationError("A submitted number is outside the allowed range.")
     if isinstance(exc, pg_errors.ExclusionViolation):
         return ConflictError("The request conflicts with an existing resource.")
     if isinstance(exc, pg_errors.RaiseException):

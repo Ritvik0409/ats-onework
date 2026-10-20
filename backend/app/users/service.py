@@ -104,6 +104,7 @@ class UserService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="user.update",
             table_name="users",
             record_id=str(employee_id),
@@ -164,6 +165,7 @@ class UserService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="user.status.create",
             table_name="employee_status",
             record_id=str(row["status_id"]),
@@ -183,9 +185,7 @@ class UserService:
 
     # -- helpers ----------------------------------------------------------
 
-    async def _require_org_member(
-        self, conn: Conn, employee_id: int, organization_id: int
-    ) -> Row:
+    async def _require_org_member(self, conn: Conn, employee_id: int, organization_id: int) -> Row:
         """Gate for operations on a user the caller does not share an org with.
 
         The ``employee_status`` log has no organization column, so the

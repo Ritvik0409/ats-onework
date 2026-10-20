@@ -160,12 +160,8 @@ async def test_suspended_account_loses_access_immediately(
     await clean_db.commit()
     org_id = await _org_for(clean_db, user.employee_id)
 
-    token = create_access_token(
-        employee_id=user.employee_id, organization_id=org_id, is_admin=True
-    )
-    context = CurrentUser(
-        employee_id=user.employee_id, organization_id=org_id, is_admin=True
-    )
+    token = create_access_token(employee_id=user.employee_id, organization_id=org_id, is_admin=True)
+    context = CurrentUser(employee_id=user.employee_id, organization_id=org_id, is_admin=True)
 
     # Active: the membership dependency resolves the context.
     resolved = await require_membership(context, clean_db)

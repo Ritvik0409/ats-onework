@@ -30,6 +30,7 @@ class ExpenseTypeService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="expense_type.create",
             table_name="expense_types",
             record_id=str(row["expense_type_id"]),

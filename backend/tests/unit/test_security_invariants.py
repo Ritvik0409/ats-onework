@@ -1,6 +1,6 @@
-"""Phase 4.1-4.3 security & contract invariants — no database required.
+"""Security & contract invariants — no database required.
 
-Guards the properties the todo items demand without a live PostgreSQL:
+Guards the properties that must hold without a live PostgreSQL:
 credential hygiene (no hash/token leakage), JWT discipline (ADR-001 §51),
 opaque-token handling (§14), status transition maps (§36), pagination
 round-trips (§21), and the tenant error convention (cross-tenant → 404).

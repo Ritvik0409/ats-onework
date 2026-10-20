@@ -2,9 +2,9 @@
 
 Creation is service-driven: domain services call ``NotificationService.create``
 (or the module-level convenience) inside their own workflow transaction; the
-*read* endpoints (list / mark-read / read-all, §49 #36-38) land in Phase 4.7.
-No HTTP lives here; dispatch to push/email providers goes through
-``BackgroundTasks`` at the router layer (§38).
+*read* endpoints (list / mark-read / read-all, §49 #36-38) live in the
+notifications router. No HTTP lives here; dispatch to push/email providers goes
+through ``BackgroundTasks`` at the router layer (§38).
 """
 
 from __future__ import annotations

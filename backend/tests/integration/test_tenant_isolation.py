@@ -1,4 +1,4 @@
-"""Phase 4.1-4.3 integration tests — real PostgreSQL required.
+"""Tenant-isolation integration tests — real PostgreSQL required.
 
 Marked ``@pytest.mark.integration`` and skipped automatically when no
 database credentials are configured (see ``tests/conftest.py``). With
@@ -20,6 +20,7 @@ import pytest
 from psycopg import AsyncConnection
 from psycopg import errors as pg_errors
 
+from app.api.v1.deps import CurrentUser, require_membership
 from app.auth.schemas import (
     LoginRequest,
     OrganizationSwitchRequest,
@@ -37,6 +38,7 @@ from app.core.exceptions import (
     to_app_exception,
 )
 from app.core.security import tokens as opaque_tokens
+from app.core.security.jwt import create_access_token
 from app.organizations.schemas import (
     MembershipCreate,
     OrganizationCreate,
@@ -140,6 +142,45 @@ async def test_login_wrong_password_and_suspended(
     await clean_db.commit()
     with pytest.raises(AuthorizationError):
         await svc.login(clean_db, LoginRequest(email="bob@example.com", password="StrongPass1!"))
+
+
+async def test_suspended_account_loses_access_immediately(
+    clean_db: AsyncConnection[dict],
+) -> None:
+    """A live access token must stop working the moment the account is suspended.
+
+    The account status used to be checked only at login and refresh, so a
+    suspended user's already-issued token kept every endpoint for the
+    rest of its lifetime.
+    """
+    auth = AuthService()
+    user = await auth.register(
+        clean_db, UserCreate(name="S", email="s@example.com", password="StrongPass1!")
+    )
+    await clean_db.commit()
+    org_id = await _org_for(clean_db, user.employee_id)
+
+    token = create_access_token(
+        employee_id=user.employee_id, organization_id=org_id, is_admin=True
+    )
+    context = CurrentUser(
+        employee_id=user.employee_id, organization_id=org_id, is_admin=True
+    )
+
+    # Active: the membership dependency resolves the context.
+    resolved = await require_membership(context, clean_db)
+    assert resolved.is_admin is True
+
+    async with clean_db.cursor() as cur:
+        await cur.execute(
+            "UPDATE users SET account_status = 'suspended' WHERE employee_id = %s",
+            (user.employee_id,),
+        )
+    await clean_db.commit()
+
+    with pytest.raises(AuthorizationError):
+        await require_membership(context, clean_db)
+    assert token  # the token itself is still well-formed — the DB is the gate
 
 
 async def test_switch_organization_guards(clean_db: AsyncConnection[dict]) -> None:

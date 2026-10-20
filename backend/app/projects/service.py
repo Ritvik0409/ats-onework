@@ -43,6 +43,7 @@ class ProjectService:
         row = await self._repository.create(
             conn,
             budget_id=payload.budget_id,
+            organization_id=organization_id,
             name=payload.name,
             description=payload.description,
             start_date=payload.start_date,
@@ -175,7 +176,11 @@ class ProjectService:
             if existing:
                 raise ConflictError("Employee is already a member of this project.")
             row = await self._repository.insert_member(
-                conn, project_id=project_id, employee_id=payload.employee_id, role_id=role_id
+                conn,
+                project_id=project_id,
+                organization_id=org_id,
+                employee_id=payload.employee_id,
+                role_id=role_id,
             )
             await audit_service.log(
                 conn,

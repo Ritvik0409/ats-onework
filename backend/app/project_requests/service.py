@@ -241,7 +241,11 @@ class ProjectAccessService:
         if role is None:
             raise ConflictError("Default role 'employee' is not configured for this organization.")
         await self._repository.insert_member(
-            conn, project_id=project_id, employee_id=employee_id, role_id=int(role["role_id"])
+            conn,
+            project_id=project_id,
+            organization_id=organization_id,
+            employee_id=employee_id,
+            role_id=int(role["role_id"]),
         )
 
 

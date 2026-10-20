@@ -67,8 +67,8 @@
       `Row = dict`; dict_row decision documented)
 - [x] `app/common/` — `pagination.py` (cursor + offset, `Page[T]` — verified
       success models returned directly — no data envelope), `permissions.py`
-      (verified: `RequirePermission` factory, admin-bypass until Phase 4.3
-      AuthorizationService), `utils.py` (verified: `utc_now`, `slugify`)
+      (verified: `RequirePermission` factory, database-backed evaluation with
+      an admin bypass), `utils.py` (verified: `utc_now`, `slugify`)
 - [x] `app/main.py` — verified: `create_app()` factory, CORS middleware,
       `/health`, `/ready` (§24) — verified factory constructs; health router
       exposes both routes (app-level list shows `_IncludedRouter` because
@@ -128,8 +128,8 @@
 - [x] Tests: happy path, wrong password → 401, suspended/locked → 403,
       expired/unknown refresh → 401, rotation invalidates old token,
       switch to non-member org → 403
-      (verified: `tests/unit/test_auth_service.py` + `tests/api/test_phase43_contract.py`
-      + `tests/integration/test_phase43_tenant_isolation.py`; `ruff check` clean)
+      (verified: `tests/unit/test_auth_service.py` + `tests/api/test_api_contract.py`
+      + `tests/integration/test_tenant_isolation.py`; `ruff check` clean)
 
 ### 4.2 users/
 - [x] `schemas.py`: UserResponse (never exposes password_hash), UserListItem,

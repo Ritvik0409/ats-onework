@@ -88,7 +88,13 @@ class _RepositoryStub:
         return (project_id, employee_id) in self.members
 
     async def insert_member(
-        self, _conn: Any, *, project_id: int, employee_id: int, role_id: int
+        self,
+        _conn: Any,
+        *,
+        project_id: int,
+        organization_id: int,  # noqa: ARG002 - mirrors the repository signature
+        employee_id: int,
+        role_id: int,
     ) -> dict[str, Any]:
         member_id = self._next_member_id
         self._next_member_id += 1

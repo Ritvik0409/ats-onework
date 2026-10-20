@@ -94,8 +94,13 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
       }
       if (token.isEmpty || !isAdmin) {
         // Never persist a token that cannot use the management portal.
+        // The stale organization_id and is_admin flags are cleared too,
+        // or the next person to use the device is routed into the
+        // management portal on the strength of the previous session.
         await prefs.remove('auth_token');
         await prefs.remove('refresh_token');
+        await prefs.remove('organization_id');
+        await prefs.remove('is_admin');
         _showError('This portal is restricted to management accounts.');
         return;
       }
@@ -104,8 +109,11 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
       await prefs.setString('refresh_token', refreshToken);
       if (orgId != null) {
         await prefs.setInt('organization_id', orgId);
+      } else {
+        await prefs.remove('organization_id');
       }
       await prefs.setBool('is_admin', isAdmin);
+      ApiClient.resetSessionExpiryNotification();
 
       if (_rememberMe) {
         await prefs.setString('saved_manager_email', email);

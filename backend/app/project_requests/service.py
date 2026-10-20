@@ -61,6 +61,7 @@ class ProjectAccessService:
             await audit_service.log(
                 conn,
                 actor_id=employee_id,
+                organization_id=org_id,
                 action="project_access.request",
                 table_name="project_access_requests",
                 record_id=str(row["access_request_id"]),
@@ -205,6 +206,7 @@ class ProjectAccessService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=org_id,
                 action=f"project_access.{status.value}",
                 table_name="project_access_requests",
                 record_id=str(request_id),
@@ -239,7 +241,11 @@ class ProjectAccessService:
         if role is None:
             raise ConflictError("Default role 'employee' is not configured for this organization.")
         await self._repository.insert_member(
-            conn, project_id=project_id, employee_id=employee_id, role_id=int(role["role_id"])
+            conn,
+            project_id=project_id,
+            organization_id=organization_id,
+            employee_id=employee_id,
+            role_id=int(role["role_id"]),
         )
 
 

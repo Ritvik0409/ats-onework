@@ -1,4 +1,4 @@
-"""Phase 4.1-4.3 integration tests — real PostgreSQL required.
+"""Tenant-isolation integration tests — real PostgreSQL required.
 
 Marked ``@pytest.mark.integration`` and skipped automatically when no
 database credentials are configured (see ``tests/conftest.py``). With
@@ -20,6 +20,7 @@ import pytest
 from psycopg import AsyncConnection
 from psycopg import errors as pg_errors
 
+from app.api.v1.deps import CurrentUser, require_membership
 from app.auth.schemas import (
     LoginRequest,
     OrganizationSwitchRequest,
@@ -37,6 +38,7 @@ from app.core.exceptions import (
     to_app_exception,
 )
 from app.core.security import tokens as opaque_tokens
+from app.core.security.jwt import create_access_token
 from app.organizations.schemas import (
     MembershipCreate,
     OrganizationCreate,
@@ -59,6 +61,31 @@ async def clean_db(
     await truncate_all(db_connection)
 
 
+async def _org_for(conn: AsyncConnection[dict], *employee_ids: int) -> int:
+    """Create an organization and make ``employee_ids`` admin members of it.
+
+    The user admin routes are scoped to the caller's organization, so a
+    membership has to exist before those routes will act on a user.
+    """
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "INSERT INTO organizations (name, slug, description) VALUES (%s, %s, %s)"
+            " RETURNING organization_id",
+            (f"Org {employee_ids[0]}", f"org-{employee_ids[0]}", "fixture"),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        organization_id = int(row["organization_id"])
+        for employee_id in employee_ids:
+            await cur.execute(
+                "INSERT INTO memberships (employee_id, organization_id, is_admin)"
+                " VALUES (%s, %s, %s)",
+                (employee_id, organization_id, True),
+            )
+    await conn.commit()
+    return organization_id
+
+
 async def test_register_login_refresh_logout_flow(clean_db: AsyncConnection[dict]) -> None:
     svc = AuthService()
     user = await svc.register(
@@ -75,8 +102,11 @@ async def test_register_login_refresh_logout_flow(clean_db: AsyncConnection[dict
     await clean_db.commit()
     assert rotated.refresh_token != pair.refresh_token
 
-    with pytest.raises(AuthenticationError):  # old token died in rotation
-        await svc.refresh(clean_db, RefreshRequest(refresh_token=pair.refresh_token))
+    # Presenting the rotated token once more is treated as a retry after a
+    # lost response, so the chain continues instead of ending the session.
+    retried = await svc.refresh(clean_db, RefreshRequest(refresh_token=pair.refresh_token))
+    await clean_db.commit()
+    assert retried.refresh_token not in (pair.refresh_token, rotated.refresh_token)
 
     me = await UserService().get_me(clean_db, user.employee_id)
     assert me.account_status == AccountStatus.ACTIVE
@@ -115,6 +145,41 @@ async def test_login_wrong_password_and_suspended(
     await clean_db.commit()
     with pytest.raises(AuthorizationError):
         await svc.login(clean_db, LoginRequest(email="bob@example.com", password="StrongPass1!"))
+
+
+async def test_suspended_account_loses_access_immediately(
+    clean_db: AsyncConnection[dict],
+) -> None:
+    """A live access token must stop working the moment the account is suspended.
+
+    The account status used to be checked only at login and refresh, so a
+    suspended user's already-issued token kept every endpoint for the
+    rest of its lifetime.
+    """
+    auth = AuthService()
+    user = await auth.register(
+        clean_db, UserCreate(name="S", email="s@example.com", password="StrongPass1!")
+    )
+    await clean_db.commit()
+    org_id = await _org_for(clean_db, user.employee_id)
+
+    token = create_access_token(employee_id=user.employee_id, organization_id=org_id, is_admin=True)
+    context = CurrentUser(employee_id=user.employee_id, organization_id=org_id, is_admin=True)
+
+    # Active: the membership dependency resolves the context.
+    resolved = await require_membership(context, clean_db)
+    assert resolved.is_admin is True
+
+    async with clean_db.cursor() as cur:
+        await cur.execute(
+            "UPDATE users SET account_status = 'suspended' WHERE employee_id = %s",
+            (user.employee_id,),
+        )
+    await clean_db.commit()
+
+    with pytest.raises(AuthorizationError):
+        await require_membership(context, clean_db)
+    assert token  # the token itself is still well-formed — the DB is the gate
 
 
 async def test_switch_organization_guards(clean_db: AsyncConnection[dict]) -> None:
@@ -236,10 +301,12 @@ async def test_employee_status_single_active_backstop(
         clean_db, UserCreate(name="S", email="s@example.com", password="StrongPass1!")
     )
     await clean_db.commit()
+    org_id = await _org_for(clean_db, user.employee_id)
 
     created = await users.create_status(
         clean_db,
         actor_id=user.employee_id,
+        organization_id=org_id,
         employee_id=user.employee_id,
         payload=EmployeeStatusCreate(status=EmployeeStatus.ACTIVE),
     )
@@ -251,6 +318,7 @@ async def test_employee_status_single_active_backstop(
     reopened = await users.create_status(
         clean_db,
         actor_id=user.employee_id,
+        organization_id=org_id,
         employee_id=user.employee_id,
         payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
     )
@@ -261,6 +329,7 @@ async def test_employee_status_single_active_backstop(
         await users.create_status(
             clean_db,
             actor_id=user.employee_id,
+            organization_id=org_id,
             employee_id=user.employee_id,
             payload=EmployeeStatusCreate(status=EmployeeStatus.ON_LEAVE),
         )
@@ -280,16 +349,21 @@ async def test_user_search_treats_wildcards_literally(
     """LIKE escaping: searching for "%" must not match every user."""
     auth = AuthService()
     users = UserService()
-    await auth.register(
+    percent = await auth.register(
         clean_db,
         UserCreate(name="100% Legit", email="percent@example.com", password="StrongPass1!"),
     )
-    await auth.register(
+    plain = await auth.register(
         clean_db, UserCreate(name="Plain Jane", email="plain@example.com", password="StrongPass1!")
     )
     await clean_db.commit()
+    # Both users share an organization, so the only thing that can narrow
+    # the result set is the LIKE escaping itself.
+    org_id = await _org_for(clean_db, percent.employee_id, plain.employee_id)
 
-    page = await users.list_users(clean_db, limit=20, cursor=None, search="%")
+    page = await users.list_users(
+        clean_db, organization_id=org_id, limit=20, cursor=None, search="%"
+    )
     assert [u.name for u in page.items] == ["100% Legit"]
 
 
@@ -300,10 +374,12 @@ async def test_user_update_writes_audit_row(clean_db: AsyncConnection[dict]) -> 
         clean_db, UserCreate(name="U", email="u@example.com", password="StrongPass1!")
     )
     await clean_db.commit()
+    org_id = await _org_for(clean_db, user.employee_id)
 
     updated = await users.update_user(
         clean_db,
         actor_id=user.employee_id,
+        organization_id=org_id,
         employee_id=user.employee_id,
         payload=UserUpdate(name="Updated"),
     )

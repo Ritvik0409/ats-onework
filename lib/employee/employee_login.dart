@@ -94,14 +94,22 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
           final first = orgs.first as Map<String, dynamic>;
           orgId = (first['organization_id'] as num?)?.toInt();
           isAdmin = (first['is_admin'] as bool?) ?? false;
-          await prefs.setInt('organization_id', orgId ?? 0);
-          await prefs.setBool('is_admin', isAdmin);
         }
+        // Always written, never left over from a previous session: a
+        // stale organization_id or is_admin sent the next user to the
+        // wrong organization, or into the management portal.
+        if (orgId != null) {
+          await prefs.setInt('organization_id', orgId);
+        } else {
+          await prefs.remove('organization_id');
+        }
+        await prefs.setBool('is_admin', isAdmin);
+        ApiClient.resetSessionExpiryNotification();
 
         // Resolve profile via GET /users/me (TokenPair carries no name/email).
         String userName = 'User';
         String userEmail = input.contains('@') ? input : '';
-        String empId = input;
+        String empId = '';
         try {
           final me = await ApiClient.get('/users/me');
           if (me.statusCode == 200) {

@@ -9,13 +9,13 @@ in ``expense_media.receipt_url``. Admin decisions live under
 
 from __future__ import annotations
 
-import mimetypes
+import io
 import uuid
 from datetime import date
-from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile, status
+from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.deps import CurrentUser, require_admin, require_membership
 from app.common.object_storage import get_object_storage
@@ -26,36 +26,20 @@ from app.db.connection import get_connection
 from app.db.types import Conn
 from app.expenses.schemas import (
     ApprovalActionRequest,
+    ExpenseCreate,
     ExpenseListItem,
     ExpenseResponse,
+    ExpenseResubmit,
 )
 from app.expenses.service import service as expense_service
+from app.expenses.uploads import verify_upload
+from app.notifications.dispatch import enqueue_notification_dispatch
+from app.notifications.schemas import NotificationResponse
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 approvals_router = APIRouter(prefix="/approvals", tags=["approvals"])
 
-_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 _MAX_FILE_BYTES = 5 * 1024 * 1024
-
-
-def _resolve_content_type(filename: str | None, declared: str | None) -> str:
-    """Pick a validated MIME type for an uploaded receipt.
-
-    Trusting the declared Content-Type alone breaks real clients: Flutter's
-    ``MultipartFile.fromBytes`` sends generic ``application/octet-stream``
-    even for a named ``receipt.jpg``. So when the declared type is missing
-    or generic, fall back to the filename extension. Neither route to an
-    allowed type → 422.
-    """
-    ctype = (declared or "").split(";")[0].strip().lower()
-    if ctype in _ALLOWED_CONTENT_TYPES:
-        return ctype
-    guessed, _ = mimetypes.guess_type(filename or "")
-    if guessed and guessed in _ALLOWED_CONTENT_TYPES:
-        return guessed
-    raise ValidationError(
-        f"File {filename or 'receipt'} has an unsupported type. Accepted: jpeg, png, webp, pdf."
-    )
 
 
 def _parse_cursor(cursor: str | None) -> int | None:
@@ -84,47 +68,64 @@ async def submit_expense(
     expense_type_id: Annotated[int, Form(gt=0)],
     amount: Annotated[str, Form()],
     expense_date: Annotated[date, Form()],
+    description: Annotated[str | None, Form(max_length=1000)] = None,
     files: Annotated[list[UploadFile] | None, File()] = None,
 ) -> ExpenseResponse:
+    # The payload is validated by the same schema the API documents, so an
+    # amount of "NaN" or "Infinity" is a 422 instead of a 500 and an
+    # over-long description cannot reach the database.
     try:
-        decimal_amount = Decimal(amount)
-    except InvalidOperation as exc:
-        from app.core.exceptions import ValidationError
-
-        raise ValidationError("Amount must be a valid decimal.") from exc
-    if decimal_amount <= 0:
-        from app.core.exceptions import ValidationError
-
-        raise ValidationError("Amount must be greater than zero.")
+        payload = ExpenseCreate.model_validate(
+            {
+                "project_id": project_id,
+                "expense_type_id": expense_type_id,
+                "amount": amount,
+                "expense_date": expense_date,
+                "description": description,
+            }
+        )
+    except PydanticValidationError as exc:
+        raise ValidationError("Invalid expense payload.", details=exc.errors()) from exc
     stored: list[tuple[str, str | None]] = []
     storage = get_object_storage()
     for upload in files or []:
         content = await upload.read()
         if len(content) > _MAX_FILE_BYTES:
-            from app.core.exceptions import ValidationError
-
             raise ValidationError(f"File {upload.filename} exceeds 5MB.")
-        resolved_type = _resolve_content_type(upload.filename, upload.content_type)
-        key = f"receipts/{user.organization_id}/{uuid.uuid4().hex}-{upload.filename or 'receipt'}"
-        import io
-
+        # The stored extension comes from the file's own bytes, never from
+        # the client-supplied name or Content-Type header.
+        verified = verify_upload(upload.filename, content)
+        key = f"receipts/{user.organization_id}/{uuid.uuid4().hex}{verified.extension}"
         url = await storage.upload(
             key=key,
             data=io.BytesIO(content),
-            content_type=resolved_type,
+            content_type=verified.content_type,
         )
         stored.append((url, upload.filename))
-    background.add_task(lambda: None)
-    return await expense_service.submit(
-        conn,
-        employee_id=user.employee_id,
-        organization_id=user.organization_id,
-        project_id=project_id,
-        expense_type_id=expense_type_id,
-        amount=decimal_amount,
-        expense_date=expense_date,
-        receipts=stored,
-    )
+    created_notifications: list[NotificationResponse] = []
+    try:
+        response = await expense_service.submit(
+            conn,
+            employee_id=user.employee_id,
+            organization_id=user.organization_id,
+            project_id=payload.project_id,
+            expense_type_id=payload.expense_type_id,
+            amount=payload.amount,
+            expense_date=payload.expense_date,
+            description=payload.description,
+            receipts=stored,
+            created_notifications=created_notifications,
+        )
+    except Exception:
+        # The expense row was never written, so the files that were already
+        # uploaded would be orphans. Remove them instead of leaking them.
+        for url, _ in stored:
+            await storage.delete(key=url)
+        raise
+    # External delivery happens after the transaction has committed.
+    for notification in created_notifications:
+        enqueue_notification_dispatch(background, notification)
+    return response
 
 
 @router.get("", response_model=Page[ExpenseListItem])
@@ -235,11 +236,16 @@ async def resubmit_expense(
     expense_id: int,
     user: Annotated[CurrentUser, Depends(require_membership)],
     conn: Annotated[Conn, Depends(get_connection)],
+    payload: ExpenseResubmit | None = None,
 ) -> ExpenseResponse:
-    """The submitting employee returns an info_requested expense to pending."""
+    """The submitting employee returns an info_requested expense to pending.
+
+    The optional body carries the answer to the manager's question.
+    """
     return await expense_service.resubmit(
         conn,
         actor_id=user.employee_id,
         organization_id=user.organization_id,
         expense_id=expense_id,
+        response=payload.response if payload is not None else None,
     )

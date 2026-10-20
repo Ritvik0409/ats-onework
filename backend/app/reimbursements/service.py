@@ -69,6 +69,7 @@ class ReimbursementService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=organization_id,
                 action="reimbursement.create",
                 table_name="reimbursements",
                 record_id=str(row["reimbursement_id"]),
@@ -132,6 +133,7 @@ class ReimbursementService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=organization_id,
                 action=f"reimbursement.{payload.target_status.value}",
                 table_name="reimbursements",
                 record_id=str(reimbursement_id),
@@ -147,6 +149,46 @@ class ReimbursementService:
                     type=f"reimbursement.{payload.target_status.value}",
                     reference_id=str(reimbursement_id),
                 ),
+            )
+            return ReimbursementResponse.model_validate(updated)
+
+    async def attach_payment_receipt(
+        self,
+        conn: Conn,
+        *,
+        actor_id: int,
+        organization_id: int,
+        reimbursement_id: int,
+        payment_receipt_url: str,
+    ) -> ReimbursementResponse:
+        """Store the receipt that proves a payout was made.
+
+        Only a paid reimbursement can carry one: a receipt for money that
+        has not moved yet says nothing.
+        """
+        await self._require_admin(conn, actor_id, organization_id)
+        async with transaction(conn):
+            current = await self._repository.get_by_id_for_update(
+                conn, reimbursement_id, organization_id
+            )
+            if current is None:
+                raise NotFoundError("Reimbursement not found.")
+            if ReimbursementStatus(current["status"]) != ReimbursementStatus.PAID:
+                raise ConflictError(
+                    "A payment receipt can only be attached to a paid reimbursement."
+                )
+            updated = await self._repository.set_payment_receipt(
+                conn, reimbursement_id, payment_receipt_url=payment_receipt_url
+            )
+            assert updated is not None
+            await audit_service.log(
+                conn,
+                actor_id=actor_id,
+                organization_id=organization_id,
+                action="reimbursement.receipt_attached",
+                table_name="reimbursements",
+                record_id=str(reimbursement_id),
+                new_values={"payment_receipt_url": payment_receipt_url},
             )
             return ReimbursementResponse.model_validate(updated)
 

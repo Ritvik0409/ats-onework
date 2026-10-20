@@ -45,6 +45,8 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
               // Revokes the refresh token server-side and clears the
               // local JWT store (api_client.dart).
               await ApiClient.signOut();
+              // Drop the previous user's data from the shared store.
+              ExpenseStore.instance.resetForSignOut();
 
               if (context.mounted) {
                 Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(

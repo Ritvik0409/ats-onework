@@ -60,10 +60,12 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                       onPressed: () async {
                         final picker = ImagePicker();
                         final image = await picker.pickImage(source: ImageSource.gallery);
-                        if (image != null) {
-                          final bytes = await image.readAsBytes();
-                          setDialogState(() => paymentReceiptBytes = bytes);
-                        }
+                        if (image == null) return;
+                        final bytes = await image.readAsBytes();
+                        // The dialog can be dismissed while the gallery
+                        // picker is open.
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() => paymentReceiptBytes = bytes);
                       },
                       icon: Icon(Icons.receipt_long_rounded, color: store.accentGold, size: 18),
                       label: Text(paymentReceiptBytes == null ? 'Attach Receipt (Opt.)' : 'Receipt Attached', style: TextStyle(color: store.accentGold)),

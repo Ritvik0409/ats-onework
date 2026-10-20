@@ -34,7 +34,7 @@ from app.core.exceptions import (
 from app.core.security import jwt as jwt_security
 from app.core.security import passwords
 from app.core.security import tokens as opaque_tokens
-from app.db.types import Conn
+from app.db.types import Conn, Row
 
 _INVALID_CREDENTIALS = "Invalid email or password."
 _UNKNOWN_REFRESH = "Invalid or expired refresh token."
@@ -62,6 +62,7 @@ class AuthService:
         await audit_service.log(
             conn,
             actor_id=row["employee_id"],
+            organization_id=None,
             action="user.register",
             table_name="users",
             record_id=str(row["employee_id"]),
@@ -88,6 +89,18 @@ class AuthService:
     # -- refresh (rotation) ----------------------------------------------
 
     async def refresh(self, conn: Conn, payload: RefreshRequest) -> TokenPair:
+        """Exchange a refresh token for a fresh pair, rotating the token.
+
+        Rotation keeps the old row and records what replaced it, so a
+        token that comes back after it was already rotated can be
+        recognised:
+
+        * its replacement is still live — the client retried (a response
+          lost in transit); the chain continues instead of ending the
+          session
+        * its replacement was rotated too — the token was replayed; the
+          whole family is revoked and the session ends
+        """
         token_hash = opaque_tokens.hash_token(payload.refresh_token)
         stored = await self._repository.get_token(conn, token_hash, TokenPurpose.REFRESH)
         if stored is None:
@@ -95,25 +108,62 @@ class AuthService:
         if opaque_tokens.is_expired(stored["expires_at"]):
             await self._repository.delete_token(conn, token_hash)
             raise AuthenticationError(_UNKNOWN_REFRESH)
+        if stored["revoked_at"] is not None:
+            raise AuthenticationError(_UNKNOWN_REFRESH)
+
+        if stored["replaced_by_token_id"] is not None:
+            replacement = await self._repository.get_token_by_id(
+                conn, int(stored["replaced_by_token_id"])
+            )
+            if (
+                replacement is not None
+                and replacement["replaced_by_token_id"] is None
+                and replacement["revoked_at"] is None
+            ):
+                # A retry of the same logical refresh — continue the chain.
+                return await self._rotate(
+                    conn,
+                    employee_id=int(replacement["employee_id"]),
+                    previous=replacement,
+                    touch_login=False,
+                )
+            # Replayed token: the family is assumed compromised.
+            await self._repository.revoke_family(conn, stored["family_id"])
+            # The revocation must outlive this request. The connection
+            # carries one request-scoped transaction, so raising here
+            # would roll the revocation back and leave the stolen token
+            # usable.
+            await conn.commit()
+            raise AuthenticationError(_UNKNOWN_REFRESH)
+
         user = await self._repository.get_user_by_id(conn, stored["employee_id"])
         if user is None:
             await self._repository.delete_token(conn, token_hash)
             raise AuthenticationError(_UNKNOWN_REFRESH)
         self._ensure_active(user["account_status"])
-        # Rotation — the old token dies on the same connection that mints the
-        # replacement, so reuse of the old value always fails (§14).
-        await self._repository.delete_token(conn, token_hash)
-        return await self._issue_pair(conn, employee_id=user["employee_id"], touch_login=False)
+        return await self._rotate(
+            conn,
+            employee_id=int(user["employee_id"]),
+            previous=stored,
+            touch_login=False,
+        )
 
     # -- logout ----------------------------------------------------------
 
     async def logout(self, conn: Conn, *, employee_id: int, payload: RefreshRequest) -> None:
-        """Idempotent owner-scoped revoke — unknown tokens still yield 204."""
-        await self._repository.delete_token_for_employee(
-            conn,
-            employee_id=employee_id,
-            token_hash=opaque_tokens.hash_token(payload.refresh_token),
-        )
+        """Idempotent owner-scoped revoke — unknown tokens still yield 204.
+
+        The whole family of the presented token is revoked, so a token
+        captured before the logout cannot be used afterwards.
+        """
+        token_hash = opaque_tokens.hash_token(payload.refresh_token)
+        stored = await self._repository.get_token(conn, token_hash, TokenPurpose.REFRESH)
+        if stored is None:
+            return
+        if int(stored["employee_id"]) != employee_id:
+            # Owner-scoped: a caller must not revoke another user's token.
+            return
+        await self._repository.revoke_family(conn, stored["family_id"])
 
     # -- switch organization ---------------------------------------------
 
@@ -131,6 +181,10 @@ class AuthService:
         )
         if membership is None:
             raise AuthorizationError("You are not a member of this organization.")
+        # The tokens minted for the previous organization must not survive
+        # the switch — they carry the old organization in their access
+        # token and would keep working until they expire.
+        await self._repository.revoke_refresh_tokens_for_employee(conn, employee_id=employee_id)
         refresh = opaque_tokens.generate_token()
         await self._repository.insert_token(
             conn,
@@ -171,6 +225,49 @@ class AuthService:
             token_hash=opaque_tokens.hash_token(refresh),
             purpose=TokenPurpose.REFRESH,
             expires_at=opaque_tokens.refresh_token_expiry(),
+        )
+        if touch_login:
+            await self._repository.update_last_login(
+                conn, employee_id, opaque_tokens.utc_now_naive()
+            )
+        access = jwt_security.create_access_token(
+            employee_id=employee_id,
+            organization_id=active_org_id,
+            is_admin=is_admin,
+        )
+        return TokenPair(
+            access_token=access,
+            refresh_token=refresh,
+            expires_in=self._access_lifetime_seconds(),
+            organizations=summaries,
+        )
+
+    async def _rotate(
+        self,
+        conn: Conn,
+        *,
+        employee_id: int,
+        previous: Row,
+        touch_login: bool,
+    ) -> TokenPair:
+        """Mint a replacement token in the same family and retire the old one.
+
+        The old row is kept and marked as replaced, which is what lets a
+        later replay be recognised.
+        """
+        summaries = await self._organization_summaries(conn, employee_id)
+        active_org_id, is_admin = self._default_org(summaries)
+        refresh = opaque_tokens.generate_token()
+        inserted = await self._repository.insert_token(
+            conn,
+            employee_id=employee_id,
+            token_hash=opaque_tokens.hash_token(refresh),
+            purpose=TokenPurpose.REFRESH,
+            expires_at=opaque_tokens.refresh_token_expiry(),
+            family_id=previous["family_id"],
+        )
+        await self._repository.mark_rotated(
+            conn, int(previous["token_id"]), replaced_by_token_id=int(inserted["token_id"])
         )
         if touch_login:
             await self._repository.update_last_login(

@@ -31,6 +31,7 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
   }
 
   Future<void> _pickImage() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -40,17 +41,22 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
         source: widget.useGallery ? ImageSource.gallery : ImageSource.camera,
         imageQuality: 85,
       );
+      // The user can leave the screen while the picker or the camera is
+      // open, so every state change below checks that it is still alive.
+      if (!mounted) return;
       if (picked == null) {
         // User cancelled the picker — just stop loading, keep screen open.
         setState(() => _isLoading = false);
         return;
       }
       final bytes = await picked.readAsBytes();
+      if (!mounted) return;
       setState(() {
         _previewBytes = bytes;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _errorMessage = widget.useGallery

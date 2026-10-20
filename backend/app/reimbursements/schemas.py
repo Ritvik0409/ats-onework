@@ -34,6 +34,8 @@ class ReimbursementResponse(BaseModel):
     organization_id: int
     total_amount: Decimal
     payment_reference: str | None = None
+    #: URL of the receipt proving the payout was made.
+    payment_receipt_url: str | None = None
     status: ReimbursementStatus
     paid_at: datetime | None = None
     created_at: datetime

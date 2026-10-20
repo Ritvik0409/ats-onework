@@ -8,12 +8,17 @@ from app.db.types import Conn, Row
 
 # Every project read also surfaces the budget amount and the member count —
 # both belong to the project's business meaning and the Flutter app shows them.
+# The member ids come along too: without them a client cannot tell which
+# projects the signed-in employee actually has access to.
 _PROJECT_SELECT = (
     "p.project_id, p.budget_id, p.name, p.description, p.is_active,"
     " p.start_date, p.end_date, p.created_at, p.updated_at,"
     " b.amount AS budget_amount,"
     " (SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.project_id)"
-    " AS member_count"
+    " AS member_count,"
+    " COALESCE((SELECT ARRAY_AGG(pm.employee_id ORDER BY pm.employee_id)"
+    "           FROM project_members pm WHERE pm.project_id = p.project_id),"
+    "          ARRAY[]::int[]) AS assigned_employee_ids"
 )
 
 # Same fields re-read after INSERT/UPDATE: the joined aggregate columns
@@ -22,8 +27,8 @@ _PROJECT_SELECT = (
 # plain RETURNING only sees the mutated row — so write-backs return their
 # own fields and the caller re-fetches with the joined SELECT.
 _PROJECT_RETURNING = (
-    "project_id, budget_id, name, description, is_active, start_date,"
-    " end_date, created_at, updated_at"
+    "project_id, budget_id, organization_id, name, description, is_active,"
+    " start_date, end_date, created_at, updated_at"
 )
 
 
@@ -74,6 +79,7 @@ class ProjectRepository:
         conn: Conn,
         *,
         budget_id: int,
+        organization_id: int,
         name: str,
         description: str | None,
         start_date: date | None,
@@ -81,9 +87,10 @@ class ProjectRepository:
     ) -> Row:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO projects (budget_id, name, description, start_date, end_date)"
-                " VALUES (%s, %s, %s, %s, %s) RETURNING " + _PROJECT_RETURNING,
-                (budget_id, name, description, start_date, end_date),
+                "INSERT INTO projects"
+                " (budget_id, organization_id, name, description, start_date, end_date)"
+                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING " + _PROJECT_RETURNING,
+                (budget_id, organization_id, name, description, start_date, end_date),
             )
             row = await cur.fetchone()
             assert row is not None
@@ -170,6 +177,13 @@ class ProjectRepository:
     async def list_members(
         self, conn: Conn, project_id: int, *, before_id: int | None, limit: int
     ) -> list[Row]:
+        """Members newest-first, keyset-paginated.
+
+        The cursor is the last row's id and the next page selects rows
+        *below* it, so the ordering must be descending to match. Pairing
+        a descending cursor with an ascending order returned the same
+        page forever.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT "
@@ -178,7 +192,7 @@ class ProjectRepository:
                 + " JOIN roles r ON r.role_id = pm.role_id"
                 + " WHERE pm.project_id = %s"
                 + " AND (%s::int IS NULL OR pm.project_member_id < %s::int)"
-                + " ORDER BY pm.project_member_id ASC LIMIT %s::int",
+                + " ORDER BY pm.project_member_id DESC LIMIT %s::int",
                 (project_id, before_id, before_id, limit),
             )
             return list(await cur.fetchall())
@@ -204,13 +218,20 @@ class ProjectRepository:
             return await cur.fetchone()
 
     async def insert_member(
-        self, conn: Conn, *, project_id: int, employee_id: int, role_id: int
+        self,
+        conn: Conn,
+        *,
+        project_id: int,
+        organization_id: int,
+        employee_id: int,
+        role_id: int,
     ) -> Row:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO project_members (project_id, employee_id, role_id)"
-                " VALUES (%s, %s, %s) RETURNING " + _MEMBER_RETURNING,
-                (project_id, employee_id, role_id),
+                "INSERT INTO project_members"
+                " (project_id, organization_id, employee_id, role_id)"
+                " VALUES (%s, %s, %s, %s) RETURNING " + _MEMBER_RETURNING,
+                (project_id, organization_id, employee_id, role_id),
             )
             row = await cur.fetchone()
             assert row is not None

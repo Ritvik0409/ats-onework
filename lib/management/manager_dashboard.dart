@@ -360,9 +360,18 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                     }),
                                     
                                     if (store.currentMonthBudget > store.currentMonthBurnAmount)
-                                      Expanded(
-                                        flex: (store.currentMonthBudget - store.currentMonthBurnAmount).toInt(),
-                                        child: Container(color: Colors.transparent),
+                                      Builder(
+                                        builder: (_) {
+                                          // A remainder below one unit
+                                          // truncates to 0, and Expanded
+                                          // rejects a flex of 0.
+                                          final remainder = (store.currentMonthBudget - store.currentMonthBurnAmount).toInt();
+                                          if (remainder <= 0) return const SizedBox.shrink();
+                                          return Expanded(
+                                            flex: remainder,
+                                            child: Container(color: Colors.transparent),
+                                          );
+                                        },
                                       ),
                                   ],
                                 ),

@@ -433,8 +433,11 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                             }
                             final bytes = utf8.encode(csvContent);
                             final timestamp = DateTime.now().millisecondsSinceEpoch;
-                            downloadFile(bytes, '${currentProject.name.replaceAll(' ', '_')}_Report_$timestamp.csv');
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Download started!'), backgroundColor: champagneGold));
+                            final downloaded = downloadFile(bytes, '${currentProject.name.replaceAll(' ', '_')}_Report_$timestamp.csv');
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(downloaded ? 'Download started!' : 'CSV export is available in the web build.'),
+                              backgroundColor: champagneGold,
+                            ));
                           },
                           icon: Icon(Icons.download_rounded, color: champagneGold, size: 16),
                           label: const Text('Export CSV', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),

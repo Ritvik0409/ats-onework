@@ -136,6 +136,7 @@ class _AuthRepositoryStub:
         token_hash: str,
         purpose: TokenPurpose,
         expires_at: datetime,
+        family_id: Any = None,
     ) -> dict[str, Any]:
         token_id = self._next_token
         self._next_token += 1
@@ -146,6 +147,9 @@ class _AuthRepositoryStub:
             "purpose": purpose.value,
             "expires_at": expires_at,
             "created_at": opaque_tokens.utc_now_naive(),
+            "family_id": family_id or f"family-{token_id}",
+            "replaced_by_token_id": None,
+            "revoked_at": None,
         }
         self.tokens[token_hash] = row
         return row
@@ -155,6 +159,38 @@ class _AuthRepositoryStub:
     ) -> dict[str, Any] | None:
         row = self.tokens.get(token_hash)
         return row if row is not None and row["purpose"] == purpose.value else None
+
+    async def get_token_by_id(self, _conn: Any, token_id: int) -> dict[str, Any] | None:
+        for row in self.tokens.values():
+            if row["token_id"] == token_id:
+                return row
+        return None
+
+    async def mark_rotated(self, _conn: Any, token_id: int, *, replaced_by_token_id: int) -> None:
+        for row in self.tokens.values():
+            if row["token_id"] == token_id:
+                row["replaced_by_token_id"] = replaced_by_token_id
+                row["revoked_at"] = opaque_tokens.utc_now_naive()
+
+    async def revoke_family(self, _conn: Any, family_id: Any) -> int:
+        count = 0
+        for row in self.tokens.values():
+            if row["family_id"] == family_id and row["revoked_at"] is None:
+                row["revoked_at"] = opaque_tokens.utc_now_naive()
+                count += 1
+        return count
+
+    async def revoke_refresh_tokens_for_employee(self, _conn: Any, *, employee_id: int) -> int:
+        count = 0
+        for row in self.tokens.values():
+            if (
+                row["employee_id"] == employee_id
+                and row["purpose"] == TokenPurpose.REFRESH.value
+                and row["revoked_at"] is None
+            ):
+                row["revoked_at"] = opaque_tokens.utc_now_naive()
+                count += 1
+        return count
 
     async def delete_token(self, _conn: Any, token_hash: str) -> int:
         self.deleted_hashes.append(token_hash)
@@ -346,7 +382,11 @@ async def test_logout_revokes_owner_token_and_is_idempotent(
         employee_id=user["employee_id"],
         payload=RefreshRequest(refresh_token=pair.refresh_token),
     )
-    assert opaque_tokens.hash_token(pair.refresh_token) not in stub.tokens
+    # The token is revoked, so it can no longer be exchanged.
+    revoked = stub.tokens[opaque_tokens.hash_token(pair.refresh_token)]
+    assert revoked["revoked_at"] is not None
+    with pytest.raises(AuthenticationError):
+        await svc.refresh(object(), RefreshRequest(refresh_token=pair.refresh_token))
     await svc.logout(  # unknown token → still silent (204 at the router)
         object(),
         employee_id=user["employee_id"],

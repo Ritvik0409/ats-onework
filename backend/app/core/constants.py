@@ -48,10 +48,12 @@ class ExpenseStatus(StrEnum):
 
 
 class ApprovalAction(StrEnum):
-    """expense_approvals.action CHECK constraint."""
+    """expense_approvals.action CHECK constraint (migration 0004)."""
 
     APPROVED = "approved"
     REJECTED = "rejected"
+    INFO_REQUESTED = "info_requested"
+    INFO_ANSWERED = "info_answered"
 
 
 class ReimbursementStatus(StrEnum):

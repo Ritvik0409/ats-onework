@@ -1,11 +1,19 @@
-"""Audit-log reads — raw SQL only (§5). No org column, so tenant scope derives
-from the actor's membership (see ``app/common/audit.py`` docstring)."""
+"""Audit-log reads — raw SQL only (§5).
+
+Audit rows carry the organization they belong to (migration 0005), so the
+tenant scope comes straight from the column. Deriving it from the actor's
+membership instead would expose the actions of someone who belongs to
+several organizations to each of them.
+"""
 
 from __future__ import annotations
 
 from app.db.types import Conn, Row
 
-_LOG_COLUMNS = "log_id, actor_id, action, table_name, record_id, old_values, new_values, created_at"
+_LOG_COLUMNS = (
+    "log_id, actor_id, organization_id, action, table_name, record_id, "
+    "old_values, new_values, created_at"
+)
 
 
 class AuditLogRepository:
@@ -31,8 +39,7 @@ class AuditLogRepository:
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT " + _LOG_COLUMNS + " FROM audit_logs l"
-                " WHERE (l.actor_id IS NULL OR EXISTS (SELECT 1 FROM memberships m"
-                " WHERE m.employee_id = l.actor_id AND m.organization_id = %s))"
+                " WHERE l.organization_id = %s"
                 " AND (%s::text IS NULL OR l.table_name = %s::text)"
                 " AND (%s::int IS NULL OR l.actor_id = %s::int)"
                 " AND (%s::int IS NULL OR l.log_id < %s::int)"

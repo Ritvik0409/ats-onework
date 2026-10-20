@@ -43,8 +43,10 @@ class _BudgetSetupScreenState extends State<BudgetSetupScreen> {
       _selectedEmails.toList(),
     );
 
-    setState(() => _isSaving = false);
+    // The screen can be popped while the request is in flight, so the
+    // state update has to be guarded before it happens, not after.
     if (!mounted) return;
+    setState(() => _isSaving = false);
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
       return;

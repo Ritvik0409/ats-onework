@@ -163,16 +163,23 @@ class ProjectAccessRepository:
             return await cur.fetchone() is not None
 
     async def insert_member(
-        self, conn: Conn, *, project_id: int, employee_id: int, role_id: int
+        self,
+        conn: Conn,
+        *,
+        project_id: int,
+        organization_id: int,
+        employee_id: int,
+        role_id: int,
     ) -> Row | None:
         """Grant membership (0001 `project_members`); returns None on conflict."""
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO project_members (project_id, employee_id, role_id)"
-                " VALUES (%s, %s, %s)"
+                "INSERT INTO project_members"
+                " (project_id, organization_id, employee_id, role_id)"
+                " VALUES (%s, %s, %s, %s)"
                 " ON CONFLICT (project_id, employee_id) DO NOTHING"
                 " RETURNING project_member_id, project_id, employee_id, role_id",
-                (project_id, employee_id, role_id),
+                (project_id, organization_id, employee_id, role_id),
             )
             return await cur.fetchone()
 

@@ -43,6 +43,7 @@ class ProjectService:
         row = await self._repository.create(
             conn,
             budget_id=payload.budget_id,
+            organization_id=organization_id,
             name=payload.name,
             description=payload.description,
             start_date=payload.start_date,
@@ -51,6 +52,7 @@ class ProjectService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="project.create",
             table_name="projects",
             record_id=str(row["project_id"]),
@@ -102,6 +104,7 @@ class ProjectService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=org_id,
             action="project.update",
             table_name="projects",
             record_id=str(project_id),
@@ -173,11 +176,16 @@ class ProjectService:
             if existing:
                 raise ConflictError("Employee is already a member of this project.")
             row = await self._repository.insert_member(
-                conn, project_id=project_id, employee_id=payload.employee_id, role_id=role_id
+                conn,
+                project_id=project_id,
+                organization_id=org_id,
+                employee_id=payload.employee_id,
+                role_id=role_id,
             )
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=org_id,
                 action="project_member.add",
                 table_name="project_members",
                 record_id=str(row["project_member_id"]),
@@ -207,6 +215,7 @@ class ProjectService:
             await audit_service.log(
                 conn,
                 actor_id=actor_id,
+                organization_id=org_id,
                 action="project_member.remove",
                 table_name="project_members",
                 record_id=str(row["project_member_id"]),

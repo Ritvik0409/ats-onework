@@ -43,6 +43,7 @@ class BudgetService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="budget.create",
             table_name="budgets",
             record_id=str(row["budget_id"]),
@@ -104,6 +105,7 @@ class BudgetService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="budget.update",
             table_name="budgets",
             record_id=str(budget_id),

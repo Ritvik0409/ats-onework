@@ -47,14 +47,29 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 def register_middleware(app: FastAPI) -> None:
-    # allow_origin_regex covers Flutter web (random localhost ports) and the
-    # Android-emulator origin; no settings dependency needed.
+    """CORS from configuration, never from a hard-coded pattern.
+
+    The API authenticates with a bearer token rather than cookies, so
+    credentialed cross-origin requests are never needed and
+    ``allow_credentials`` stays off — that removes the credential-theft
+    angle a permissive origin policy would otherwise expose.
+
+    The Flutter *web* build binds a random localhost port, so development
+    additionally allows the ``http://localhost:<port>`` pattern. That
+    pattern is never enabled in production: there the allow-list comes
+    from ``CORS_ORIGINS`` alone.
+    """
+    settings = get_settings()
+    origin_regex = settings.cors_origin_regex
+    if origin_regex is None and not settings.is_production:
+        origin_regex = r"^http://localhost:\d+$"
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"^http://localhost:\d+$",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=settings.cors_origins,
+        allow_origin_regex=origin_regex,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
     app.add_middleware(RequestLoggingMiddleware)
 
@@ -91,10 +106,19 @@ def register_static_files(app: FastAPI) -> None:
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
+    # The OpenAPI schema enumerates every route, parameter and error
+    # contract, so it is not published in production.
+    docs_url = None if settings.is_production else "/docs"
+    redoc_url = None if settings.is_production else "/redoc"
+    openapi_url = None if settings.is_production else "/openapi.json"
     app = FastAPI(
         title="ATS Backend",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
     )
     register_middleware(app)
     register_exception_handlers(app)

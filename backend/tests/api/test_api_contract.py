@@ -163,7 +163,7 @@ def app_with_overrides(monkeypatch: pytest.MonkeyPatch) -> Any:
     async def _update_user(_conn: Any, **_kwargs: Any) -> UserResponse:
         return UserResponse.model_validate(_user_dict())
 
-    async def _list_statuses(_conn: Any, _employee_id: int) -> list[EmployeeStatusResponse]:
+    async def _list_statuses(_conn: Any, **_kwargs: Any) -> list[EmployeeStatusResponse]:
         return [EmployeeStatusResponse.model_validate(_status_dict())]
 
     async def _create_status(_conn: Any, **_kwargs: Any) -> EmployeeStatusResponse:

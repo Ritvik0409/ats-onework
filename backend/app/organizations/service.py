@@ -65,6 +65,7 @@ class OrganizationService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=org["organization_id"],
             action="organization.create",
             table_name="organizations",
             record_id=str(org["organization_id"]),
@@ -114,6 +115,7 @@ class OrganizationService:
         await audit_service.log(
             conn,
             actor_id=employee_id,
+            organization_id=organization_id,
             action="organization.update",
             table_name="organizations",
             record_id=str(organization_id),
@@ -157,6 +159,7 @@ class OrganizationService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="organization.member.add",
             table_name="memberships",
             record_id=str(row["membership_id"]),
@@ -192,6 +195,7 @@ class OrganizationService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="organization.member.remove",
             table_name="memberships",
             record_id=str(target["membership_id"]),
@@ -228,6 +232,7 @@ class OrganizationService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="organization.role.create",
             table_name="roles",
             record_id=str(row["role_id"]),

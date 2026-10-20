@@ -2,10 +2,13 @@
 (arch. doc §35; contracts §49 #8-12).
 
 Authorization split (§10): the router enforces the admin gate via
-``require_admin``; the service enforces existence (404) and the
-single-active status invariant (409). Tenant note — users are global rows;
-organization scoping for the *read* surface is derived from the caller's
-membership, and admin membership is the gate for list/update/status writes.
+``require_admin``; the service enforces tenant scope (404 for anything
+outside the caller's organization) and the single-active status
+invariant (409). Tenant note — ``users`` rows are global, so every admin
+operation is scoped through the caller's membership: a target who is not
+a member of the caller's organization is reported as *not found* (§49)
+rather than *forbidden*, so the endpoint cannot be used to probe other
+tenants' rosters.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ class UserService:
         self,
         conn: Conn,
         *,
+        organization_id: int,
         limit: int,
         cursor: str | None,
         search: str | None = None,
@@ -56,6 +60,7 @@ class UserService:
                 raise ValidationError("Invalid pagination cursor.") from exc
         rows = await self._repository.list_users(
             conn,
+            organization_id=organization_id,
             limit=limit,
             after_id=after_id,
             search=search,
@@ -75,11 +80,13 @@ class UserService:
         conn: Conn,
         *,
         actor_id: int,
+        organization_id: int,
         employee_id: int,
         payload: UserUpdate,
     ) -> UserResponse:
-        current = await self._repository.get_by_id(conn, employee_id)
+        current = await self._repository.get_by_id_in_org(conn, employee_id, organization_id)
         if current is None:
+            # Not a member of the caller's organization → 404, not 403 (§49).
             raise NotFoundError("User not found.")
         if not payload.model_dump(exclude_unset=True):
             # No-op PATCH — return current state without writing a
@@ -88,34 +95,34 @@ class UserService:
         row = await self._repository.update_user(
             conn,
             employee_id,
+            organization_id=organization_id,
             name=payload.name,
             account_status=payload.account_status,
-            is_superuser=payload.is_superuser,
         )
         if row is None:  # pragma: no cover — guarded above; race safety
             raise NotFoundError("User not found.")
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="user.update",
             table_name="users",
             record_id=str(employee_id),
             old_values={
                 "name": current["name"],
                 "account_status": current["account_status"],
-                "is_superuser": current["is_superuser"],
             },
             new_values={
                 "name": row["name"],
                 "account_status": row["account_status"],
-                "is_superuser": row["is_superuser"],
             },
         )
         return UserResponse.model_validate(row)
 
-    async def list_statuses(self, conn: Conn, employee_id: int) -> list[EmployeeStatusResponse]:
-        if await self._repository.get_by_id(conn, employee_id) is None:
-            raise NotFoundError("User not found.")
+    async def list_statuses(
+        self, conn: Conn, *, organization_id: int, employee_id: int
+    ) -> list[EmployeeStatusResponse]:
+        await self._require_org_member(conn, employee_id, organization_id)
         rows = await self._repository.list_statuses(conn, employee_id)
         return [EmployeeStatusResponse.model_validate(row) for row in rows]
 
@@ -124,6 +131,7 @@ class UserService:
         conn: Conn,
         *,
         actor_id: int,
+        organization_id: int,
         employee_id: int,
         payload: EmployeeStatusCreate,
     ) -> EmployeeStatusResponse:
@@ -137,8 +145,7 @@ class UserService:
         ``ended_at`` (transaction-start timestamp) is strictly after its
         ``started_at`` — the schema's date CHECK fits.
         """
-        if await self._repository.get_by_id(conn, employee_id) is None:
-            raise NotFoundError("User not found.")
+        await self._require_org_member(conn, employee_id, organization_id)
         active = await self._repository.get_active_status(conn, employee_id)
         if active is not None and active["status"] == payload.status.value:
             raise ConflictError(f"Employee is already in '{payload.status.value}' status.")
@@ -158,6 +165,7 @@ class UserService:
         await audit_service.log(
             conn,
             actor_id=actor_id,
+            organization_id=organization_id,
             action="user.status.create",
             table_name="employee_status",
             record_id=str(row["status_id"]),
@@ -174,6 +182,19 @@ class UserService:
             },
         )
         return EmployeeStatusResponse.model_validate(row)
+
+    # -- helpers ----------------------------------------------------------
+
+    async def _require_org_member(self, conn: Conn, employee_id: int, organization_id: int) -> Row:
+        """Gate for operations on a user the caller does not share an org with.
+
+        The ``employee_status`` log has no organization column, so the
+        tenant check has to happen here rather than in the SQL.
+        """
+        membership = await self._repository.get_membership(conn, employee_id, organization_id)
+        if membership is None:
+            raise NotFoundError("User not found.")
+        return membership
 
 
 service = UserService()

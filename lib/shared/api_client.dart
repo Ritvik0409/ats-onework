@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -18,7 +19,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///   retries the original request with the new token, and — if the
 ///   refresh fails — clears the token store and fires [onSessionExpired]
 ///   so the app can land the user back on the login screen.
+///
+/// Every request is bounded by [requestTimeout]: a half-open connection
+/// would otherwise leave the calling screen's loading state set forever.
 class ApiClient {
+  /// Upper bound for a single HTTP request.
+  static const Duration requestTimeout = Duration(seconds: 20);
+
   static String get baseUrl {
     const env = String.fromEnvironment(
       'API_BASE_URL',
@@ -49,8 +56,13 @@ class ApiClient {
     return prefs.getInt('organization_id');
   }
 
-  static Future<Map<String, String>> authHeaders({bool json = true}) async {
-    final token = await getToken();
+  static Future<Map<String, String>> authHeaders({
+    bool json = true,
+    bool auth = true,
+  }) async {
+    // An unauthenticated call must not carry a token from a previous
+    // session — it only invites the server to treat it as a bad token.
+    final token = auth ? await getToken() : '';
     final headers = <String, String>{
       if (json) 'Content-Type': 'application/json',
       if (token.isNotEmpty) 'Authorization': 'Bearer $token',
@@ -72,7 +84,8 @@ class ApiClient {
   }) {
     return _withAuth(
       auth,
-      (headers) => http.get(v1(path, query), headers: headers),
+      (headers) =>
+          http.get(v1(path, query), headers: headers).timeout(requestTimeout),
     );
   }
 
@@ -83,23 +96,25 @@ class ApiClient {
   }) {
     return _withAuth(
       auth,
-      (headers) =>
-          http.post(v1(path), headers: headers, body: json.encode(body)),
+      (headers) => http
+          .post(v1(path), headers: headers, body: json.encode(body))
+          .timeout(requestTimeout),
     );
   }
 
   static Future<http.Response> patch(String path, Map<String, dynamic> body) {
     return _withAuth(
       true,
-      (headers) =>
-          http.patch(v1(path), headers: headers, body: json.encode(body)),
+      (headers) => http
+          .patch(v1(path), headers: headers, body: json.encode(body))
+          .timeout(requestTimeout),
     );
   }
 
   static Future<http.Response> delete(String path) {
     return _withAuth(
       true,
-      (headers) => http.delete(v1(path), headers: headers),
+      (headers) => http.delete(v1(path), headers: headers).timeout(requestTimeout),
     );
   }
 
@@ -114,15 +129,18 @@ class ApiClient {
       request.headers.addAll(await authHeaders(json: false));
       request.fields.addAll(fields);
       request.files.addAll(files);
-      return request.send();
+      return request.send().timeout(requestTimeout);
     }
 
     var response = await send();
     if (response.statusCode == 401) {
       // Expired access token — refresh once and re-send (callers still
       // read the final status off the stream).
-      if (await _refreshOnce() == _refreshOk) {
+      final result = await _refreshOnce();
+      if (result == _refreshOk) {
         response = await send();
+      } else if (result == _refreshDead) {
+        await _onSessionDead(null);
       }
     }
     return response;
@@ -132,11 +150,17 @@ class ApiClient {
     bool auth,
     Future<http.Response> Function(Map<String, String> headers) send,
   ) async {
-    final first = await send(await authHeaders());
+    final first = await send(await authHeaders(auth: auth));
     if (!auth || first.statusCode != 401) return first;
 
     // The access token is expired/invalid — refresh once and retry.
-    if (await _refreshOnce() == _refreshOk) {
+    final result = await _refreshOnce();
+    if (result == _refreshOffline) {
+      // The backend is unreachable. That is not a dead session: the user
+      // keeps it, and the next request can try again.
+      return first;
+    }
+    if (result == _refreshOk) {
       final retry = await send(await authHeaders());
       if (retry.statusCode != 401) return retry;
     }
@@ -170,11 +194,13 @@ class ApiClient {
     final refresh = prefs.getString('refresh_token') ?? '';
     if (refresh.isEmpty) return _refreshDead;
     try {
-      final response = await http.post(
-        v1('/auth/refresh'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'refresh_token': refresh}),
-      );
+      final response = await http
+          .post(
+            v1('/auth/refresh'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'refresh_token': refresh}),
+          )
+          .timeout(requestTimeout);
       if (response.statusCode != 200) return _refreshDead;
       final data = json.decode(response.body) as Map<String, dynamic>;
       final access = data['access_token']?.toString() ?? '';
@@ -187,24 +213,38 @@ class ApiClient {
       _sessionExpiredNotified = false;
       return _refreshOk;
     } catch (_) {
-      // Backend unreachable — not a dead session; the caller keeps its
-      // original 401 and the user keeps their session for later retry.
+      // Backend unreachable or slow — not a dead session; the caller keeps
+      // their original 401 and the user keeps their session for later retry.
       return _refreshOffline;
     }
   }
 
   static bool _sessionExpiredNotified = false;
 
-  static Future<http.Response> _onSessionDead(http.Response response) async {
+  /// Set while [signOut] runs, so a 401 during the logout call does not
+  /// push a second login screen on top of the one the caller shows.
+  static bool _signingOut = false;
+
+  static Future<http.Response> _onSessionDead(http.Response? response) async {
     if (!_sessionExpiredNotified) {
       _sessionExpiredNotified = true;
       // The refresh token is dead too — no point revoking server-side;
       // just clear everything locally and let the UI log the user out.
       await clearSession();
-      onSessionExpired?.call();
+      if (!_signingOut) onSessionExpired?.call();
     }
-    return response;
+    return response ?? _deadResponse();
   }
+
+  /// Placeholder response for the multipart path, which has no response
+  /// object to hand back when the session dies.
+  static http.Response _deadResponse() => http.Response(
+        json.encode({
+          'error': {'code': 'unauthorized', 'message': 'Session expired.'}
+        }),
+        401,
+        headers: {'content-type': 'application/json'},
+      );
 
   // -- session lifecycle --------------------------------------------------
 
@@ -228,14 +268,23 @@ class ApiClient {
   static Future<void> signOut() async {
     final prefs = await SharedPreferences.getInstance();
     final refresh = prefs.getString('refresh_token') ?? '';
-    if (refresh.isNotEmpty) {
-      try {
-        await post('/auth/logout', {'refresh_token': refresh});
-      } catch (_) {
-        // Server revoke failed (offline etc.) — clear locally anyway.
+    _signingOut = true;
+    try {
+      if (refresh.isNotEmpty) {
+        try {
+          // The logout endpoint itself needs the access token, so this
+          // call keeps `auth: true`. The sign-out flag below stops a 401
+          // during it from pushing a second login screen on top of the
+          // one the caller is about to show.
+          await post('/auth/logout', {'refresh_token': refresh});
+        } catch (_) {
+          // Server revoke failed (offline etc.) — clear locally anyway.
+        }
       }
+      await clearSession();
+    } finally {
+      _signingOut = false;
     }
-    await clearSession();
   }
 
   /// Clears the local token store without contacting the server.
@@ -247,11 +296,21 @@ class ApiClient {
     await prefs.remove('is_admin');
   }
 
+  /// Called after a successful login, so that a later session expiry is
+  /// reported to the app again — the "already notified" latch is only
+  /// meant to suppress repeated reports within one dead session.
+  static void resetSessionExpiryNotification() {
+    _sessionExpiredNotified = false;
+  }
+
   // -- response helpers ---------------------------------------------------
 
   /// Decode a paged envelope `{items, next_cursor}` into its items list.
+  ///
+  /// A proxy or gateway can answer with HTML instead of JSON; that must
+  /// not throw out of the caller's `try` block.
   static List<dynamic> pageItems(http.Response response) {
-    final decoded = json.decode(response.body);
+    final decoded = _decodeBody(response);
     if (decoded is Map<String, dynamic> && decoded['items'] is List) {
       return decoded['items'] as List<dynamic>;
     }
@@ -260,10 +319,18 @@ class ApiClient {
   }
 
   static String? pageCursor(http.Response response) {
-    final decoded = json.decode(response.body);
+    final decoded = _decodeBody(response);
     if (decoded is Map<String, dynamic>) {
       return decoded['next_cursor']?.toString();
     }
     return null;
+  }
+
+  static Object? _decodeBody(http.Response response) {
+    try {
+      return json.decode(response.body);
+    } catch (_) {
+      return null;
+    }
   }
 }

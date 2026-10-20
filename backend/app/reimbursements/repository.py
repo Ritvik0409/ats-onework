@@ -9,7 +9,7 @@ from app.db.types import Conn, Row
 
 _REIMB_COLUMNS = (
     "reimbursement_id, expense_id, employee_id, organization_id, total_amount, "
-    "payment_reference, status, paid_at, created_at, updated_at"
+    "payment_reference, payment_receipt_url, status, paid_at, created_at, updated_at"
 )
 
 
@@ -123,6 +123,17 @@ class ReimbursementRepository:
                     " updated_at = NOW() WHERE reimbursement_id = %s RETURNING " + _REIMB_COLUMNS,
                     (status.value, payment_reference, reimbursement_id),
                 )
+            return await cur.fetchone()
+
+    async def set_payment_receipt(
+        self, conn: Conn, reimbursement_id: int, *, payment_receipt_url: str
+    ) -> Row | None:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE reimbursements SET payment_receipt_url = %s, updated_at = NOW()"
+                " WHERE reimbursement_id = %s RETURNING " + _REIMB_COLUMNS,
+                (payment_receipt_url, reimbursement_id),
+            )
             return await cur.fetchone()
 
     async def mark_expense_reimbursed(self, conn: Conn, expense_id: int) -> Row | None:

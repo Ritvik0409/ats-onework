@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import io
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 
 from app.api.v1.deps import CurrentUser, get_current_user
+from app.common.object_storage import get_object_storage
 from app.common.pagination import Page
 from app.core.constants import ReimbursementStatus
+from app.core.exceptions import ValidationError
 from app.db.connection import get_connection
 from app.db.types import Conn
+from app.expenses.uploads import verify_upload
 from app.reimbursements.schemas import (
     ReimbursementCreate,
     ReimbursementListItem,
@@ -21,6 +26,8 @@ from app.reimbursements.service import service as reimbursement_service
 
 router = APIRouter(prefix="/reimbursements", tags=["reimbursements"])
 expense_router = APIRouter(prefix="/expenses", tags=["reimbursements"])
+
+_MAX_FILE_BYTES = 5 * 1024 * 1024
 
 
 def _parse_cursor(cursor: str | None) -> int | None:
@@ -73,6 +80,44 @@ async def list_reimbursements(
     )
     next_cursor = str(items[-1].reimbursement_id) if items else None
     return Page[ReimbursementListItem](items=items, next_cursor=next_cursor)
+
+
+@router.post("/{reimbursement_id}/receipt", response_model=ReimbursementResponse)
+async def attach_payment_receipt(
+    reimbursement_id: int,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+    conn: Annotated[Conn, Depends(get_connection)],
+    file: Annotated[UploadFile, File()],
+) -> ReimbursementResponse:
+    """Attach the receipt that proves a payout was made.
+
+    The file's type is taken from its own bytes and the stored extension
+    is chosen server-side, exactly as for an expense receipt.
+    """
+    content = await file.read()
+    if len(content) > _MAX_FILE_BYTES:
+        raise ValidationError(f"File {file.filename} exceeds 5MB.")
+    verified = verify_upload(file.filename, content)
+    storage = get_object_storage()
+    key = f"payment-receipts/{user.organization_id}/{uuid.uuid4().hex}{verified.extension}"
+    url = await storage.upload(
+        key=key,
+        data=io.BytesIO(content),
+        content_type=verified.content_type,
+    )
+    try:
+        return await reimbursement_service.attach_payment_receipt(
+            conn,
+            actor_id=user.employee_id,
+            organization_id=user.organization_id,
+            reimbursement_id=reimbursement_id,
+            payment_receipt_url=url,
+        )
+    except Exception:
+        # The reimbursement was not updated, so the uploaded file would
+        # be an orphan.
+        await storage.delete(key=url)
+        raise
 
 
 @router.post("/{reimbursement_id}/transition", response_model=ReimbursementResponse)

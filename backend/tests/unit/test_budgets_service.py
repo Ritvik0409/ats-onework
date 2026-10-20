@@ -80,7 +80,12 @@ class _RepositoryStub:
         self._next += 1
         return dict(row)
 
-    async def get_by_id(self, _conn: Any, budget_id: int) -> dict[str, Any] | None:
+    async def get_by_id(
+        self,
+        _conn: Any,
+        budget_id: int,
+        organization_id: int,  # noqa: ARG002 - mirrors the repository signature
+    ) -> dict[str, Any] | None:
         row = self.budgets.get(budget_id)
         return dict(row) if row else None
 
@@ -111,6 +116,7 @@ class _RepositoryStub:
         self,
         _conn: Any,
         budget_id: int,
+        organization_id: int,  # noqa: ARG002 - mirrors the repository signature
         *,
         amount: Decimal | None = None,
         start_date: date | None = None,

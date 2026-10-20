@@ -2,10 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import 'employee/employee_login.dart';
-import 'employee/employee_navigation_shell.dart';
+import 'shared/login_screen.dart';
 import 'management/expense_store.dart';
-import 'management/navigation_shell.dart';
+import 'shared/portal_shell.dart';
 import 'shared/api_client.dart';
 import 'shared/json_utils.dart';
 
@@ -50,8 +49,10 @@ Future<String> _resolveInitialRoute() async {
     store.reloadThemePreference();
     await store.primeSessionData();
 
-    if (store.hasManagementAccess) return '/management_shell';
-    return '/employee_shell';
+    // The shell is the same for everyone; the login screen primes the
+    // working set either way. The route choice only matters as an alias
+    // now, but returning the canonical one keeps it tidy.
+    return '/portal_shell';
   } catch (_) {
     // Backend unreachable or corrupt state — fall back to the login
     // screen (the interceptor will offer refresh + retry in-session).
@@ -97,8 +98,12 @@ class MyApp extends StatelessWidget {
       initialRoute: initialRoute,
       routes: {
         '/': (context) => const UniversalLoginScreen(),
-        '/employee_shell': (context) => const EmployeeNavigationShell(),
-        '/management_shell': (context) => const ManagementNavigationShell(),
+        // One portal for everyone — tabs are built from capabilities.
+        // The old route names kept working as aliases; anything that
+        // still pushes them gets the same shell.
+        '/portal_shell': (context) => const PortalShell(),
+        '/employee_shell': (context) => const PortalShell(),
+        '/management_shell': (context) => const PortalShell(),
       },
     );
   }

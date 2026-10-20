@@ -41,7 +41,7 @@ from psycopg.rows import dict_row
 
 from app.core.config import get_settings
 from app.core.security.jwt import create_access_token
-from app.core.security.tokens import hash_token, utc_now_naive
+from app.core.security.tokens import hash_token, ist_now_naive
 from app.db.migrations import apply_migrations
 from app.main import create_app
 
@@ -156,7 +156,20 @@ def test_database() -> Iterator[str]:
 @pytest_asyncio.fixture
 async def db_connection(test_database: str) -> AsyncIterator[AsyncConnection[dict]]:
     """Raw async connection to the throwaway test database."""
-    async with await AsyncConnection.connect(test_database, row_factory=dict_row) as conn:
+    # Timezone pinned to match the pool (Settings.db_timezone): tests
+    # write naive wall-clock values through this connection and compare
+    # them against CURRENT_TIMESTAMP through the app's pooled ones, so
+    # both must read the same clock.
+    async with await AsyncConnection.connect(
+        test_database,
+        row_factory=dict_row,
+        options=f"-c TimeZone={get_settings().db_timezone}",
+    ) as conn:
+        # The sign-in endpoints are rate limited, and every request in
+        # this suite arrives from the same address, so the counters are
+        # cleared for each test that uses a connection.
+        await conn.execute("DELETE FROM rate_limit_buckets")
+        await conn.commit()
         yield conn
 
 
@@ -258,7 +271,8 @@ async def truncate_all(conn: AsyncConnection[dict]) -> None:
                 expenses, project_members, project_categories, projects,
                 categories, budgets, authentication_tokens, membership_roles,
                 user_permissions, role_permissions, permissions, roles,
-                memberships, employee_status, users, organizations
+                memberships, employee_status, users, organizations,
+                rate_limit_buckets
             RESTART IDENTITY CASCADE
             """,
         )
@@ -280,4 +294,4 @@ def token_hash_fixture(token: str) -> str:
 
 
 def now_naive_fixture():
-    return utc_now_naive()
+    return ist_now_naive()

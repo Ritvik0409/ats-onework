@@ -263,7 +263,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                               border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2), width: 1),
                               boxShadow: cardShadows,
                             ),
-                            child: ListTile(
+                            child: Material(
+                              color: darkCharcoal,
+                              child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                               leading: CircleAvatar(
                                 radius: 24,
@@ -327,6 +329,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                                   MaterialPageRoute(builder: (context) => ExpenseDetailsScreen(expenseId: expense.id)),
                                 );
                               },
+                            ),
                             ),
                           );
                         }),

@@ -82,7 +82,7 @@ class ProjectService:
         if org_id is None:
             raise NotFoundError("Project not found.")
         await self._require_admin(conn, actor_id, org_id)
-        current = await self._repository.get_by_id(conn, project_id)
+        current = await self._repository.get_by_id(conn, project_id, org_id)
         if current is None:
             raise NotFoundError("Project not found.")
         start = payload.start_date if payload.start_date is not None else current["start_date"]
@@ -93,6 +93,7 @@ class ProjectService:
         row = await self._repository.update(
             conn,
             project_id,
+            org_id,
             name=payload.name,
             description=payload.description,
             is_active=payload.is_active,
@@ -138,7 +139,11 @@ class ProjectService:
         org_id = await self._resolve_org(conn, project_id)
         await self._require_member(conn, employee_id, org_id)
         rows = await self._repository.list_members(
-            conn, project_id, before_id=before_id, limit=limit
+            conn,
+            project_id,
+            organization_id=org_id,
+            before_id=before_id,
+            limit=limit,
         )
         return [ProjectMemberListItem.model_validate(r) for r in rows]
 
@@ -166,7 +171,7 @@ class ProjectService:
                 )
             role_id = int(role["role_id"])
         else:
-            role = await self._repository.get_role(conn, role_id)
+            role = await self._repository.get_role(conn, role_id, org_id)
             if role is None or int(role["organization_id"]) != org_id:
                 raise NotFoundError("Role not found.")
         async with transaction(conn):

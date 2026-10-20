@@ -1,20 +1,24 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/shared/session_store.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
 import 'package:ats_onework/shared/json_utils.dart';
 
+/// The app's single sign-in page — the `/` route.
+///
+/// There is no second "management" login page: management accounts sign
+/// in here too and land in the management portal, because the routing
+/// decision below reads the capabilities the server reports, not which
+/// screen was used. (A management_portal variant did exist, but nothing
+/// ever routed to it and it began to drift — it is gone.)
 class UniversalLoginScreen extends StatefulWidget {
   const UniversalLoginScreen({super.key});
 
   @override
   State<UniversalLoginScreen> createState() => _UniversalLoginScreenState();
 }
-
-// Alias to maintain compatibility across existing imports
-typedef EmployeeLoginScreen = UniversalLoginScreen;
 
 class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -35,28 +39,6 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
     _idController.dispose();
     _passwordController.dispose();
     super.dispose();
-  }
-
-  /// Which portal a role belongs in.
-  ///
-  /// The capabilities are the authority; the role name is the fallback
-  /// for when they could not be read.
-  String _getRouteForRole(String role) {
-    switch (role.toLowerCase()) {
-      case 'employee':
-        return '/employee_shell';
-      case 'hr':
-      case 'hr manager':
-      case 'finance':
-      case 'finance officer':
-      case 'admin':
-      case 'administrator':
-      case 'manager':
-      case 'director':
-        return '/management_shell';
-      default:
-        return '/employee_shell';
-    }
   }
 
   Future<void> _handleLogin() async {
@@ -89,9 +71,11 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         final refreshToken = tokenData['refresh_token']?.toString() ?? '';
         final orgs = (tokenData['organizations'] as List?) ?? [];
 
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('auth_token', token);
-        await prefs.setString('refresh_token', refreshToken);
+        // The tokens go into the platform's secure storage; the
+        // organization and the admin flag are not secrets, so they stay
+        // in the preferences.
+        await SessionStore.writeToken(token);
+        await SessionStore.writeRefreshToken(refreshToken);
 
         int? orgId;
         bool isAdmin = false;
@@ -104,11 +88,11 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         // stale organization_id or is_admin sent the next user to the
         // wrong organization, or into the management portal.
         if (orgId != null) {
-          await prefs.setInt('organization_id', orgId);
+          await SessionStore.writeOrganizationId(orgId);
         } else {
-          await prefs.remove('organization_id');
+          await SessionStore.deleteOrganizationId();
         }
-        await prefs.setBool('is_admin', isAdmin);
+        await SessionStore.writeIsAdmin(isAdmin);
         ApiClient.resetSessionExpiryNotification();
 
         // Resolve profile via GET /users/me (TokenPair carries no name/email).
@@ -150,67 +134,22 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         ExpenseStore.instance.currentManagerName = userName;
         ExpenseStore.instance.currentManagerEmail = userEmail;
 
-        // Fetch projects for the active org: GET /organizations/{id}/projects (paged).
-        try {
-          if (orgId != null) {
-            final projectsResponse = await ApiClient.get(
-              '/organizations/$orgId/projects',
-              query: {'limit': '100'},
-            );
-
-            if (projectsResponse.statusCode == 200) {
-              final projectsJson = ApiClient.pageItems(projectsResponse);
-              ExpenseStore.instance.setProjects(projectsJson
-                  .map((data) => ProjectRecord.fromJson(data as Map<String, dynamic>))
-                  .toList());
-            } else {
-              debugPrint('Failed to load projects: ${projectsResponse.statusCode}');
-            }
-          }
-        } catch (e) {
-          debugPrint('Network error fetching projects: $e');
-        }
+        // Prime the signed-in user's working set through the store —
+        // expenses, projects, request queues, directory, expense types
+        // and notifications. The screen used to inline-fetch just the
+        // project list and hand it to setProjects, which bypassed the
+        // store's fetch helpers — so expensesLoaded and projectsLoaded
+        // stayed false at fresh sign-in and the My Requests / Projects
+        // screens spun forever (and "my expenses" read as empty until
+        // the next session resume).
+        await ExpenseStore.instance.primeSessionData();
 
         if (!mounted) return;
 
-        // A user who holds a management capability belongs in the
-        // management portal, whichever sign-in screen they used.
-        if (ExpenseStore.instance.hasManagementAccess) {
-          Navigator.pushReplacementNamed(context, '/management_shell');
-          return;
-        }
-
-        // The capabilities could not be read — fall back to the role.
-        if (ExpenseStore.instance.grantedPermissions.isEmpty) {
-          Navigator.pushReplacementNamed(
-            context,
-            _getRouteForRole(ExpenseStore.instance.currentUserRole),
-          );
-          return;
-        }
-
-        final isAssigned = ExpenseStore.instance.isEmployeeAssignedToAnyProject(empId) ||
-            ExpenseStore.instance.isEmployeeAssignedToAnyProject(userEmail);
-
-        if (isAssigned) {
-          Navigator.pushReplacementNamed(context, '/employee_shell');
-          return;
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Logged in as ${ExpenseStore.instance.currentUserRole} ($empId)',
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            backgroundColor: _goldColor,
-          ),
-        );
-
-        Navigator.pushReplacementNamed(context, '/employee_shell');
+        // One portal, tab set built from the capabilities this profile
+        // carried. The grantedPermissions fallback lands in the same
+        // shell (its tabs just stay empty until the server answers).
+        Navigator.pushReplacementNamed(context, '/portal_shell');
 
       } else if (response.statusCode == 401 || response.statusCode == 404) {
         if (!mounted) return;

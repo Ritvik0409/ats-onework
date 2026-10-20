@@ -86,11 +86,13 @@ class BudgetRepository:
             assert row is not None
             return row
 
-    async def get_by_id(self, conn: Conn, budget_id: int) -> Row | None:
+    async def get_by_id(self, conn: Conn, budget_id: int, organization_id: int) -> Row | None:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT " + _BUDGET_SELECT + " FROM budgets b WHERE b.budget_id = %s",
-                (budget_id,),
+                "SELECT "
+                + _BUDGET_SELECT
+                + " FROM budgets b WHERE b.budget_id = %s AND b.organization_id = %s",
+                (budget_id, organization_id),
             )
             return await cur.fetchone()
 
@@ -146,6 +148,7 @@ class BudgetRepository:
         self,
         conn: Conn,
         budget_id: int,
+        organization_id: int,
         *,
         amount: Decimal | None = None,
         start_date: date | None = None,
@@ -163,14 +166,14 @@ class BudgetRepository:
             assignments.append("end_date = %s")
             params.append(end_date)
         if not assignments:
-            return await self.get_by_id(conn, budget_id)
+            return await self.get_by_id(conn, budget_id, organization_id)
         params.append(budget_id)
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE budgets SET "
                 + ", ".join(assignments)
-                + " WHERE budget_id = %s RETURNING "
+                + " WHERE budget_id = %s AND organization_id = %s RETURNING "
                 + _BUDGET_SELECT_NAMED,
-                tuple(params),
+                tuple([*params, organization_id]),
             )
             return await cur.fetchone()

@@ -65,8 +65,9 @@ connection pool would never connect. On Linux/macOS either works.
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest -m "not integration"   # 106 unit + contract tests (no DB needed)
-uv run pytest -m integration         # 11 integration tests (needs DB creds in .env)
+uv run pytest                      # 222 tests
+uv run pytest -m "not integration" # 156 unit + contract tests (no DB needed)
+uv run pytest -m integration       # 66 integration tests (needs DB creds in .env)
 ```
 
 Integration tests auto-provision a throwaway `<DB_NAME>_test` database on

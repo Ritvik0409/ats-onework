@@ -1,213 +1,154 @@
-# ATS Backend Migration — TODO Checklist
+# ATS OneWork — current state and what is left
 
-> Companion to `plan.md`. Work top-to-bottom; each phase gates the next.
-> All commands run with **uv** from `backend/`.
+> The backend migration from Firebase to FastAPI and PostgreSQL is
+> finished. This file records what the system is now, what is verified,
+> and what is genuinely outstanding. The design lives in
+> [`ATS_BACKEND_ARCHITECTURE.md`](ATS_BACKEND_ARCHITECTURE.md); the
+> original migration plan is kept in [`plan.md`](plan.md) for the record.
 
 ---
 
-## Phase 0 — Tooling & Environment
+## What is built
 
-- [x] Install uv: **0.12.15** verified (latest)
-- [x] Verify Python 3.13 available: **3.13.14** installed via uv
-- [x] Create `backend/` directory layout (14 packages with `__init__.py`)
-- [x] `docker-compose.yml` — Postgres 16 (volume, healthcheck, port 5432)
-- [x] Update root `.gitignore`: `backend/.venv/`, `.env`, `__pycache__/`, `backend/uploads/`, `.ruff_cache/`, `.pytest_cache/`
-- [x] `backend/migrations/0001_initial.sql` = `schema.sql` verbatim (verified byte-identical via `fc /b`)
-- [x] `backend/scripts/migrate.py` (ordered SQL runner, dollar-quote-aware splitter, `schema_migrations` tracking) + `seed.py` (Org A + Org B, Argon2id-hashed dev passwords, idempotent) — syntax-checked on 3.13; runtime verification happens in Phase 3 once deps are installed
+### The API — `backend/`
 
-## Phase 1 — Project Scaffolding (uv)
+Strictly layered: **router → service → repository**. Routers parse and
+delegate, services hold the rules, repositories own the SQL, and the
+database enforces the boundaries that must hold whatever the application
+does.
 
-- [x] `pyproject.toml` — project metadata, `requires-python = ">=3.13"` (+ `.python-version` pinned to 3.13)
-- [x] Runtime deps (pinned): `fastapi==0.141.1`, `uvicorn[standard]==0.53.0`,
-      `psycopg[binary,pool]==3.3.5`, `pydantic==2.13.5`, `pydantic-settings==2.15.0`,
-      `PyJWT==2.14.0`, `pwdlib[argon2]==0.3.1` (Argon2id), `python-multipart==0.0.32`, `email-validator==2.3.0`
-- [x] Dev deps (`[dependency-groups] dev`): `pytest==9.1.1`, `httpx==0.28.1`, `ruff==0.16.8`
-- [x] Ruff config (line-length 100, target py313, `E,F,I,B,UP,SIM,ARG,RUF` — §30)
-- [x] Pytest config (`testpaths=tests`, `-q`, `integration` marker)
-- [x] `uv lock` (44 packages resolved) + `uv sync` (42 installed) on **CPython 3.13.14**; `uv.lock` created — commit it
-- [x] Functional smoke test: Argon2id hash/verify, JWT round-trip, `AsyncConnectionPool` import, Pydantic v2 model + BaseSettings — all green
-- [x] `.env.example` (DATABASE_URL, DB_POOL_*, JWT_SECRET/ALGORITHM/EXPIRE, CORS_ORIGINS, S3_* placeholders — §40)
-- [x] `backend/README.md` (prereqs, setup, migrate, seed, run, test, conventions)
+| Domain | What it does |
+|---|---|
+| `auth` | register, sign in, refresh with rotation and replay detection, sign out, switch organization, change your own password |
+| `users` | profiles, the member directory, the working-status log |
+| `organizations` | organizations, memberships, roles, budgets, projects, expense types |
+| `expenses` | submit, review (approve / reject / request information), resubmit, receipts, reimbursements |
+| `reimbursements` | the payout lifecycle, and the receipt of the payment |
+| `projects` | projects, their members, access requests |
+| `access` | the capability catalogue, an organization's roles and their grants, and who holds what |
+| `notifications` | per-user notifications, and the dispatch hook |
+| `audit_logs` | the audit trail, scoped to an organization |
 
-## Phase 2 — Core Infrastructure
+### The access model
 
-- [x] `app/core/config.py` — pydantic-settings, cached `get_settings()`
-      (DATABASE_URL, JWT_SECRET, JWT_ALGORITHM, JWT_*_EXPIRE, CORS_ORIGINS,
-      S3_* placeholders, ENVIRONMENT, LOG_LEVEL — §40)
-- [x] `app/core/constants.py` — StrEnums mirroring every CHECK constraint
-      (ExpenseStatus [incl. `reimbursed` per schema], AccountStatus
-      [`users.status`], ReimbursementStatus, TokenPurpose,
-      EmployeeStatus [service-layer lifecycle], ApprovalAction) + status
-      transition maps incl. `failed → processing` retry (§36)
-- [x] `app/core/exceptions.py` — AppException tree (AuthenticationError,
-      AuthorizationError, NotFoundError, ConflictError, ValidationError,
-      TransientError→503) + global handlers → error envelope (§22);
-      `to_app_exception` psycopg3 mapping incl. constraint-specific 409s (§50)
-- [x] `app/core/security/passwords.py` — pwdlib[argon2]; async
-      `hash_password`/`verify_password`/`verify_and_update_password`
-      via `asyncio.to_thread` (argon2 verify true/false §48)
-- [x] `app/core/security/jwt.py` — PyJWT, explicit alg allow-list (HS256),
-      claims `sub`/`org`/`admin`/`exp`/`iat` (ADR-001, §51) —
-      verified round-trip `sub=7, org=3, admin=True`
-- [x] `app/core/security/tokens.py` — `secrets.token_urlsafe` generation,
-      SHA-256 hashing (64-hex), expiry checks, expired-token cleanup helper
-      (§14) — verified hash length + refresh expiry
-- [x] `app/core/logging.py` — structured logging (request_id, employee_id,
-      organization_id, duration_ms) + request-ID middleware; never-log list
-      (§23) — verified (no `redact` helper in this codebase; exclusion is by
-      review per module docstring — follow-up: consider a `redact()` helper)
-- [x] `app/db/pool.py` — `AsyncConnectionPool` (min/max from settings,
-      `row_factory=dict_row`, `open=False` → opened in lifespan, closed on
-      shutdown) — verified pool settings (min=2, max=10 from `.env.example`
-      defaults)
-- [x] `app/db/connection.py` — verified: yields from `pool.connection()`
-      (commit on clean exit, rollback on exception); `transaction()` helper in
-      `transaction.py` scopes multi-write workflows explicitly
-- [x] `app/db/transaction.py` + `app/db/types.py` (`Conn = AsyncConnection[dict]`,
-      `Row = dict`; dict_row decision documented)
-- [x] `app/common/` — `pagination.py` (cursor + offset, `Page[T]` — verified
-      success models returned directly — no data envelope), `permissions.py`
-      (verified: `RequirePermission` factory, database-backed evaluation with
-      an admin bypass), `utils.py` (verified: `utc_now`, `slugify`)
-- [x] `app/main.py` — verified: `create_app()` factory, CORS middleware,
-      `/health`, `/ready` (§24) — verified factory constructs; health router
-      exposes both routes (app-level list shows `_IncludedRouter` because
-      FastAPI expands `include_router` at startup/request time)
-- [x] Phase 2 quality gates — `ruff check .`: All checks passed;
-      `ruff format --check .`: 37 files already formatted;
-      `pytest`: no tests ran (expected — tests land in Phase 3);
-      `create_app()` factory constructs (verified); exception mapping
-      (`to_app_exception`: UniqueViolation→409, FK→400, Check→422),
-      Argon2id hash/verify, JWT create/decode, tokens, pagination cursor
-      round-trip — all verified live
-- [ ] Boot check (Phase 3 DB needed): `uvicorn app.main:app` boots;
-      `/health`→200; `/ready` pings DB after `migrate`+`seed`
+Three separate things, all in the database:
 
-## Phase 3 — Shared Plumbing & Fixtures (before any domain module)
+- a **capability** belongs to an organization;
+- a **role** belongs to an organization and grants capabilities;
+- a **membership** holds roles, and may hold capabilities of its own.
 
-- [x] `app/api/v1/deps.py` — `require_membership` (DB-backed auth context
-      rebuild; 401 no-membership) + `require_admin`; `RequirePermission`
-      factory in `app/common/permissions.py` (§10)
-- [ ] Verify `scripts/migrate.py`: fresh DB → `0001_initial.sql` applies cleanly;
-      `scripts/seed.py` seeds Org A + Org B users (deterministic, no secrets)
-- [x] `app/common/object_storage.py` — `ObjectStorage` interface + local-disk
-      dev implementation (S3/MinIO swap later, §15)
-- [x] `app/common/audit.py` — `AuditService.log` DRY helper (§37)
-- [x] `app/notifications/` feature module — DB-backed notification creation
-      (`schemas`/`repository`/`service`) + `BackgroundTasks` dispatch hook
-      (`dispatch.py`, §38)
-- [x] `tests/conftest.py` fixtures FIRST (§29): `db_connection`, `seeded_orgs`
-      `test_client`, `admin_token`/`member_token`/`other_org_admin_token`
-      (Org A/B tenant-isolation layout), `truncate_all` helper —
-      integration fixtures skip cleanly when `TEST_DATABASE_URL` is unset
-- [x] Phase 3 quality gates — `ruff check .`: All checks passed;
-      `ruff format --check .`: 44 files already formatted;
-      `pytest -m "not integration"`: no tests ran (expected — first DB tests
-      land in Phase 4); all Phase 3 modules import cleanly
-- [ ] Docker/Postgres pending (daemon unreachable from this shell —
-      `docker ps` fails on `dockerDesktopLinuxEngine` pipe): start Docker
-      Desktop, then `docker compose up -d --wait`, `migrate.py`, `seed.py`,
-      `uvicorn app.main:app` boot + `/health`→200 + `/ready` DB ping
+An employee holds `expense.read_own` and not `expense.read_all`, so
+they see their own expenses and nothing else. A manager, finance user,
+director or HR user holds `expense.read_all` and sees the organization.
+The scope is decided by the server, on every request, so a grant that
+is withdrawn applies at once.
 
-## Phase 4 — Feature Modules (each: router + schemas + repository + service)
+A **super administrator** (`users.is_superuser`) administers the
+capability catalogue and any organization's access. That is separate
+from an organization's `is_admin`, which means "owns this
+organization" — a different thing from "reviews expenses".
 
-> Order matters: **auth is the reference implementation** — everything else
-> copies its shape. Every endpoint is implemented row-by-row against the
-> **§49 contract table** in `ATS_BACKEND_ARCHITECTURE.md` (method, path, auth,
-> request model, success code, error codes). All code is async (§48).
+### The app — `lib/`
 
-### 4.1 auth/ (reference module)
-- [x] `schemas.py`: UserCreate, LoginRequest, TokenPair, RefreshRequest,
-      OrganizationSwitchRequest, UserResponse
-- [x] `repository.py`: user lookup by email, insert, token insert/revoke
-      (hashed, expiry-checked), update `last_login_at`
-- [x] `service.py`: register (Argon2id), login (verify + issue pair + org list),
-      refresh (rotation — old token invalidated), logout (revoke),
-      switch-organization (ADR-001: server-side membership re-validation)
-- [x] `router.py`: `POST /auth/register|login|refresh|logout|switch-organization`
-- [x] Tests: happy path, wrong password → 401, suspended/locked → 403,
-      expired/unknown refresh → 401, rotation invalidates old token,
-      switch to non-member org → 403
-      (verified: `tests/unit/test_auth_service.py` + `tests/api/test_api_contract.py`
-      + `tests/integration/test_tenant_isolation.py`; `ruff check` clean)
+Two portals. Which one a person gets, and what they can do inside it,
+is decided by the capabilities the server reports for them, not by a
+flag in the app.
 
-### 4.2 users/
-- [x] `schemas.py`: UserResponse (never exposes password_hash), UserListItem,
-      UserUpdate, EmployeeStatusCreate/Response
-- [x] Endpoints (§49 #8–12): `GET /users/me`, `GET /users` (admin),
-      `PATCH /users/{id}` (admin), employee-status log GET/POST
-      (single-active constraint → 409 on conflict)
-- [x] Tests: field-exposure audit (no sensitive fields), non-admin → 403,
-      active-status conflict → 409
-      (verified: `tests/unit/test_users_organizations_service.py` + contract tests;
-      admin gate is router-level `require_admin`, existence/409 are service-level)
+---
 
-### 4.3 organizations/ (+ memberships + roles)
-- [x] Create org (creator becomes admin member), list own, get (member),
-      patch (admin) — §49 #13–20
-- [x] Members: add/remove with admin guard + last-admin guard → 409;
-      roles CRUD (org-scoped, `UNIQUE(name, organization_id)` → 409)
-- [x] Tenant scoping: `WHERE organization_id = %s` in every query (§8)
-      (path-org membership enforced in service: non-member → 404, member-non-admin → 403)
-- [x] Tests: cross-org access → 404, non-admin → 403, duplicate slug → 409
-      (verified: unit + contract + integration tests; `ruff check` /
-      `ruff format --check` clean; `pytest -m "not integration"`: 59 passed;
-      `-m integration` deselected — needs live Postgres + `TEST_DATABASE_URL`)
+## What is verified
 
-### 4.4 projects/ (projects, budgets, expense types)
-- [ ] Schemas + CRUD for budgets/projects/expense types (admin), member list
-- [ ] Cross-tenant write attempts rejected in service + DB constraint backstop (§9)
-- [ ] Tests: cross-tenant access → 404, uniqueness → 409
+| | |
+|---|---|
+| **241 tests** | `uv run pytest` — unit, API-contract and integration |
+| **66 integration tests** | against a real PostgreSQL, created and dropped for the run |
+| **Lint** | `uv run ruff check .` and `uv run ruff format --check .` — clean |
+| **Analysis** | `flutter analyze` — clean |
 
-### 4.5 expenses/ (expenses + media + approvals)
-- [ ] `schemas.py`: ExpenseCreate, ExpenseResponse, ExpenseListItem,
-      ApprovalActionRequest, MediaResponse
-- [ ] Submit (§49 #27): validate project/expense-type org consistency
-      (mirrors DB trigger, §9), store receipts via `ObjectStorage`,
-      insert expense + media rows in ONE transaction, notify (BackgroundTasks)
-- [ ] Approve/reject (§49 #31–32): `FOR UPDATE` lock, transition map (§36),
-      approval row, audit log, notification — one service transaction (§7)
-- [ ] Router: `POST /expenses` (multipart), `GET /expenses` (cursor pagination +
-      status/date filters), `GET /expenses/{id}`, `GET /approvals/pending`,
-      `POST /expenses/{id}/approve|reject`
-- [ ] Tests: submit 201 with files, cross-tenant ids → 404/422, approve flow →
-      status change + notification + audit row, reject without comments → 422,
-      double-action → 409, non-admin → 403
+The integration tests cover the things that only a real database shows:
+that one organization cannot reach another's roster, that a
+cross-organization reimbursement is refused by the database itself,
+that an expense's status machine is enforced even by raw SQL, that an
+employee sees one expense where an administrator sees two, and that a
+grant that is withdrawn takes effect on the next request.
 
-### 4.6 reimbursements/
-- [ ] Lifecycle `pending → processing → paid/failed` via transition map;
-      `paid` requires `payment_reference` and sets `paid_at` (service +
-      DB CHECK `chk_paid_at` backstop) — §49 #33–35
-- [ ] `POST /expenses/{id}/reimbursement` (UNIQUE expense_id → 409),
-      `POST /reimbursements/{id}/transition`, `GET /reimbursements`
-- [ ] Triple org-consistency enforced (expense = employee = reimbursement org, §9)
-- [ ] Tests: invalid transition → 409, paid without reference → 422,
-      cross-tenant → 404
+`tests/unit/test_tenant_filter_discipline.py` reads the repositories
+and fails the build when a query on organization data does not scope
+itself by tenant — the check that keeps the boundary a fact rather than
+a convention.
 
-### 4.7 notifications/ + audit logs (read side)
-- [ ] `GET /notifications` (cursor-paginated), `POST /notifications/{id}/read`
-      (owner), `POST /notifications/read-all`, `GET /audit-logs` (admin)
+---
 
-## Phase 5 — Quality Gates (Definition of Done, arch. doc §44)
+## What is outstanding
 
-- [ ] **Mandatory tenant-isolation suite (§27)**: Org A vs Org B — read, modify,
-      approve, assign roles, reimbursements, notifications across all endpoints
-- [ ] **DB integration tests (§28)**: FKs, unique, partial unique, CHECKs,
-      triggers, transaction rollback, concurrent update behavior
-- [ ] **API contract tests** vs §49 table (status codes + response models)
-- [ ] Unit tests for services/security/pagination (§26)
-- [ ] `uv run ruff check .` + `uv run ruff format --check .` — clean
-- [ ] `uv run pytest` — full suite green
-- [ ] No sensitive data in logs (§23 never-log list audit)
-- [ ] Manual E2E: `docker compose up -d` → `scripts/migrate.py` → `seed.py`
-      → boot server → Swagger walk-through: register → login → submit expense
-      → approve → reimburse
+Ordered by how much it would be worth doing.
 
-## Phase 6 — Wrap-up
+### 1. Email verification
 
-- [ ] Update root `README.md` with backend section (architecture pointer →
-      `ATS_BACKEND_ARCHITECTURE.md`)
-- [ ] Architecture doc updated if any new pattern was introduced (§42.20)
-- [ ] Final review: no secrets in code, `uv.lock` committed, `.env` ignored
-- [ ] PR-ready summary
+`users` has no `email_verified` column, so `/auth/register` creates a
+loginable account immediately. Anyone can register with someone else's
+address and take it. The fix needs a verification token, a resend
+endpoint, an expiry, and a screen in the app.
 
+It is blocked on a decision: **which mail provider**. The repository
+has no SMTP or SendGrid configuration, so the choice has not been made.
+The flow can be built now with a provider interface whose default
+implementation logs the link, and the real sender dropped in later.
+
+### 2. An audit-log screen
+
+`GET /audit-logs` is implemented, tested and tenant-scoped. No screen
+in the app calls it, so the audit trail is invisible to the people who
+would read it.
+
+### 3. Row-level security in the database
+
+The application scopes every query to one organization, and a test
+(`tests/unit/test_tenant_filter_discipline.py`) fails the build when a
+query on organization data does not. But the database itself has no
+row-level security: a connection with the wrong `organization_id` set
+would still read across organizations.
+
+This is defence in depth rather than a live hole, and it becomes worth
+doing if the database ever grows a second consumer — a reporting view, a
+business-intelligence tool, an administrative script.
+
+What it would take, for whoever picks it up: the application would run
+as a role that does not own the tables, every request would set the
+tenant context, and the organization-owned tables would carry a policy.
+The good news is that it does **not** need a second set of credentials:
+`SET LOCAL ROLE` to a non-owner role activates the policies, so the
+migrations and the seed keep their access. The cost is a moving part on
+every request, and a failure mode of "returns nothing" rather than
+"returns too much" — safe, but worth understanding before it goes in.
+
+### 4. A backup and restore routine
+
+Nothing automates a backup of the database or of the uploaded
+receipts. The object storage abstraction is in place (§15), so the
+uploaded files could be moved to S3 or MinIO without touching the
+application, but no routine moves them.
+
+### 5. Deprecating the employee-id sign-in
+
+`POST /auth/login` accepts a bare employee id as well as an email
+address, for a flow that no client uses any more. The email path is
+the one that should survive.
+
+### 6. Multi-organization accounts on the client
+
+The API supports a person belonging to several organizations, and
+`POST /auth/switch-organization` moves between them. The app signs
+into one and stays there. A person with two memberships has to sign
+out and back in to use the other.
+
+---
+
+## Things that were deliberately left alone
+
+- **The `categories` and `project_categories` tables** are unused. The
+  schema has them; the application does not, and no endpoint exposes
+  them. They can be dropped in a migration when there is certainty
+  nobody wants them.
+- **`EMPLOYEE_ID`-style logins** (see 7 above).
+- **Email verification** (see 1 above).

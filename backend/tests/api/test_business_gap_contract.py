@@ -140,6 +140,20 @@ def _make_client(monkeypatch: pytest.MonkeyPatch, user: CurrentUser) -> AsyncCli
         return _AllGranted()
 
     monkeypatch.setattr(permissions_module, "granted_permissions", _all_granted)
+
+    # The path guards also prove membership in the path organization.
+    # These tests are about the HTTP contract, not about tenancy, so the
+    # membership check is stubbed out.
+    async def _member_of_any_org(
+        _conn: Any,
+        *,
+        employee_id: int,  # noqa: ARG001
+        organization_id: int,  # noqa: ARG001
+        is_superuser: bool = False,  # noqa: ARG001
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(permissions_module, "require_path_membership", _member_of_any_org)
     app.dependency_overrides[deps_module.require_membership] = lambda: user
     app.dependency_overrides[deps_module.require_admin] = lambda: user
 

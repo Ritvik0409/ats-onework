@@ -1,228 +1,18 @@
+// Finance hub screens - pending payouts ("To Pay") and settled
+// reimbursements ("Paid"), plus their time-filtered report screens.
+// Split out of the old management-only navigation shell when the two
+// portals merged into the single capability-driven portal shell.
+
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/access_management_screen.dart';
-import 'package:ats_onework/management/manager_dashboard.dart';
-import 'package:ats_onework/management/director_dashboard.dart';
-import 'package:ats_onework/management/finance_dashboard.dart';
-import 'package:ats_onework/management/manager_requests_screen.dart';
-import 'package:ats_onework/management/manager_profile.dart';
-import 'package:ats_onework/management/budget_allocation_screen.dart';
-import 'package:ats_onework/management/employee_management_screen.dart';
-import 'package:ats_onework/management/expense_details.dart';
-import 'package:ats_onework/management/expense_store.dart';
+
 import 'package:ats_onework/management/download_stub.dart'
     if (dart.library.html) 'package:ats_onework/management/download_web.dart';
-import 'package:ats_onework/management/management_projects_screen.dart';
-import 'package:ats_onework/employee/add_expense_screen.dart';
-import 'package:ats_onework/shared/ats_logo.dart'; // NEW: Added logo import
+import 'package:ats_onework/management/expense_details.dart';
+import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/load_more.dart';
 
-class ManagementNavigationShell extends StatefulWidget {
-  const ManagementNavigationShell({super.key});
-
-  @override
-  State<ManagementNavigationShell> createState() => _ManagementNavigationShellState();
-}
-
-class _ManagementNavigationShellState extends State<ManagementNavigationShell> {
-  int _selectedIndex = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
-
-    return AnimatedBuilder(
-      animation: store,
-      builder: (context, _) {
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final champagneGold = store.accentGold;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
-
-        final String currentRole = store.currentUserRole;
-
-        // The navigation is built from what the server says the user
-        // may do, not from the name of a role. A person who holds
-        // `reimbursement.transition` gets the payout screens; a person
-        // who holds `expense.approve` gets the review queue. The role
-        // only chooses which dashboard to open first.
-        final bool canApprove = store.canApproveExpenses;
-        final bool canPay = store.canPayReimbursements;
-        final bool canSubmit = store.can('expense.create');
-        final bool canReadProjects = store.can('project.read');
-        final bool canSeePaid = store.can('reimbursement.read_all') ||
-            store.can('reimbursement.read_own');
-        final bool canManageAccess = store.canManageAccess;
-        final bool isDirector = currentRole == 'director';
-        final bool isFinance = currentRole == 'finance';
-        final bool isHR = currentRole == 'hr';
-
-        List<Widget> screens;
-        List<BottomNavigationBarItem> navItems;
-
-        // Explicit Role-Based Navigation Routing to prevent index mismatch offsets
-        if (isFinance && canPay) {
-          screens = [
-            const FinanceDashboard(),
-            const FinanceToPayScreen(),
-            const PaidReimbursementsScreen(),
-            const ManagerProfileScreen(),
-          ];
-          navItems = const [
-            BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-            BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet_rounded), label: 'To Pay'),
-            BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
-            BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
-          ];
-        } else if (isDirector) {
-          screens = [
-            const DirectorDashboard(),
-            if (canApprove) const ManagerRequestsScreen(),
-            if (canSubmit) const AddExpenseScreen(),
-            if (canReadProjects) const ManagementProjectsScreen(),
-            if (canSeePaid) const PaidReimbursementsScreen(),
-            const ManagerProfileScreen(),
-          ];
-          navItems = [
-            const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-            if (canApprove)
-              const BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
-            if (canSubmit)
-              const BottomNavigationBarItem(
-                  icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
-            if (canReadProjects)
-              const BottomNavigationBarItem(
-                  icon: Icon(Icons.business_center_rounded), label: 'Projects'),
-            if (canSeePaid)
-              const BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
-            const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
-          ];
-        } else {
-          // A manager — or anyone else who reviews expenses.
-          screens = [
-            const ManagerDashboardScreen(),
-            if (canApprove) const ManagerRequestsScreen(),
-            if (canSubmit) const AddExpenseScreen(),
-            if (canReadProjects) const ManagementProjectsScreen(),
-            if (canManageAccess) const AccessManagementScreen(),
-            const ManagerProfileScreen(),
-          ];
-          navItems = [
-            const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-            if (canApprove)
-              const BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Requests'),
-            if (canSubmit)
-              const BottomNavigationBarItem(
-                  icon: Icon(Icons.add_circle_outline_rounded), label: 'Upload'),
-            if (canReadProjects)
-              const BottomNavigationBarItem(
-                  icon: Icon(Icons.business_center_rounded), label: 'Projects'),
-            if (canManageAccess)
-              const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings_rounded), label: 'Access'),
-            const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
-          ];
-        }
-
-        if (_selectedIndex >= screens.length) {
-          _selectedIndex = 0;
-        }
-
-        return Scaffold(
-          backgroundColor: obsidianBlack,
-          body: screens[_selectedIndex],
-          bottomNavigationBar: Container(
-            decoration: BoxDecoration(
-              color: darkCharcoal,
-              border: Border(top: BorderSide(color: store.border, width: 1)),
-              boxShadow: [
-                if (!store.isDarkMode)
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -2))
-              ],
-            ),
-            child: BottomNavigationBar(
-              backgroundColor: darkCharcoal,
-              selectedItemColor: champagneGold,
-              unselectedItemColor: textMuted,
-              currentIndex: _selectedIndex,
-              type: BottomNavigationBarType.fixed,
-              onTap: (index) {
-                setState(() {
-                  _selectedIndex = index;
-                });
-              },
-              items: navItems,
-            ),
-          ),
-          drawer: Drawer(
-            backgroundColor: darkCharcoal,
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                DrawerHeader(
-                  decoration: BoxDecoration(
-                    color: obsidianBlack,
-                    border: Border(bottom: BorderSide(color: champagneGold, width: 2)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // NEW: Using the premium ATS logo instead of plain text
-                      const ATSLogo(size: 48, showText: true),
-                      const SizedBox(height: 12),
-                      Text('Access Level: ${currentRole.toUpperCase()}', style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                    ],
-                  ),
-                ),
-                ListTile(
-                  leading: Icon(Icons.home_rounded, color: textMuted),
-                  title: Text('Home', style: TextStyle(color: textFrost)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    setState(() => _selectedIndex = 0);
-                  },
-                ),
-                Visibility(
-                  visible: isHR,
-                  child: const Divider(color: Colors.white24, thickness: 1, height: 32),
-                ),
-                Visibility(
-                  visible: isHR,
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 16, bottom: 8),
-                    child: Text('MANAGEMENT & HR TOOLS', style: TextStyle(color: champagneGold.withValues(alpha: 0.8), fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
-                  ),
-                ),
-                Visibility(
-                  visible: isHR,
-                  child: ListTile(
-                    leading: Icon(Icons.account_balance_wallet_rounded, color: champagneGold),
-                    title: Text('Budget Allocation', style: TextStyle(color: textFrost, fontWeight: FontWeight.w500)),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const BudgetAllocationScreen()));
-                    },
-                  ),
-                ),
-                Visibility(
-                  visible: isHR,
-                  child: ListTile(
-                    leading: Icon(Icons.manage_accounts_rounded, color: champagneGold),
-                    title: Text('Employee Management', style: TextStyle(color: textFrost, fontWeight: FontWeight.w500)),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const EmployeeManagementScreen()));
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
 
 class FinanceToPayScreen extends StatefulWidget {
   const FinanceToPayScreen({super.key});
@@ -335,8 +125,19 @@ class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
                                     ],
                                   )
                                 : ListView.builder(
-                                    itemCount: approvedExpenses.length,
+                                    // One extra row for the "load more"
+                                    // footer, so a list longer than one
+                                    // page can be walked through.
+                                    itemCount: approvedExpenses.length +
+                                        (_store.hasMoreExpenses ? 1 : 0),
                             itemBuilder: (context, index) {
+                              if (index >= approvedExpenses.length) {
+                                return LoadMoreFooter(
+                                  hasMore: _store.hasMoreExpenses,
+                                  loading: _store.expensesLoadingMore,
+                                  onLoad: _store.loadMoreExpenses,
+                                );
+                              }
                               final expense = approvedExpenses[index];
 
                               return Container(

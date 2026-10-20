@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/app_snack.dart';
+import 'package:ats_onework/shared/load_more.dart';
 
 class MyRequestsScreen extends StatefulWidget {
   const MyRequestsScreen({super.key});
@@ -130,8 +131,19 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                                     ],
                                   )
                                 : ListView.builder(
-                                    itemCount: filtered.length,
+                                    // One extra row for the "load more"
+                                    // footer, so a list longer than one
+                                    // page can be walked through.
+                                    itemCount:
+                                        filtered.length + (_store.hasMoreExpenses ? 1 : 0),
                                     itemBuilder: (context, index) {
+                                      if (index >= filtered.length) {
+                                        return LoadMoreFooter(
+                                          hasMore: _store.hasMoreExpenses,
+                                          loading: _store.expensesLoadingMore,
+                                          onLoad: _store.loadMoreExpenses,
+                                        );
+                                      }
                                       final e = filtered[index];
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 14),

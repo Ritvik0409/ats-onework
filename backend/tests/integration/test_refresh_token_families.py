@@ -28,7 +28,10 @@ async def clean_db(db_connection) -> AsyncIterator[object]:
 
 
 @pytest.fixture
-async def client(test_database: str) -> AsyncIterator[AsyncClient]:
+async def client(
+    test_database: str,
+    db_connection: object,  # noqa: ARG001 - clears the sign-in rate limits
+) -> AsyncIterator[AsyncClient]:
     from app.core.config import get_settings
     from app.db.pool import close_pool, create_pool
 

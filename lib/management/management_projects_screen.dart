@@ -469,7 +469,9 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           decoration: BoxDecoration(color: darkCharcoal, borderRadius: BorderRadius.circular(12), border: Border.all(color: store.isDarkMode ? Colors.white.withValues(alpha: 0.05) : Colors.grey.withValues(alpha: 0.2)), boxShadow: cardShadows),
-                          child: ListTile(
+                          child: Material(
+                            color: darkCharcoal,
+                            child: ListTile(
                             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             onTap: () {
                               Navigator.push(
@@ -502,6 +504,7 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                               ],
                             ),
                           ),
+                            ),
                         );
                       }),
                   ],

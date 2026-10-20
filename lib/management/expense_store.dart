@@ -134,7 +134,10 @@ class ExpenseRecord {
       type: (typeName != null && typeName.isNotEmpty)
           ? typeName
           : (json['type']?.toString() ?? typeId ?? 'General'),
-      amount: ((json['amount'] ?? 0.0) as num?)?.toDouble() ?? 0.0,
+      // Money arrives as a JSON string ("1000.00") — the serializer
+      // emits Decimal as text. A bare `as num?` cast threw a TypeError
+      // on the first row and the whole expense list stayed empty.
+      amount: parseBackendDouble(json['amount']) ?? 0.0,
       date: json['date']?.toString() ?? json['expense_date']?.toString() ?? 'Unknown Date',
       description: json['description']?.toString() ?? 'No description provided',
       status: status,
@@ -204,6 +207,15 @@ class ProjectMemberRecord {
       roleName: json['role_name']?.toString() ?? '',
     );
   }
+}
+
+/// One page of a cursor-paginated list: the rows, and the cursor of the
+/// next page — or nothing when the list is exhausted.
+class _Page {
+  const _Page(this.items, this.nextCursor);
+
+  final List<Map<String, dynamic>> items;
+  final String? nextCursor;
 }
 
 class ExpenseStore extends ChangeNotifier {
@@ -324,26 +336,48 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> fetchUsersFromBackend() async {
     try {
-      final response = await ApiClient.get('/users', query: {'limit': '100'});
-      if (response.statusCode == 200) {
-        final data = ApiClient.pageItems(response);
-        usersList = data.map((user) {
-          final u = user as Map<String, dynamic>;
-          return {
-            'id': (u['employee_id'] ?? u['employeeId'] ?? u['id'] ?? '').toString(),
-            'name': (u['name'] ?? 'Unknown').toString(),
-            'email': (u['email'] ?? '').toString(),
-            'account_status': (u['account_status'] ?? 'active').toString(),
-          };
-        }).toList();
-        notifyListeners();
-      }
+      final page = await _fetchPage('/users');
+      usersList = page.items.map(_userRow).toList();
+      usersCursor = page.nextCursor;
+      notifyListeners();
     } catch (e) {
       debugPrint('Network error fetching users: $e');
     } finally {
       usersLoaded = true;
     }
   }
+
+  /// Loads the next page of the member directory and appends it.
+  Future<void> loadMoreUsers() async {
+    final cursor = usersCursor;
+    if (cursor == null || usersLoadingMore) return;
+    usersLoadingMore = true;
+    try {
+      final page = await _fetchPage('/users', cursor: cursor);
+      usersList = [...usersList, ...page.items.map(_userRow)];
+      usersCursor = page.nextCursor;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Network error loading more users: $e');
+    } finally {
+      usersLoadingMore = false;
+    }
+  }
+
+  bool get hasMoreUsers => usersCursor != null;
+
+  /// The cursor of the next page of the member directory.
+  String? usersCursor;
+
+  bool usersLoadingMore = false;
+
+  /// The member directory's row shape.
+  static Map<String, String> _userRow(Map<String, dynamic> u) => {
+        'id': (u['employee_id'] ?? u['employeeId'] ?? u['id'] ?? '').toString(),
+        'name': (u['name'] ?? 'Unknown').toString(),
+        'email': (u['email'] ?? '').toString(),
+        'account_status': (u['account_status'] ?? 'active').toString(),
+      };
 
   /// Admin action: toggle a user's account_status via PATCH /users/{id}.
   /// Returns true when the backend confirmed the change (list refreshed).
@@ -522,6 +556,22 @@ class ExpenseStore extends ChangeNotifier {
   bool get hasManagementAccess =>
       grantedPermissions.any(managementCapabilities.contains);
 
+  /// Capability personas the navigation builds itself from — the role
+  /// name is never consulted for these. A person who can move
+  /// reimbursements through their lifecycle needs the payout screens
+  /// even when their role is a custom one the portal has never heard
+  /// of.
+  bool get payoutPersona => canPayReimbursements;
+
+  /// Reviews expenses but holds none of the project/budget building
+  /// capabilities — the director shape.
+  bool get reviewerOnlyPersona =>
+      canApproveExpenses &&
+      canReadAuditLog &&
+      !can('budget.manage') &&
+      !can('project.create') &&
+      !can('project.manage');
+
   /// Records what the server says about the signed-in user.
   ///
   /// The role is derived from the roles the server reports, with the
@@ -536,12 +586,18 @@ class ExpenseStore extends ChangeNotifier {
     currentUserRoles = roles;
     grantedPermissions = permissions.toSet();
     isSuperUser = superuser;
-    currentUserRole = _primaryRole(roles);
+    currentUserRole = _primaryRole(roles, grantedPermissions);
     notifyListeners();
   }
 
   /// The role the interface branches on, most privileged first.
-  static String _primaryRole(List<String> roles) {
+  ///
+  /// A custom role the portal has never heard of (created in the Access
+  /// tab) is *inferred* from its capabilities instead of defaulting to
+  /// `employee` — being read as an employee changes behavior beyond
+  /// portal selection (it scopes myProjects and the theme key), and
+  /// someone who can approve reimbursements is not an employee.
+  static String _primaryRole(List<String> roles, Set<String> capabilities) {
     const precedence = <String>[
       'admin',
       'director',
@@ -553,12 +609,28 @@ class ExpenseStore extends ChangeNotifier {
     for (final role in precedence) {
       if (roles.contains(role)) return role;
     }
+    if (capabilities.contains('reimbursement.transition')) return 'finance';
+    if (capabilities.contains('user.manage') ||
+        capabilities.contains('employee_status.manage')) {
+      return 'hr';
+    }
+    if (capabilities.contains('expense.approve')) {
+      if (capabilities.contains('budget.manage') ||
+          capabilities.contains('project.create') ||
+          capabilities.contains('project.manage')) {
+        return 'manager';
+      }
+      return 'director';
+    }
+    if (capabilities.any(managementCapabilities.contains)) {
+      return 'manager';
+    }
     return 'employee';
   }
 
   final Map<String, bool> employeeActiveStatus = {};
 
-  double currentMonthBudget = 60000.0;
+  double currentMonthBudget = 0.0;
   /// Computed from the backend: approved + reimbursed spend this month.
   double currentMonthSpent = 0.0;
 
@@ -664,16 +736,25 @@ class ExpenseStore extends ChangeNotifier {
       if (orgId == null) return;
       final response = await ApiClient.get(
         '/organizations/$orgId/budgets',
-        query: {'month': _monthKey(DateTime.now()), 'limit': '10'},
+        query: {'month': _monthKey(DateTime.now()), 'limit': '100'},
       );
       if (response.statusCode == 200) {
         final items = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
-        if (items.isNotEmpty) {
-          final first = items.first;
-          currentMonthBudget = parseBackendDouble(first['amount']) ?? currentMonthBudget;
-          currentMonthSpent = double.tryParse(first['spent']?.toString() ?? '') ?? 0.0;
-          notifyListeners();
+        // The month endpoint returns every budget period overlapping the
+        // month (the yearly seed allocation plus any monthly rows).
+        // Taking items.first displayed whichever row was created last —
+        // the "always ₹7777" bug — so the totals are summed instead.
+        // ``spent`` never double-counts: an expense belongs to one
+        // project, which belongs to one budget.
+        double budgetTotal = 0.0;
+        double spentTotal = 0.0;
+        for (final item in items) {
+          budgetTotal += parseBackendDouble(item['amount']) ?? 0.0;
+          spentTotal += parseBackendDouble(item['spent']) ?? 0.0;
         }
+        currentMonthBudget = budgetTotal;
+        currentMonthSpent = spentTotal;
+        notifyListeners();
       }
     } catch (e) {
       debugPrint('Network error fetching budgets: $e');
@@ -1229,21 +1310,70 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> fetchExpensesFromBackend() async {
     try {
-      final response = await ApiClient.get('/expenses', query: {'limit': '100'});
-      if (response.statusCode == 200) {
-        final expensesJson = ApiClient.pageItems(response);
-        expenses = expensesJson
-            .map((data) => ExpenseRecord.fromJson(data as Map<String, dynamic>))
-            .toList();
-        notifyListeners();
-      } else {
-        debugPrint('Failed to load expenses: ${response.statusCode}');
-      }
+      final page = await _fetchPage('/expenses');
+      expenses = page.items.map(ExpenseRecord.fromJson).toList();
+      expensesCursor = page.nextCursor;
+      notifyListeners();
     } catch (e) {
       debugPrint('Network error fetching expenses: $e');
     } finally {
       expensesLoaded = true;
     }
+  }
+
+  /// Loads the next page of expenses and appends it.
+  ///
+  /// The list used to stop at a hundred rows, so an organization with
+  /// more than a hundred expenses silently lost the rest.
+  Future<void> loadMoreExpenses() async {
+    final cursor = expensesCursor;
+    if (cursor == null || expensesLoadingMore) return;
+    expensesLoadingMore = true;
+    try {
+      final page = await _fetchPage('/expenses', cursor: cursor);
+      expenses = [
+        ...expenses,
+        ...page.items.map((data) => ExpenseRecord.fromJson(data)),
+      ];
+      expensesCursor = page.nextCursor;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Network error loading more expenses: $e');
+    } finally {
+      expensesLoadingMore = false;
+    }
+  }
+
+  /// Whether another page of expenses is waiting.
+  bool get hasMoreExpenses => expensesCursor != null;
+
+  /// The cursor of the next page of expenses, or null when the list is
+  /// exhausted.
+  String? expensesCursor;
+
+  /// Whether a page of expenses is being fetched.
+  bool expensesLoadingMore = false;
+
+  /// One page of a cursor-paginated list.
+  ///
+  /// The API pages by cursor: it returns the rows and the cursor of the
+  /// next page, or nothing when the list is exhausted.
+  Future<_Page> _fetchPage(
+    String path, {
+    Map<String, String>? query,
+    String? cursor,
+  }) async {
+    final parameters = <String, String>{...?query, 'limit': '50'};
+    if (cursor != null) parameters['cursor'] = cursor;
+    final response = await ApiClient.get(path, query: parameters);
+    if (response.statusCode != 200) {
+      debugPrint('Failed to load $path: ${response.statusCode}');
+      return const _Page([], null);
+    }
+    return _Page(
+      ApiClient.pageItems(response).cast<Map<String, dynamic>>(),
+      ApiClient.pageCursor(response),
+    );
   }
 
   Future<void> loadCurrentUserRole(String email) async {
@@ -1257,21 +1387,62 @@ class ExpenseStore extends ChangeNotifier {
 
   String _monthKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
-  Future<double?> getBudgetForMonth(DateTime month) async {
-    // Real read: budget whose date range overlaps the requested month.
+  /// Sum of the amounts of every budget period overlapping [month] —
+  /// "money the organization made available that month", which is what
+  /// a report should show. Deliberately distinct from
+  /// [getBudgetForMonth]: the allocation screen edits the single
+  /// explicit monthly row, and mixing the yearly seed allocation into
+  /// that edit box invited saving a second overlapping row instead of
+  /// editing one.
+  Future<double> getBudgetCoverageForMonth(DateTime month) async {
     try {
       final orgId = await _orgId();
       if (orgId != null) {
         final response = await ApiClient.get(
           '/organizations/$orgId/budgets',
-          query: {'month': _monthKey(month), 'limit': '5'},
+          query: {'month': _monthKey(month), 'limit': '100'},
         );
         if (response.statusCode == 200) {
-          final items = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
-          if (items.isNotEmpty) {
-            return parseBackendDouble(items.first['amount']);
+          double total = 0.0;
+          for (final item in ApiClient.pageItems(response).cast<Map<String, dynamic>>()) {
+            total += parseBackendDouble(item['amount']) ?? 0.0;
           }
-          return null; // no budget row for that month — honest null
+          return total;
+        }
+      }
+    } catch (e) {
+      debugPrint('Network error reading budget coverage for month: $e');
+    }
+    return 0.0;
+  }
+
+  Future<double?> getBudgetForMonth(DateTime month) async {
+    // Real read. Only the *explicit monthly allocation row* for the
+    // month counts here — the row this flow itself creates (first day
+    // to last day). Budget periods that merely overlap the month (the
+    // yearly seed allocation) are ignored: showing them in the edit box
+    // invited saving a second overlapping row instead of editing one.
+    try {
+      final orgId = await _orgId();
+      if (orgId != null) {
+        final response = await ApiClient.get(
+          '/organizations/$orgId/budgets',
+          query: {'month': _monthKey(month), 'limit': '100'},
+        );
+        if (response.statusCode == 200) {
+          final monthStart =
+              DateTime(month.year, month.month, 1).toIso8601String().split('T').first;
+          final items = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
+          double total = 0.0;
+          var found = false;
+          for (final item in items) {
+            if ((item['start_date']?.toString() ?? '') == monthStart) {
+              found = true;
+              total += parseBackendDouble(item['amount']) ?? 0.0;
+            }
+          }
+          if (found) return total;
+          return null; // no allocation row for that month — honest null
         }
       }
     } catch (e) {
@@ -1291,16 +1462,38 @@ class ExpenseStore extends ChangeNotifier {
           .toIso8601String()
           .split('T')
           .first;
-      final response = await ApiClient.post('/organizations/$orgId/budgets', {
-        'amount': amount,
-        'start_date': start,
-        'end_date': end,
-      });
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        if (_monthKey(month) == _monthKey(DateTime.now())) {
-          currentMonthBudget = amount;
-          notifyListeners();
+      // Editing an existing allocation updates that row. POSTing a new
+      // one stacked a duplicate monthly row on every save, and the
+      // dashboard's summed totals drifted upward each time.
+      int? existingId;
+      try {
+        final existing = await ApiClient.get(
+          '/organizations/$orgId/budgets',
+          query: {'month': _monthKey(month), 'limit': '100'},
+        );
+        if (existing.statusCode == 200) {
+          for (final item in ApiClient.pageItems(existing).cast<Map<String, dynamic>>()) {
+            if ((item['start_date']?.toString() ?? '') == start) {
+              existingId = (item['budget_id'] as num?)?.toInt();
+              break;
+            }
+          }
         }
+      } catch (_) {
+        // Listing failed — fall through to the POST, worst case a row duplicates.
+      }
+      final response = existingId != null
+          ? await ApiClient.patch(
+              '/organizations/$orgId/budgets/$existingId',
+              {'amount': amount},
+            )
+          : await ApiClient.post('/organizations/$orgId/budgets', {
+              'amount': amount,
+              'start_date': start,
+              'end_date': end,
+            });
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        await fetchBudgetFromBackend();
         return null;
       } else {
         return 'Server error setting budget: ${response.statusCode}';
@@ -1404,15 +1597,19 @@ class ExpenseStore extends ChangeNotifier {
   Future<String?> submitExpense({
     required String type,
     required double amount,
-    required String date, 
+    required String date,
     required String description,
     required DateTime rawDate,
-    Uint8List? receiptBytes, 
-    String? projectName, 
+    Uint8List? receiptBytes,
+    String? projectId,
   }) async {
-    if (projectName != null && projectName.isNotEmpty) {
+    // The dropdown is keyed by backend id: two projects may share a
+    // display name, and a name-keyed selection both crashed the
+    // DropdownButton assertion and could quietly tag the expense to the
+    // wrong project before that.
+    if (projectId != null && projectId.isNotEmpty) {
       final targetProject = projects.firstWhere(
-        (p) => p.name == projectName, 
+        (p) => p.id == projectId,
         orElse: () => ProjectRecord(id: '', name: '', budget: 0, assignedEmails: [], isActive: true)
       );
       if (!targetProject.isActive) {
@@ -1434,18 +1631,18 @@ class ExpenseStore extends ChangeNotifier {
       // Resolve backend IDs from cached lists (names are UI labels only).
       final orgId = await _orgId();
       if (orgId == null) return 'Not signed in to an organization.';
-      int? projectId;
-      if (projectName != null && projectName.isNotEmpty) {
-        final match = projects.where((p) => p.name == projectName).toList();
+      int? resolvedProjectId;
+      if (projectId != null && projectId.isNotEmpty) {
+        final match = projects.where((p) => p.id == projectId).toList();
         if (match.isEmpty) return 'Selected project is not synced from the backend.';
-        projectId = int.tryParse(match.first.id);
-        if (projectId == null) return 'Selected project has an invalid backend ID.';
+        resolvedProjectId = int.tryParse(match.first.id);
+        if (resolvedProjectId == null) return 'Selected project has an invalid backend ID.';
       } else {
         // General expenses still need a project in v1 — pick the first active one.
         final active = projects.where((p) => p.isActive).toList();
         if (active.isEmpty) return 'No synced project available — ask an admin to create one.';
-        projectId = int.tryParse(active.first.id);
-        if (projectId == null) return 'Synced project has an invalid backend ID.';
+        resolvedProjectId = int.tryParse(active.first.id);
+        if (resolvedProjectId == null) return 'Synced project has an invalid backend ID.';
       }
       final expenseTypeId = await _resolveExpenseTypeId(orgId, type);
       if (expenseTypeId == null) {
@@ -1457,7 +1654,7 @@ class ExpenseStore extends ChangeNotifier {
       final expenseDate =
           '${rawDate.year.toString().padLeft(4, '0')}-${rawDate.month.toString().padLeft(2, '0')}-${rawDate.day.toString().padLeft(2, '0')}';
       final fields = {
-        'project_id': projectId.toString(),
+        'project_id': resolvedProjectId.toString(),
         'expense_type_id': expenseTypeId.toString(),
         'amount': amount.toString(),
         'expense_date': expenseDate,

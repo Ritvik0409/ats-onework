@@ -96,18 +96,19 @@ class ProjectRepository:
             assert row is not None
             # Re-read with the joined SELECT so the response carries
             # budget_amount + member_count like every other project read.
-            inserted = await self.get_by_id(conn, row["project_id"])
+            inserted = await self.get_by_id(conn, row["project_id"], organization_id)
             assert inserted is not None
             return inserted
 
-    async def get_by_id(self, conn: Conn, project_id: int) -> Row | None:
+    async def get_by_id(self, conn: Conn, project_id: int, organization_id: int) -> Row | None:
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT "
                 + _PROJECT_SELECT
                 + " FROM projects p JOIN budgets b ON b.budget_id = p.budget_id"
-                " WHERE p.project_id = %s",
-                (project_id,),
+                + " WHERE p.project_id = %s"
+                + " AND p.organization_id = %s",
+                (project_id, organization_id),
             )
             return await cur.fetchone()
 
@@ -130,6 +131,7 @@ class ProjectRepository:
         self,
         conn: Conn,
         project_id: int,
+        organization_id: int,
         *,
         name: str | None = None,
         description: str | None = None,
@@ -155,27 +157,34 @@ class ProjectRepository:
             assignments.append("end_date = %s")
             params.append(end_date)
         if not assignments:
-            return await self.get_by_id(conn, project_id)
+            return await self.get_by_id(conn, project_id, organization_id)
         params.append(project_id)
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE projects SET "
                 + ", ".join(assignments)
                 + " WHERE project_id = %s"
+                + " AND organization_id = %s"
                 + " RETURNING "
                 + _PROJECT_RETURNING,
-                tuple(params),
+                tuple([*params, organization_id]),
             )
             row = await cur.fetchone()
             assert row is not None
-            updated = await self.get_by_id(conn, row["project_id"])
+            updated = await self.get_by_id(conn, row["project_id"], organization_id)
             assert updated is not None
             return updated
 
     # -- project members ---------------------------------------------------
 
     async def list_members(
-        self, conn: Conn, project_id: int, *, before_id: int | None, limit: int
+        self,
+        conn: Conn,
+        project_id: int,
+        *,
+        organization_id: int,
+        before_id: int | None,
+        limit: int,
     ) -> list[Row]:
         """Members newest-first, keyset-paginated.
 
@@ -191,9 +200,10 @@ class ProjectRepository:
                 + " FROM project_members pm JOIN users u ON u.employee_id = pm.employee_id"
                 + " JOIN roles r ON r.role_id = pm.role_id"
                 + " WHERE pm.project_id = %s"
+                + " AND pm.organization_id = %s"
                 + " AND (%s::int IS NULL OR pm.project_member_id < %s::int)"
                 + " ORDER BY pm.project_member_id DESC LIMIT %s::int",
-                (project_id, before_id, before_id, limit),
+                (project_id, organization_id, before_id, before_id, limit),
             )
             return list(await cur.fetchall())
 
@@ -205,15 +215,16 @@ class ProjectRepository:
             )
             return (await cur.fetchone()) is not None
 
-    async def get_member(self, conn: Conn, member_id: int) -> Row | None:
+    async def get_member(self, conn: Conn, member_id: int, organization_id: int) -> Row | None:
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT "
                 + _MEMBER_SELECT
                 + " FROM project_members pm JOIN users u ON u.employee_id = pm.employee_id"
                 + " JOIN roles r ON r.role_id = pm.role_id"
-                + " WHERE pm.project_member_id = %s",
-                (member_id,),
+                + " WHERE pm.project_member_id = %s"
+                + " AND pm.organization_id = %s",
+                (member_id, organization_id),
             )
             return await cur.fetchone()
 
@@ -237,7 +248,7 @@ class ProjectRepository:
             assert row is not None
             # Re-read with the joined SELECT so the response carries
             # role_name / employee identity like every other member read.
-            inserted = await self.get_member(conn, row["project_member_id"])
+            inserted = await self.get_member(conn, row["project_member_id"], organization_id)
             assert inserted is not None
             return inserted
 
@@ -258,11 +269,12 @@ class ProjectRepository:
             )
             return await cur.fetchone()
 
-    async def get_role(self, conn: Conn, role_id: int) -> Row | None:
+    async def get_role(self, conn: Conn, role_id: int, organization_id: int) -> Row | None:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT role_id, organization_id, name FROM roles WHERE role_id = %s",
-                (role_id,),
+                "SELECT role_id, organization_id, name FROM roles"
+                " WHERE role_id = %s AND organization_id = %s",
+                (role_id, organization_id),
             )
             return await cur.fetchone()
 

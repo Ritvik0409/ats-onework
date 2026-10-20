@@ -3,7 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:ats_onework/shared/session_store.dart';
 
 /// Central HTTP client for the FastAPI backend.
 ///
@@ -12,8 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///   `--dart-define=API_BASE_URL=http://10.0.2.2:8000` for the Android
 ///   emulator. No `dart:io` import so web builds keep working.
 /// - All versioned paths go through [v1] which prefixes `/api/v1`.
-/// - Auth uses the backend JWT in `SharedPreferences` (`auth_token`),
-///   plus `refresh_token`, `organization_id`, `is_admin` (ADR-001).
+/// - Auth uses the backend JWT, kept in the platform's secure storage\n///   (`auth_token` and `refresh_token`); the organization and the\n///   admin flag live in the preferences (ADR-001).
 /// - Session lifecycle: an `auth:true` request that comes back 401
 ///   triggers **one** `POST /auth/refresh` (single-flight guarded),
 ///   retries the original request with the new token, and — if the
@@ -51,10 +51,7 @@ class ApiClient {
     return uri.replace(queryParameters: query);
   }
 
-  static Future<int?> getOrganizationId() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt('organization_id');
-  }
+  static Future<int?> getOrganizationId() => SessionStore.readOrganizationId();
 
   static Future<Map<String, String>> authHeaders({
     bool json = true,
@@ -70,9 +67,9 @@ class ApiClient {
     return headers;
   }
 
+  /// The access token, from the platform's secure storage.
   static Future<String> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('auth_token') ?? '';
+    return (await SessionStore.readToken()) ?? '';
   }
 
   // -- requests (wrapped with the 401 → refresh → retry interceptor) ------
@@ -199,8 +196,8 @@ class ApiClient {
   /// missing/unknown/expired (session unrecoverable), [_refreshOffline]
   /// when the backend is unreachable (transient — keep the session).
   static Future<int> _doRefreshInner() async {
-    final prefs = await SharedPreferences.getInstance();
-    final refresh = prefs.getString('refresh_token') ?? '';
+    await SessionStore.migrateLegacyTokens();
+    final refresh = (await SessionStore.readRefreshToken()) ?? '';
     if (refresh.isEmpty) return _refreshDead;
     try {
       final response = await http
@@ -215,9 +212,9 @@ class ApiClient {
       final access = data['access_token']?.toString() ?? '';
       final newRefresh = data['refresh_token']?.toString() ?? '';
       if (access.isEmpty) return _refreshDead;
-      await prefs.setString('auth_token', access);
+      await SessionStore.writeToken(access);
       if (newRefresh.isNotEmpty) {
-        await prefs.setString('refresh_token', newRefresh);
+        await SessionStore.writeRefreshToken(newRefresh);
       }
       _sessionExpiredNotified = false;
       return _refreshOk;
@@ -260,13 +257,13 @@ class ApiClient {
   /// Returns true when a usable token pair exists, refreshing the access
   /// token if only the refresh token survived (cold-start resume path).
   static Future<bool> ensureSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    var token = prefs.getString('auth_token') ?? '';
-    final refresh = prefs.getString('refresh_token') ?? '';
+    await SessionStore.migrateLegacyTokens();
+    var token = (await SessionStore.readToken()) ?? '';
+    final refresh = (await SessionStore.readRefreshToken()) ?? '';
     if (token.isEmpty && refresh.isNotEmpty) {
       final result = await _refreshOnce();
       if (result != _refreshOk) return false;
-      token = prefs.getString('auth_token') ?? '';
+      token = (await SessionStore.readToken()) ?? '';
     }
     return token.isNotEmpty;
   }
@@ -275,8 +272,7 @@ class ApiClient {
   /// refresh token server-side, §49 #6), then clear the local token store.
   /// Never throws — offline/failed logout still clears local state.
   static Future<void> signOut() async {
-    final prefs = await SharedPreferences.getInstance();
-    final refresh = prefs.getString('refresh_token') ?? '';
+    final refresh = (await SessionStore.readRefreshToken()) ?? '';
     _signingOut = true;
     try {
       if (refresh.isNotEmpty) {
@@ -298,11 +294,9 @@ class ApiClient {
 
   /// Clears the local token store without contacting the server.
   static Future<void> clearSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
-    await prefs.remove('refresh_token');
-    await prefs.remove('organization_id');
-    await prefs.remove('is_admin');
+    await SessionStore.deleteTokens();
+    await SessionStore.deleteOrganizationId();
+    await SessionStore.deleteIsAdmin();
   }
 
   /// Called after a successful login, so that a later session expiry is

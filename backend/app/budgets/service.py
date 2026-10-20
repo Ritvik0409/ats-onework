@@ -85,7 +85,7 @@ class BudgetService:
         payload: BudgetUpdate,
     ) -> BudgetResponse:
         await self._require_admin(conn, actor_id, organization_id)
-        current = await self._repository.get_by_id(conn, budget_id)
+        current = await self._repository.get_by_id(conn, budget_id, organization_id)
         if current is None or int(current["organization_id"]) != organization_id:
             raise NotFoundError("Budget not found.")
         new_start = payload.start_date or current["start_date"]
@@ -97,6 +97,7 @@ class BudgetService:
         row = await self._repository.update(
             conn,
             budget_id,
+            organization_id,
             amount=payload.amount,
             start_date=payload.start_date,
             end_date=payload.end_date,

@@ -414,6 +414,34 @@ WHERE expense_id = %(expense_id)s;
 
 when tenant isolation is relevant.
 
+### 8.1 The tenant scope belongs in the statement
+
+A repository that filters by organization only when the calling service
+remembers to check has put the boundary in the call graph rather than in
+the query. A query that states its own scope is safe wherever it is
+called from, and a later reuse of it cannot quietly become a
+cross-tenant read.
+
+So every statement against organization-owned data carries its scope:
+
+* a read or an update compares `organization_id` (or `employee_id`, for
+  a person's own data, which is narrower still);
+* a write names the organization among the columns it writes, so the row
+  is born belonging to someone;
+* the handful of statements whose *job* is to answer "which organization
+  does this row belong to?" are exempt, and each is listed with its
+  reason.
+
+`tests/unit/test_tenant_filter_discipline.py` reads the repositories and
+fails the build when a statement does not. It is the check that keeps
+the rule from being a convention.
+
+The organization that a table's rows belong to has to be *on the row*
+for this to be possible: `expense_media` and `expense_approvals` used
+to hang off an expense without carrying an organization of their own,
+so a query that reached them directly had nothing to filter by. They
+carry it now, like every other organization-owned table.
+
 ---
 
 # 9. Cross-Tenant Integrity
@@ -525,6 +553,73 @@ def create_expense(
 Authorization should be reusable across endpoints.
 
 Do not make every endpoint manually implement permission logic.
+
+## 10.1 The access model in detail
+
+There are three layers, all of them in the database, and they are
+separate on purpose:
+
+| Layer | Table | Belongs to | Grants |
+|---|---|---|---|
+| **capability** | `permissions` | an organization | — |
+| **role** | `roles` | an organization | capabilities (`role_permissions`) |
+| **membership** | `memberships` | a person, in an organization | roles (`membership_roles`), plus capabilities granted directly (`user_permissions`) |
+
+A capability belongs to an organization: `permissions.organization_id`
+is `NOT NULL`, and each organization keeps its own copy of every
+capability it holds. The platform's standard capabilities and roles live
+in `access_catalog` and are installed into an organization when it is
+created; after that the organization configures its own access.
+
+**Reading a grant.** The set of capabilities a person holds in an
+organization is the union of the capabilities granted by the roles
+their membership holds and the capabilities granted to them directly.
+The evaluation is one query (`app/common/permissions.py`) and it happens
+on every request, so a grant that is withdrawn applies at once rather
+than when a token expires.
+
+**Scoping.** Two capabilities decide how much of the organization a
+person sees:
+
+- `expense.read_own` — their own expenses.
+- `expense.read_all` — every expense in the organization.
+
+An employee holds the first and not the second, so they see their own
+expenses and nothing else. A colleague's expense is a 404, so the
+endpoint cannot be used to find out which expense ids exist.
+Reimbursements work the same way, with `reimbursement.read_own` and
+`reimbursement.read_all`.
+
+**Three tiers of administrator.** They are deliberately separate:
+
+| Tier | Flag | Scope |
+|---|---|---|
+| super administrator | `users.is_superuser` | the platform: the capability catalogue, and any organization's access |
+| organization administrator | `memberships.is_admin` | one organization: its members, roles and settings |
+| role member | `membership_roles` | whatever the capabilities of their roles grant |
+
+An organization administrator is not the same thing as a manager. The
+first owns the organization; the second reviews expenses.
+
+**Route dependencies.** A route names the capability it needs, and the
+guard is evaluated in the organization the operation acts on — the
+path's organization for `/organizations/{id}/...`, the caller's active
+organization otherwise:
+
+```python
+@router.get("")
+async def list_things(
+    user: Annotated[CurrentUser, Depends(RequireAnyPermission("thing.read_own", "thing.read_all"))],
+): ...
+```
+
+`RequirePathPermission` is the variant for routes that name the
+organization in their path. A service whose organization is only known
+once the resource has been resolved — a project, for instance — calls
+`require_capability` with the organization it resolved.
+
+The grant tables cannot point at another organization's capability:
+composite foreign keys enforce it.
 
 ---
 
@@ -655,6 +750,53 @@ Tokens should have:
 Expired tokens should have a cleanup strategy.
 
 Do not log tokens.
+
+**Rotation and replay detection.** A refresh token belongs to a
+*family*: the set of tokens descended from one sign-in. Rotating a token
+keeps the old row and records what replaced it, so a token that comes
+back can be judged:
+
+- its replacement is still live — the client retried, perhaps because
+  the response was lost in transit; the chain continues;
+- its replacement was rotated too — the token was replayed; the whole
+  family is revoked and the session ends.
+
+The revocation is committed before the request fails, because the
+connection carries one request-scoped transaction and the request-scoped
+rollback would otherwise take the revocation with it.
+
+---
+
+# 14.1 Rate Limiting
+
+The sign-in endpoints are rate limited. Two things make this necessary:
+a password must not be guessable without limit, and verifying a
+password is deliberately expensive (Argon2id, tens of milliseconds of
+CPU), so an unlimited sign-in endpoint is also a way to make the server
+spend all its time hashing.
+
+The counters live in the database (`rate_limit_buckets`), so every
+worker of a multi-process deployment shares them. A counter in memory
+would be reset by every restart and would not see the attempts landing
+on another worker.
+
+Three rules:
+
+- the caller's **address** is limited — this bounds the CPU an
+  unauthenticated caller can spend;
+- the caller's **account** is limited — this is the one that protects
+  a password;
+- a **successful** sign-in clears the account's counter, so a person
+  who fat-fingered their password a few times is not left throttled
+  once they get it right. A failed attempt counts.
+
+The counter is committed before the request does anything else, because
+a failed sign-in ends the request with a rollback — and the attempts
+that matter are the ones that failed.
+
+The address is taken from the connection, not from a forwarded header:
+a header the caller can choose would let them sidestep the limit by
+making one up.
 
 ---
 
@@ -1679,6 +1821,24 @@ Conventions:
 | 37 | POST | /notifications/{id}/read | user (owner) | — | 204 | 403, 404 |
 | 38 | POST | /notifications/read-all | user | — | 204 | 401 |
 | 39 | GET | /audit-logs | admin | filters | 200 Page[AuditLogResponse] | 403 |
+| 40 | GET | /organizations/{org}/access/permissions | member | — | 200 PermissionResponse[] | 403, 404 |
+| 41 | POST | /organizations/{org}/access/permissions | admin (or super admin) | PermissionCreate | 201 PermissionResponse | 403, 404, 409 |
+| 42 | GET | /organizations/{org}/access/roles | member | — | 200 RoleResponse[] (with grants) | 403, 404 |
+| 43 | POST | /organizations/{org}/access/roles | admin (or super admin) | RoleCreate | 201 RoleResponse | 403, 404, 409 |
+| 44 | GET | /organizations/{org}/access/roles/{id}/permissions | member | — | 200 string[] | 403, 404 |
+| 45 | PUT | /organizations/{org}/access/roles/{id}/permissions | admin (or super admin) | RolePermissionsUpdate | 200 string[] | 403, 404 |
+| 46 | GET | /organizations/{org}/access/members/{employee_id} | admin (or super admin) | — | 200 MemberAccessResponse | 403, 404 |
+| 47 | PUT | /organizations/{org}/access/members/{employee_id}/roles | admin (or super admin) | MemberRolesUpdate | 200 MemberAccessResponse | 403, 404 |
+| 48 | PUT | /organizations/{org}/access/members/{employee_id}/permissions | admin (or super admin) | MemberPermissionsUpdate | 200 MemberAccessResponse | 403, 404 |
+| 49 | GET | /system/catalog | super admin | — | 200 CatalogEntryResponse[] | 403 |
+| 50 | POST | /system/catalog | super admin | CatalogEntryCreate | 201 CatalogEntryResponse | 403, 409 |
+| 51 | PUT | /system/catalog/{kind}/{name} | super admin | CatalogEntryUpdate | 200 CatalogEntryResponse | 403, 404 |
+| 52 | DELETE | /system/catalog/{kind}/{name} | super admin | — | 204 | 403, 404 |
+| 53 | GET | /system/organizations | super admin | — | 200 OrganizationSummary[] | 403 |
+| 54 | POST | /system/organizations/{org}/install | super admin | — | 200 InstallResult | 403, 404 |
+| 55 | GET | /system/users/superusers | super admin | — | 200 SuperuserResponse[] | 403 |
+| 56 | PUT | /system/users/{employee_id}/superuser | super admin | SuperuserUpdate | 200 SuperuserResponse | 403, 404, 409 |
+| 57 | POST | /auth/change-password | user | ChangePasswordRequest | 204 | 401, 422 |
 
 # 50. psycopg3 Exception Mapping
 

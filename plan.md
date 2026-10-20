@@ -4,6 +4,10 @@
 > Status: **Approved** · Created: 2026-09-17
 >
 > **Authoritative spec:** [`ATS_BACKEND_ARCHITECTURE.md`](ATS_BACKEND_ARCHITECTURE.md) — this file records the migration plan; the architecture doc governs implementation (§2 layout, §49 endpoint contracts, §51 ADRs). Where they differ, the architecture doc wins.
+>
+> **The migration is complete.** This plan is kept for the record. For
+> what the system is now, and what is still to do, see
+> [`todo.md`](todo.md).
 
 ---
 

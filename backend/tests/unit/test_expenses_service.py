@@ -91,7 +91,12 @@ class _RepositoryStub:
         row["info_response"] = info_response
         return dict(row)
 
-    async def list_media(self, _conn: Any, expense_id: int) -> list[dict[str, Any]]:  # noqa: ARG002
+    async def list_media(
+        self,
+        _conn: Any,
+        expense_id: int,  # noqa: ARG002 - mirrors the repository signature
+        organization_id: int,  # noqa: ARG002 - mirrors the repository signature
+    ) -> list[dict[str, Any]]:
         return []
 
     async def insert_approval(
@@ -99,6 +104,7 @@ class _RepositoryStub:
         _conn: Any,
         *,
         expense_id: int,
+        organization_id: int,  # noqa: ARG002 - mirrors the repository signature
         actioned_by: int,
         action: str,
         comments: str | None,

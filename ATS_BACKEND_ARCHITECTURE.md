@@ -414,6 +414,34 @@ WHERE expense_id = %(expense_id)s;
 
 when tenant isolation is relevant.
 
+### 8.1 The tenant scope belongs in the statement
+
+A repository that filters by organization only when the calling service
+remembers to check has put the boundary in the call graph rather than in
+the query. A query that states its own scope is safe wherever it is
+called from, and a later reuse of it cannot quietly become a
+cross-tenant read.
+
+So every statement against organization-owned data carries its scope:
+
+* a read or an update compares `organization_id` (or `employee_id`, for
+  a person's own data, which is narrower still);
+* a write names the organization among the columns it writes, so the row
+  is born belonging to someone;
+* the handful of statements whose *job* is to answer "which organization
+  does this row belong to?" are exempt, and each is listed with its
+  reason.
+
+`tests/unit/test_tenant_filter_discipline.py` reads the repositories and
+fails the build when a statement does not. It is the check that keeps
+the rule from being a convention.
+
+The organization that a table's rows belong to has to be *on the row*
+for this to be possible: `expense_media` and `expense_approvals` used
+to hang off an expense without carrying an organization of their own,
+so a query that reached them directly had nothing to filter by. They
+carry it now, like every other organization-owned table.
+
 ---
 
 # 9. Cross-Tenant Integrity

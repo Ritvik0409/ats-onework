@@ -68,14 +68,25 @@ class _RepositoryStub:
                 return dict(row)
         return None
 
-    async def get_role(self, _conn: Any, role_id: int) -> dict[str, Any] | None:
+    async def get_role(
+        self,
+        _conn: Any,
+        role_id: int,
+        organization_id: int,  # noqa: ARG002 - mirrors the repository signature
+    ) -> dict[str, Any] | None:
         row = self.roles.get(role_id)
         return dict(row) if row else None
 
     # -- members -----------------------------------------------------------
 
     async def list_members(
-        self, _conn: Any, project_id: int, *, before_id: int | None, limit: int
+        self,
+        _conn: Any,
+        project_id: int,
+        *,
+        organization_id: int,  # noqa: ARG002 - mirrors the repository signature
+        before_id: int | None,
+        limit: int,
     ) -> list[dict[str, Any]]:
         rows = [
             dict(row)

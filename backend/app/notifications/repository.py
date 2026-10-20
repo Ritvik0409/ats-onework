@@ -43,6 +43,13 @@ class NotificationRepository:
         limit: int = 20,
         before_id: int | None = None,
     ) -> list[Row]:
+        """The caller's own notifications.
+
+        A notification belongs to a person, not to an organization: it is
+        about an expense they submitted. Scoping by ``employee_id`` is
+        therefore narrower than scoping by organization would be, and
+        there is no organization column on the table.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 """

@@ -86,6 +86,7 @@ class ExpenseService:
                     await self._repository.insert_media(
                         conn,
                         expense_id=row["expense_id"],
+                        organization_id=organization_id,
                         receipt_url=url,
                         description=media_description,
                     )
@@ -139,7 +140,7 @@ class ExpenseService:
             )
             if not can_read_all:
                 raise NotFoundError("Expense not found.")
-        media = await self._repository.list_media(conn, expense_id)
+        media = await self._repository.list_media(conn, expense_id, organization_id)
         return self._to_response(row, media)
 
     async def list(
@@ -279,6 +280,7 @@ class ExpenseService:
             await self._repository.insert_approval(
                 conn,
                 expense_id=expense_id,
+                organization_id=organization_id,
                 actioned_by=actor_id,
                 action=ApprovalAction.INFO_REQUESTED.value,
                 comments=message,
@@ -349,6 +351,7 @@ class ExpenseService:
                 await self._repository.insert_approval(
                     conn,
                     expense_id=expense_id,
+                    organization_id=organization_id,
                     actioned_by=actor_id,
                     action=ApprovalAction.INFO_ANSWERED.value,
                     comments=answer,
@@ -417,6 +420,7 @@ class ExpenseService:
             await self._repository.insert_approval(
                 conn,
                 expense_id=expense_id,
+                organization_id=organization_id,
                 actioned_by=actor_id,
                 action=action.value,
                 comments=comments,
@@ -478,7 +482,7 @@ class ExpenseService:
         if row is None:  # pragma: no cover — the row was just written
             raise NotFoundError("Expense not found.")
         if media_rows is None:
-            media_rows = await self._repository.list_media(conn, expense_id)
+            media_rows = await self._repository.list_media(conn, expense_id, organization_id)
         return self._to_response(row, media_rows)
 
     @staticmethod

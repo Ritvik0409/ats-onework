@@ -141,7 +141,7 @@ class ReimbursementService:
             assert updated is not None
             if payload.target_status == ReimbursementStatus.PAID:
                 marked = await self._repository.mark_expense_reimbursed(
-                    conn, int(current["expense_id"])
+                    conn, int(current["expense_id"]), organization_id
                 )
                 if marked is None:
                     raise ConflictError("Linked expense is no longer approved.")

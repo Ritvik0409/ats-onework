@@ -145,12 +145,14 @@ class ReimbursementRepository:
             )
             return await cur.fetchone()
 
-    async def mark_expense_reimbursed(self, conn: Conn, expense_id: int) -> Row | None:
+    async def mark_expense_reimbursed(
+        self, conn: Conn, expense_id: int, organization_id: int
+    ) -> Row | None:
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE expenses SET status = 'reimbursed'"
-                " WHERE expense_id = %s AND status = 'approved'"
+                " WHERE expense_id = %s AND organization_id = %s AND status = 'approved'"
                 " RETURNING expense_id, status",
-                (expense_id,),
+                (expense_id, organization_id),
             )
             return await cur.fetchone()

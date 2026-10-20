@@ -174,40 +174,49 @@ class ExpenseRepository:
         conn: Conn,
         *,
         expense_id: int,
+        organization_id: int,
         actioned_by: int,
         action: str,
         comments: str | None,
     ) -> Row:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO expense_approvals (expense_id, actioned_by, action, comments)"
-                " VALUES (%s, %s, %s, %s)"
+                "INSERT INTO expense_approvals"
+                " (expense_id, organization_id, actioned_by, action, comments)"
+                " VALUES (%s, %s, %s, %s, %s)"
                 " RETURNING approval_id, expense_id, actioned_by, action, comments, actioned_at",
-                (expense_id, actioned_by, action, comments),
+                (expense_id, organization_id, actioned_by, action, comments),
             )
             row = await cur.fetchone()
             assert row is not None
             return row
 
     async def insert_media(
-        self, conn: Conn, *, expense_id: int, receipt_url: str, description: str | None
+        self,
+        conn: Conn,
+        *,
+        expense_id: int,
+        organization_id: int,
+        receipt_url: str,
+        description: str | None,
     ) -> Row:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO expense_media (expense_id, receipt_url, description)"
-                " VALUES (%s, %s, %s) RETURNING " + _MEDIA_COLUMNS,
-                (expense_id, receipt_url, description),
+                "INSERT INTO expense_media (expense_id, organization_id, receipt_url, description)"
+                " VALUES (%s, %s, %s, %s) RETURNING " + _MEDIA_COLUMNS,
+                (expense_id, organization_id, receipt_url, description),
             )
             row = await cur.fetchone()
             assert row is not None
             return row
 
-    async def list_media(self, conn: Conn, expense_id: int) -> list[Row]:
+    async def list_media(self, conn: Conn, expense_id: int, organization_id: int) -> list[Row]:
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT " + _MEDIA_COLUMNS + " FROM expense_media"
-                " WHERE expense_id = %s ORDER BY media_id ASC",
-                (expense_id,),
+                " WHERE expense_id = %s AND organization_id = %s"
+                " ORDER BY media_id ASC",
+                (expense_id, organization_id),
             )
             return list(await cur.fetchall())
 

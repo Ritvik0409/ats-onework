@@ -60,7 +60,7 @@ flag in the app.
 
 | | |
 |---|---|
-| **222 tests** | `uv run pytest` — unit, API-contract and integration |
+| **241 tests** | `uv run pytest` — unit, API-contract and integration |
 | **66 integration tests** | against a real PostgreSQL, created and dropped for the run |
 | **Lint** | `uv run ruff check .` and `uv run ruff format --check .` — clean |
 | **Analysis** | `flutter analyze` — clean |
@@ -71,6 +71,11 @@ cross-organization reimbursement is refused by the database itself,
 that an expense's status machine is enforced even by raw SQL, that an
 employee sees one expense where an administrator sees two, and that a
 grant that is withdrawn takes effect on the next request.
+
+`tests/unit/test_tenant_filter_discipline.py` reads the repositories
+and fails the build when a query on organization data does not scope
+itself by tenant — the check that keeps the boundary a fact rather than
+a convention.
 
 ---
 
@@ -90,60 +95,47 @@ has no SMTP or SendGrid configuration, so the choice has not been made.
 The flow can be built now with a provider interface whose default
 implementation logs the link, and the real sender dropped in later.
 
-### 2. The super administrator's screen for the catalogue
-
-The API for the capability catalogue is complete and tested
-(`/system/catalog`), but the app has no screen for it: the access
-screen manages an organization's roles, while the platform-level
-catalogue is API-only. The same goes for promoting a user to super
-administrator — the endpoint exists, the button does not.
-
-### 3. Paging in the app
-
-The API pages by cursor, and `ApiClient.pageCursor` is written and
-unused. Every list in the app asks for at most 100 rows and stops
-there, so an organization with more than a hundred expenses silently
-loses the rest. The fix is a "load more" affordance over the existing
-cursor.
-
-### 4. An audit-log screen
+### 2. An audit-log screen
 
 `GET /audit-logs` is implemented, tested and tenant-scoped. No screen
 in the app calls it, so the audit trail is invisible to the people who
 would read it.
 
-### 5. Row-level security in the database
+### 3. Row-level security in the database
 
-The application scopes every query to one organization, and composite
-foreign keys stop a grant pointing at another organization's data. But
-the database itself has no row-level security: a connection with the
-wrong `organization_id` set would still read across organizations.
+The application scopes every query to one organization, and a test
+(`tests/unit/test_tenant_filter_discipline.py`) fails the build when a
+query on organization data does not. But the database itself has no
+row-level security: a connection with the wrong `organization_id` set
+would still read across organizations.
 
-This is defence in depth rather than a live hole. It becomes worth
-doing if the API ever grows a second consumer of the database.
+This is defence in depth rather than a live hole, and it becomes worth
+doing if the database ever grows a second consumer — a reporting view, a
+business-intelligence tool, an administrative script.
 
-### 6. A backup and restore routine
+What it would take, for whoever picks it up: the application would run
+as a role that does not own the tables, every request would set the
+tenant context, and the organization-owned tables would carry a policy.
+The good news is that it does **not** need a second set of credentials:
+`SET LOCAL ROLE` to a non-owner role activates the policies, so the
+migrations and the seed keep their access. The cost is a moving part on
+every request, and a failure mode of "returns nothing" rather than
+"returns too much" — safe, but worth understanding before it goes in.
+
+### 4. A backup and restore routine
 
 Nothing automates a backup of the database or of the uploaded
 receipts. The object storage abstraction is in place (§15), so the
 uploaded files could be moved to S3 or MinIO without touching the
 application, but no routine moves them.
 
-### 7. Deprecating the employee-id sign-in
+### 5. Deprecating the employee-id sign-in
 
 `POST /auth/login` accepts a bare employee id as well as an email
 address, for a flow that no client uses any more. The email path is
 the one that should survive.
 
-### 8. Sessions on the client
-
-The access and refresh tokens are kept in `SharedPreferences`, which is
-an unencrypted file in the app's sandbox. Android's auto-backup is now
-switched off, so they are not copied into a cloud backup, but a device
-that is rooted, or an attacker with the app's sandbox, still has them.
-`flutter_secure_storage` would keep them in the platform keystore.
-
-### 9. Multi-organization accounts on the client
+### 6. Multi-organization accounts on the client
 
 The API supports a person belonging to several organizations, and
 `POST /auth/switch-organization` moves between them. The app signs

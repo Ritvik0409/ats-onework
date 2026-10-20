@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ats_onework/management/navigation_shell.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/shared/session_store.dart';
 import 'package:ats_onework/shared/json_utils.dart';
 
 /// Management-portal login — FastAPI JWT (ADR-001), same flow as
@@ -98,22 +99,24 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
         // The stale organization_id and is_admin flags are cleared too,
         // or the next person to use the device is routed into the
         // management portal on the strength of the previous session.
-        await prefs.remove('auth_token');
-        await prefs.remove('refresh_token');
-        await prefs.remove('organization_id');
-        await prefs.remove('is_admin');
+        await SessionStore.deleteTokens();
+        await SessionStore.deleteOrganizationId();
+        await SessionStore.deleteIsAdmin();
         _showError('This portal is restricted to management accounts.');
         return;
       }
 
-      await prefs.setString('auth_token', token);
-      await prefs.setString('refresh_token', refreshToken);
+      // The tokens go into the platform's secure storage; the
+      // organization and the admin flag are not secrets, so they stay
+      // in the preferences.
+      await SessionStore.writeToken(token);
+      await SessionStore.writeRefreshToken(refreshToken);
       if (orgId != null) {
-        await prefs.setInt('organization_id', orgId);
+        await SessionStore.writeOrganizationId(orgId);
       } else {
-        await prefs.remove('organization_id');
+        await SessionStore.deleteOrganizationId();
       }
-      await prefs.setBool('is_admin', isAdmin);
+      await SessionStore.writeIsAdmin(isAdmin);
       ApiClient.resetSessionExpiryNotification();
 
       if (_rememberMe) {

@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/shared/session_store.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
 import 'package:ats_onework/shared/json_utils.dart';
 
@@ -89,9 +89,11 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         final refreshToken = tokenData['refresh_token']?.toString() ?? '';
         final orgs = (tokenData['organizations'] as List?) ?? [];
 
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('auth_token', token);
-        await prefs.setString('refresh_token', refreshToken);
+        // The tokens go into the platform's secure storage; the
+        // organization and the admin flag are not secrets, so they stay
+        // in the preferences.
+        await SessionStore.writeToken(token);
+        await SessionStore.writeRefreshToken(refreshToken);
 
         int? orgId;
         bool isAdmin = false;
@@ -104,11 +106,11 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         // stale organization_id or is_admin sent the next user to the
         // wrong organization, or into the management portal.
         if (orgId != null) {
-          await prefs.setInt('organization_id', orgId);
+          await SessionStore.writeOrganizationId(orgId);
         } else {
-          await prefs.remove('organization_id');
+          await SessionStore.deleteOrganizationId();
         }
-        await prefs.setBool('is_admin', isAdmin);
+        await SessionStore.writeIsAdmin(isAdmin);
         ApiClient.resetSessionExpiryNotification();
 
         // Resolve profile via GET /users/me (TokenPair carries no name/email).

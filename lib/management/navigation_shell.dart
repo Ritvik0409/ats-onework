@@ -14,7 +14,8 @@ import 'package:ats_onework/management/download_stub.dart'
     if (dart.library.html) 'package:ats_onework/management/download_web.dart';
 import 'package:ats_onework/management/management_projects_screen.dart';
 import 'package:ats_onework/employee/add_expense_screen.dart';
-import 'package:ats_onework/shared/ats_logo.dart'; // NEW: Added logo import
+import 'package:ats_onework/shared/ats_logo.dart';
+import 'package:ats_onework/shared/load_more.dart'; // NEW: Added logo import
 
 class ManagementNavigationShell extends StatefulWidget {
   const ManagementNavigationShell({super.key});
@@ -335,8 +336,19 @@ class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
                                     ],
                                   )
                                 : ListView.builder(
-                                    itemCount: approvedExpenses.length,
+                                    // One extra row for the "load more"
+                                    // footer, so a list longer than one
+                                    // page can be walked through.
+                                    itemCount: approvedExpenses.length +
+                                        (_store.hasMoreExpenses ? 1 : 0),
                             itemBuilder: (context, index) {
+                              if (index >= approvedExpenses.length) {
+                                return LoadMoreFooter(
+                                  hasMore: _store.hasMoreExpenses,
+                                  loading: _store.expensesLoadingMore,
+                                  onLoad: _store.loadMoreExpenses,
+                                );
+                              }
                               final expense = approvedExpenses[index];
 
                               return Container(

@@ -206,6 +206,15 @@ class ProjectMemberRecord {
   }
 }
 
+/// One page of a cursor-paginated list: the rows, and the cursor of the
+/// next page — or nothing when the list is exhausted.
+class _Page {
+  const _Page(this.items, this.nextCursor);
+
+  final List<Map<String, dynamic>> items;
+  final String? nextCursor;
+}
+
 class ExpenseStore extends ChangeNotifier {
   ExpenseStore._internal() {
     _loadThemePreference();
@@ -324,26 +333,48 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> fetchUsersFromBackend() async {
     try {
-      final response = await ApiClient.get('/users', query: {'limit': '100'});
-      if (response.statusCode == 200) {
-        final data = ApiClient.pageItems(response);
-        usersList = data.map((user) {
-          final u = user as Map<String, dynamic>;
-          return {
-            'id': (u['employee_id'] ?? u['employeeId'] ?? u['id'] ?? '').toString(),
-            'name': (u['name'] ?? 'Unknown').toString(),
-            'email': (u['email'] ?? '').toString(),
-            'account_status': (u['account_status'] ?? 'active').toString(),
-          };
-        }).toList();
-        notifyListeners();
-      }
+      final page = await _fetchPage('/users');
+      usersList = page.items.map(_userRow).toList();
+      usersCursor = page.nextCursor;
+      notifyListeners();
     } catch (e) {
       debugPrint('Network error fetching users: $e');
     } finally {
       usersLoaded = true;
     }
   }
+
+  /// Loads the next page of the member directory and appends it.
+  Future<void> loadMoreUsers() async {
+    final cursor = usersCursor;
+    if (cursor == null || usersLoadingMore) return;
+    usersLoadingMore = true;
+    try {
+      final page = await _fetchPage('/users', cursor: cursor);
+      usersList = [...usersList, ...page.items.map(_userRow)];
+      usersCursor = page.nextCursor;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Network error loading more users: $e');
+    } finally {
+      usersLoadingMore = false;
+    }
+  }
+
+  bool get hasMoreUsers => usersCursor != null;
+
+  /// The cursor of the next page of the member directory.
+  String? usersCursor;
+
+  bool usersLoadingMore = false;
+
+  /// The member directory's row shape.
+  static Map<String, String> _userRow(Map<String, dynamic> u) => {
+        'id': (u['employee_id'] ?? u['employeeId'] ?? u['id'] ?? '').toString(),
+        'name': (u['name'] ?? 'Unknown').toString(),
+        'email': (u['email'] ?? '').toString(),
+        'account_status': (u['account_status'] ?? 'active').toString(),
+      };
 
   /// Admin action: toggle a user's account_status via PATCH /users/{id}.
   /// Returns true when the backend confirmed the change (list refreshed).
@@ -1229,21 +1260,70 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> fetchExpensesFromBackend() async {
     try {
-      final response = await ApiClient.get('/expenses', query: {'limit': '100'});
-      if (response.statusCode == 200) {
-        final expensesJson = ApiClient.pageItems(response);
-        expenses = expensesJson
-            .map((data) => ExpenseRecord.fromJson(data as Map<String, dynamic>))
-            .toList();
-        notifyListeners();
-      } else {
-        debugPrint('Failed to load expenses: ${response.statusCode}');
-      }
+      final page = await _fetchPage('/expenses');
+      expenses = page.items.map(ExpenseRecord.fromJson).toList();
+      expensesCursor = page.nextCursor;
+      notifyListeners();
     } catch (e) {
       debugPrint('Network error fetching expenses: $e');
     } finally {
       expensesLoaded = true;
     }
+  }
+
+  /// Loads the next page of expenses and appends it.
+  ///
+  /// The list used to stop at a hundred rows, so an organization with
+  /// more than a hundred expenses silently lost the rest.
+  Future<void> loadMoreExpenses() async {
+    final cursor = expensesCursor;
+    if (cursor == null || expensesLoadingMore) return;
+    expensesLoadingMore = true;
+    try {
+      final page = await _fetchPage('/expenses', cursor: cursor);
+      expenses = [
+        ...expenses,
+        ...page.items.map((data) => ExpenseRecord.fromJson(data)),
+      ];
+      expensesCursor = page.nextCursor;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Network error loading more expenses: $e');
+    } finally {
+      expensesLoadingMore = false;
+    }
+  }
+
+  /// Whether another page of expenses is waiting.
+  bool get hasMoreExpenses => expensesCursor != null;
+
+  /// The cursor of the next page of expenses, or null when the list is
+  /// exhausted.
+  String? expensesCursor;
+
+  /// Whether a page of expenses is being fetched.
+  bool expensesLoadingMore = false;
+
+  /// One page of a cursor-paginated list.
+  ///
+  /// The API pages by cursor: it returns the rows and the cursor of the
+  /// next page, or nothing when the list is exhausted.
+  Future<_Page> _fetchPage(
+    String path, {
+    Map<String, String>? query,
+    String? cursor,
+  }) async {
+    final parameters = <String, String>{...?query, 'limit': '50'};
+    if (cursor != null) parameters['cursor'] = cursor;
+    final response = await ApiClient.get(path, query: parameters);
+    if (response.statusCode != 200) {
+      debugPrint('Failed to load $path: ${response.statusCode}');
+      return const _Page([], null);
+    }
+    return _Page(
+      ApiClient.pageItems(response).cast<Map<String, dynamic>>(),
+      ApiClient.pageCursor(response),
+    );
   }
 
   Future<void> loadCurrentUserRole(String email) async {

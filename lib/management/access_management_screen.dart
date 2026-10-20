@@ -32,6 +32,14 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
   List<Map<String, dynamic>> _permissions = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _members = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _organizations = <Map<String, dynamic>>[];
+
+  /// The platform's standard capabilities and roles.
+  List<Map<String, dynamic>> _catalogue = <Map<String, dynamic>>[];
+
+  /// The platform's super administrators.
+  List<Map<String, dynamic>> _superusers = <Map<String, dynamic>>[];
+  bool? _superusersLoaded;
+
   bool _loading = true;
   String? _error;
 
@@ -58,13 +66,25 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
         return;
       }
 
-      // A super administrator may manage any organization.
+      // A super administrator may manage any organization, and also
+      // maintains the catalogue the organizations are built from.
       if (_store.isSuperUser) {
         final orgs = await ApiClient.get('/system/organizations');
         if (orgs.statusCode == 200) {
           _organizations = ApiClient.pageItems(orgs)
               .cast<Map<String, dynamic>>();
         }
+        final catalogue = await ApiClient.get('/system/catalog');
+        if (catalogue.statusCode == 200) {
+          _catalogue = ApiClient.pageItems(catalogue)
+              .cast<Map<String, dynamic>>();
+        }
+        final superusers = await ApiClient.get('/system/users/superusers');
+        if (superusers.statusCode == 200) {
+          _superusers = ApiClient.pageItems(superusers)
+              .cast<Map<String, dynamic>>();
+        }
+        _superusersLoaded = true;
       }
 
       final roles = await ApiClient.get('/organizations/$orgId/access/roles');
@@ -103,84 +123,255 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
     final frost = _store.textFrost;
     final muted = _store.textMuted;
 
-    return Scaffold(
-      backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: card,
-        foregroundColor: frost,
-        title: const Text('Access'),
-        actions: [
-          IconButton(
-            onPressed: _load,
-            icon: Icon(Icons.refresh_rounded, color: gold),
-            tooltip: 'Reload',
-          ),
-        ],
-      ),
-      body: _loading
-          ? Center(child: CircularProgressIndicator(color: gold))
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!, style: TextStyle(color: muted)),
-                  ),
+    // A platform super administrator also maintains the catalogue the
+    // organizations are built from, and who the platform administrators
+    // are. An organization's administrator sees only their own.
+    final isSuper = _store.isSuperUser;
+
+    return DefaultTabController(
+      length: isSuper ? 3 : 1,
+      child: Scaffold(
+        backgroundColor: bg,
+        appBar: AppBar(
+          backgroundColor: card,
+          foregroundColor: frost,
+          title: const Text('Access'),
+          actions: [
+            IconButton(
+              onPressed: _load,
+              icon: Icon(Icons.refresh_rounded, color: gold),
+              tooltip: 'Reload',
+            ),
+          ],
+          bottom: isSuper
+              ? TabBar(
+                  labelColor: gold,
+                  unselectedLabelColor: muted,
+                  indicatorColor: gold,
+                  tabs: const [
+                    Tab(text: 'Organization'),
+                    Tab(text: 'Catalogue'),
+                    Tab(text: 'Administrators'),
+                  ],
                 )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
+              : null,
+        ),
+        body: _loading
+            ? Center(child: CircularProgressIndicator(color: gold))
+            : _error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(_error!, style: TextStyle(color: muted)),
+                    ),
+                  )
+                : TabBarView(
                     children: [
-                      if (_organizations.isNotEmpty) ...[
-                        Text('Organization',
-                            style: TextStyle(
-                                color: gold, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<int>(
-                          initialValue: _activeOrganizationId,
-                          isExpanded: true,
-                          dropdownColor: card,
-                          style: TextStyle(color: frost),
-                          items: _organizations
-                              .map((org) => DropdownMenuItem<int>(
-                                    value:
-                                        (org['organization_id'] as num?)?.toInt(),
-                                    child: Text(org['name']?.toString() ?? '',
-                                        style: TextStyle(color: frost)),
-                                  ))
-                              .toList(),
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() => _organizationId = value);
-                            _load();
-                          },
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                      Text('Roles',
-                          style: TextStyle(
-                              color: gold, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      ..._roles.map((role) => _RoleTile(
-                            role: role,
-                            onTap: () => _openRole(role),
-                          )),
-                      const SizedBox(height: 24),
-                      if (_members.isNotEmpty) ...[
-                        Text('People',
-                            style: TextStyle(
-                                color: gold, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        ..._members.map((member) => _MemberTile(
-                              member: member,
-                              onTap: () => _openMember(member),
-                            )),
-                      ],
+                      _organizationTab(card, gold, frost, muted),
+                      if (isSuper) _catalogueTab(card, gold, frost, muted),
+                      if (isSuper) _administratorsTab(card, gold, frost, muted),
                     ],
                   ),
-                ),
+      ),
     );
+  }
+
+  /// The organization's own roles, grants and people.
+  Widget _organizationTab(
+    Color card,
+    Color gold,
+    Color frost,
+    Color muted,
+  ) {
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (_organizations.isNotEmpty) ...[
+            Text('Organization',
+                style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              initialValue: _activeOrganizationId,
+              isExpanded: true,
+              dropdownColor: card,
+              style: TextStyle(color: frost),
+              items: _organizations
+                  .map((org) => DropdownMenuItem<int>(
+                        value: (org['organization_id'] as num?)?.toInt(),
+                        child: Text(org['name']?.toString() ?? '',
+                            style: TextStyle(color: frost)),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _organizationId = value);
+                _load();
+              },
+            ),
+            const SizedBox(height: 24),
+          ],
+          Text('Roles',
+              style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ..._roles.map((role) => _RoleTile(
+                role: role,
+                onTap: () => _openRole(role),
+              )),
+          const SizedBox(height: 24),
+          if (_members.isNotEmpty) ...[
+            Text('People',
+                style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            ..._members.map((member) => _MemberTile(
+                  member: member,
+                  onTap: () => _openMember(member),
+                )),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The platform's standard capabilities and roles — the catalogue an
+  /// organization is built from.
+  Widget _catalogueTab(Color card, Color gold, Color frost, Color muted) {
+    final capabilities =
+        _catalogue.where((entry) => entry['kind'] == 'permission').toList();
+    final roles = _catalogue.where((entry) => entry['kind'] == 'role').toList();
+
+    if (_catalogue.isEmpty) {
+      return Center(
+        child: Text('The catalogue could not be read.',
+            style: TextStyle(color: muted)),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadCatalogue,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            'The standard capabilities and roles every organization is '
+            'built from. Changing one here does not change an '
+            'organization that has already installed it — that is done '
+            'from the roles of the organization itself.',
+            style: TextStyle(color: muted, fontSize: 12),
+          ),
+          const SizedBox(height: 16),
+          Text('Standard roles',
+              style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ...roles.map((role) => _CatalogueTile(
+                entry: role,
+                onTap: () => _openCatalogEntry(role),
+              )),
+          const SizedBox(height: 24),
+          Text('Standard capabilities',
+              style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ...capabilities.map((capability) => _CatalogueTile(
+                entry: capability,
+                onTap: () => _openCatalogEntry(capability),
+              )),
+        ],
+      ),
+    );
+  }
+
+  /// The platform's super administrators.
+  Widget _administratorsTab(Color card, Color gold, Color frost, Color muted) {
+    if (_superusersLoaded != true) {
+      return Center(
+        child: Text('The administrators could not be read.',
+            style: TextStyle(color: muted)),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _loadSuperusers,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            'A super administrator maintains the catalogue and may '
+            'configure any organization. It is separate from an '
+            "organization's own administrator, which only governs that "
+            'organization.',
+            style: TextStyle(color: muted, fontSize: 12),
+          ),
+          const SizedBox(height: 16),
+          Text('Super administrators',
+              style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          ..._superusers.map((admin) => _SuperuserTile(
+                admin: admin,
+                onToggle: () => _toggleSuperuser(admin),
+              )),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _loadCatalogue() async {
+    try {
+      final response = await ApiClient.get('/system/catalog');
+      if (response.statusCode == 200) {
+        _catalogue = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
+      }
+    } catch (_) {
+      // The tab shows its own error.
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadSuperusers() async {
+    try {
+      final response = await ApiClient.get('/system/users/superusers');
+      if (response.statusCode == 200) {
+        _superusers = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
+      }
+    } catch (_) {
+      // The tab shows what it has.
+    }
+    if (mounted) {
+      setState(() => _superusersLoaded = true);
+    }
+  }
+
+  Future<void> _openCatalogEntry(Map<String, dynamic> entry) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _store.card,
+      isScrollControlled: true,
+      builder: (_) => _CatalogEntrySheet(entry: entry, onSaved: _loadCatalogue),
+    );
+  }
+
+  Future<void> _toggleSuperuser(Map<String, dynamic> admin) async {
+    final employeeId = (admin['employee_id'] as num?)?.toInt();
+    if (employeeId == null) return;
+    final isSuper = admin['is_superuser'] == true;
+    final response = await ApiClient.put(
+      '/system/users/$employeeId/superuser',
+      {'is_superuser': !isSuper},
+    );
+    if (!mounted) return;
+    if (response.statusCode == 200) {
+      AppSnack.success(
+        context,
+        isSuper
+            ? 'Removed the super administrator rights.'
+            : 'Granted super administrator rights.',
+      );
+      await _loadSuperusers();
+    } else {
+      AppSnack.error(context, 'Could not change the super administrator rights.');
+    }
   }
 
   Future<void> _openRole(Map<String, dynamic> role) async {
@@ -215,6 +406,193 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
       ),
     );
     await _load();
+  }
+}
+
+class _CatalogueTile extends StatelessWidget {
+  const _CatalogueTile({required this.entry, required this.onTap});
+
+  final Map<String, dynamic> entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = ExpenseStore.instance;
+    final grants = stringList(entry['grants']);
+    final isRole = entry['kind'] == 'role';
+    return Card(
+      color: store.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: store.border),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        title: Text(entry['name']?.toString() ?? '',
+            style: TextStyle(color: store.textFrost)),
+        subtitle: Text(
+          isRole
+              ? (grants.isEmpty
+                  ? 'Grants nothing'
+                  : 'Grants ${grants.length} capabilit${grants.length == 1 ? 'y' : 'ies'}')
+              : (entry['description']?.toString() ?? ''),
+          style: TextStyle(color: store.textMuted),
+        ),
+        trailing: Icon(Icons.chevron_right_rounded, color: store.accentGold),
+      ),
+    );
+  }
+}
+
+class _SuperuserTile extends StatelessWidget {
+  const _SuperuserTile({required this.admin, required this.onToggle});
+
+  final Map<String, dynamic> admin;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = ExpenseStore.instance;
+    return Card(
+      color: store.card,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: store.border),
+      ),
+      child: ListTile(
+        title: Text(admin['name']?.toString() ?? '',
+            style: TextStyle(color: store.textFrost)),
+        subtitle: Text(admin['email']?.toString() ?? '',
+            style: TextStyle(color: store.textMuted)),
+        trailing: Switch(
+          value: admin['is_superuser'] == true,
+          activeThumbColor: store.accentGold,
+          onChanged: (_) => onToggle(),
+        ),
+      ),
+    );
+  }
+}
+
+/// Edits one entry of the platform catalogue.
+class _CatalogEntrySheet extends StatefulWidget {
+  const _CatalogEntrySheet({required this.entry, required this.onSaved});
+
+  final Map<String, dynamic> entry;
+  final Future<void> Function() onSaved;
+
+  @override
+  State<_CatalogEntrySheet> createState() => _CatalogEntrySheetState();
+}
+
+class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
+  final ExpenseStore _store = ExpenseStore.instance;
+  late final TextEditingController _description =
+      TextEditingController(text: widget.entry['description']?.toString() ?? '');
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _description.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gold = _store.accentGold;
+    final frost = _store.textFrost;
+    final muted = _store.textMuted;
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.55,
+      maxChildSize: 0.9,
+      builder: (context, controller) => Container(
+        color: _store.card,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                widget.entry['name']?.toString() ?? '',
+                style: TextStyle(
+                    color: frost, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
+                  TextField(
+                    controller: _description,
+                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'Description'),
+                  ),
+                  const SizedBox(height: 12),
+                  if (widget.entry['kind'] == 'role')
+                    Text(
+                      'The capabilities this standard role grants are set '
+                      'when a new organization is created. To change what an '
+                      'existing organization grants, use the roles of that '
+                      'organization.',
+                      style: TextStyle(color: muted, fontSize: 12),
+                    ),
+                ],
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: gold,
+                      foregroundColor: Colors.black,
+                    ),
+                    onPressed: _saving ? null : _save,
+                    child: _saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.black),
+                          )
+                        : const Text('Save'),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    final kind = widget.entry['kind']?.toString() ?? 'permission';
+    final name = widget.entry['name']?.toString() ?? '';
+    setState(() => _saving = true);
+    try {
+      final response = await ApiClient.put('/system/catalog/$kind/$name', {
+        'description': _description.text,
+      });
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        AppSnack.success(context, 'Catalogue updated.');
+        await widget.onSaved();
+        if (!mounted) return;
+        Navigator.of(context).pop();
+      } else {
+        AppSnack.error(context, 'Could not update the catalogue.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      AppSnack.error(context, 'Could not update the catalogue.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }
 

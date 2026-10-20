@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_details.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/manager_reports.dart';
+import 'package:ats_onework/shared/load_more.dart';
 
 class ManagerRequestsScreen extends StatefulWidget {
   const ManagerRequestsScreen({super.key});
@@ -168,8 +169,19 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
                     child: filteredExpenses.isEmpty
                         ? Center(child: Text('No matching expense logs found.', style: TextStyle(color: textMuted)))
                         : ListView.builder(
-                            itemCount: filteredExpenses.length,
+                            // One extra row for the "load more" footer,
+                            // so a list longer than one page can be
+                            // walked through.
+                            itemCount: filteredExpenses.length +
+                                (_store.hasMoreExpenses ? 1 : 0),
                             itemBuilder: (context, index) {
+                              if (index >= filteredExpenses.length) {
+                                return LoadMoreFooter(
+                                  hasMore: _store.hasMoreExpenses,
+                                  loading: _store.expensesLoadingMore,
+                                  onLoad: _store.loadMoreExpenses,
+                                );
+                              }
                               final expense = filteredExpenses[index];
 
                               Color statusColor = champagneGold;

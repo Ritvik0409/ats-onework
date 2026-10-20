@@ -157,12 +157,6 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
         permissions: permissions,
         superuser: superuser,
       );
-      if (!ExpenseStore.instance.hasManagementAccess) {
-        await ApiClient.signOut();
-        _showError('This portal is restricted to management accounts.');
-        return;
-      }
-
       ExpenseStore.instance.currentUserName = userName;
       ExpenseStore.instance.setCurrentManager(email: email);
       ExpenseStore.instance.setManagerName(userName);
@@ -172,11 +166,28 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
       // plus the queues the dashboards render first.
       await _primeManagerData(orgId);
 
-      if (mounted) {
+      if (!mounted) return;
+
+      // The one routing decision both portals now share: land wherever
+      // the capabilities say the person belongs. A plain employee who
+      // signs in here no longer bounces with an error — they simply
+      // get the employee portal, the same behavior as signing in
+      // through the employee screen.
+      if (ExpenseStore.instance.hasManagementAccess ||
+          ExpenseStore.instance.isSuperUser) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const ManagementNavigationShell()),
         );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Signed in as ${ExpenseStore.instance.currentUserRole}. Showing the employee portal.',
+            ),
+          ),
+        );
+        Navigator.pushReplacementNamed(context, '/employee_shell');
       }
     } catch (e) {
       if (mounted) {

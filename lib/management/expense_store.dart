@@ -553,6 +553,22 @@ class ExpenseStore extends ChangeNotifier {
   bool get hasManagementAccess =>
       grantedPermissions.any(managementCapabilities.contains);
 
+  /// Capability personas the navigation builds itself from — the role
+  /// name is never consulted for these. A person who can move
+  /// reimbursements through their lifecycle needs the payout screens
+  /// even when their role is a custom one the portal has never heard
+  /// of.
+  bool get payoutPersona => canPayReimbursements;
+
+  /// Reviews expenses but holds none of the project/budget building
+  /// capabilities — the director shape.
+  bool get reviewerOnlyPersona =>
+      canApproveExpenses &&
+      canReadAuditLog &&
+      !can('budget.manage') &&
+      !can('project.create') &&
+      !can('project.manage');
+
   /// Records what the server says about the signed-in user.
   ///
   /// The role is derived from the roles the server reports, with the
@@ -567,12 +583,18 @@ class ExpenseStore extends ChangeNotifier {
     currentUserRoles = roles;
     grantedPermissions = permissions.toSet();
     isSuperUser = superuser;
-    currentUserRole = _primaryRole(roles);
+    currentUserRole = _primaryRole(roles, grantedPermissions);
     notifyListeners();
   }
 
   /// The role the interface branches on, most privileged first.
-  static String _primaryRole(List<String> roles) {
+  ///
+  /// A custom role the portal has never heard of (created in the Access
+  /// tab) is *inferred* from its capabilities instead of defaulting to
+  /// `employee` — being read as an employee changes behavior beyond
+  /// portal selection (it scopes myProjects and the theme key), and
+  /// someone who can approve reimbursements is not an employee.
+  static String _primaryRole(List<String> roles, Set<String> capabilities) {
     const precedence = <String>[
       'admin',
       'director',
@@ -583,6 +605,22 @@ class ExpenseStore extends ChangeNotifier {
     ];
     for (final role in precedence) {
       if (roles.contains(role)) return role;
+    }
+    if (capabilities.contains('reimbursement.transition')) return 'finance';
+    if (capabilities.contains('user.manage') ||
+        capabilities.contains('employee_status.manage')) {
+      return 'hr';
+    }
+    if (capabilities.contains('expense.approve')) {
+      if (capabilities.contains('budget.manage') ||
+          capabilities.contains('project.create') ||
+          capabilities.contains('project.manage')) {
+        return 'manager';
+      }
+      return 'director';
+    }
+    if (capabilities.any(managementCapabilities.contains)) {
+      return 'manager';
     }
     return 'employee';
   }

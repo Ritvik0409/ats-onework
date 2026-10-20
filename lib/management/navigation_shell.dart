@@ -48,21 +48,23 @@ class _ManagementNavigationShellState extends State<ManagementNavigationShell> {
         // who holds `expense.approve` gets the review queue. The role
         // only chooses which dashboard to open first.
         final bool canApprove = store.canApproveExpenses;
-        final bool canPay = store.canPayReimbursements;
         final bool canSubmit = store.can('expense.create');
         final bool canReadProjects = store.can('project.read');
         final bool canSeePaid = store.can('reimbursement.read_all') ||
             store.can('reimbursement.read_own');
         final bool canManageAccess = store.canManageAccess;
-        final bool isDirector = currentRole == 'director';
-        final bool isFinance = currentRole == 'finance';
+        // Dashboard selection is capability-driven: payout duties buy
+        // the finance layout, review-without-building maps to the
+        // director dashboard, everything else — manager or a custom
+        // role — opens the manager layout. ``isHR`` is kept: the
+        // profile extras below branch on it.
         final bool isHR = currentRole == 'hr';
 
         List<Widget> screens;
         List<BottomNavigationBarItem> navItems;
 
         // Explicit Role-Based Navigation Routing to prevent index mismatch offsets
-        if (isFinance && canPay) {
+        if (store.payoutPersona) {
           screens = [
             const FinanceDashboard(),
             const FinanceToPayScreen(),
@@ -75,7 +77,9 @@ class _ManagementNavigationShellState extends State<ManagementNavigationShell> {
             BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Paid'),
             BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
           ];
-        } else if (isDirector) {
+        } else if (store.reviewerOnlyPersona) {
+          // A reviewer without builder capabilities — the director
+          // shape, whether or not their role is named "director".
           screens = [
             const DirectorDashboard(),
             if (canApprove) const ManagerRequestsScreen(),

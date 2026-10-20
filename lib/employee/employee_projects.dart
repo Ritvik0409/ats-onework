@@ -229,8 +229,11 @@ class EmployeeProjectDetailsScreen extends StatelessWidget {
                             }
                             final bytes = utf8.encode(csvContent);
                             final timestamp = DateTime.now().millisecondsSinceEpoch;
-                            downloadFile(bytes, '${project.name.replaceAll(' ', '_')}_Report_$timestamp.csv');
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Download started!'), backgroundColor: champagneGold));
+                            final downloaded = downloadFile(bytes, '${project.name.replaceAll(' ', '_')}_Report_$timestamp.csv');
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(downloaded ? 'Download started!' : 'CSV export is available in the web build.'),
+                              backgroundColor: champagneGold,
+                            ));
                           },
                           icon: Icon(Icons.download_rounded, size: 16, color: champagneGold),
                           label: Text('Export CSV', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: champagneGold)),

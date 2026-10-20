@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -19,9 +20,9 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
   String _searchQuery = '';
   DateTime? _selectedDate;
 
-  static const List<String> _monthNames = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
+  /// Debounces the search field: reloading reads twelve months of
+  /// budgets, so it must not run on every keystroke.
+  Timer? _searchDebounce;
 
   static const List<String> _fullMonthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -39,24 +40,46 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
     _loadBudgetHistory();
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadBudgetHistory() async {
+    if (!mounted) return;
     setState(() => _isLoadingReports = true);
     final List<Map<String, dynamic>> reports = [];
     final now = DateTime.now();
 
-    for (int i = 0; i < 12; i++) {
-      final targetMonth = DateTime(now.year, now.month - i);
-      final monthName = '${_fullMonthNames[targetMonth.month - 1]} ${targetMonth.year}';
-      final shortMonth = _monthNames[targetMonth.month - 1]; 
+    // The twelve months are fetched together rather than one after the
+    // other: they are independent reads, and doing them in sequence made
+    // the report take twelve round-trips.
+    final months = List<DateTime>.generate(
+      12,
+      (i) => DateTime(now.year, now.month - i),
+    );
+    final budgets = await Future.wait(
+      months.map(_store.getBudgetForMonth),
+    );
 
-      final double budget = await _store.getBudgetForMonth(targetMonth) ?? 0.0;
+    for (int i = 0; i < months.length; i++) {
+      final targetMonth = months[i];
+      final monthName = '${_fullMonthNames[targetMonth.month - 1]} ${targetMonth.year}';
+
+      final double budget = budgets[i] ?? 0.0;
 
       double spent = 0.0;
       for (var e in _store.expenses) {
-        if (e.status != 'Rejected') {
-          if (e.date.contains(shortMonth) && e.date.contains('${targetMonth.year}')) {
-            spent += e.amount;
-          }
+        if (e.status == 'Rejected') continue;
+        // The API sends an ISO date ("2026-10-20"). Matching it against a
+        // month abbreviation never matched, so every month reported a
+        // spend of zero.
+        final expenseDate = _store.parseBackendDate(e.date);
+        if (expenseDate == null) continue;
+        if (expenseDate.year == targetMonth.year &&
+            expenseDate.month == targetMonth.month) {
+          spent += e.amount;
         }
       }
 
@@ -173,7 +196,14 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
                   TextField(
                     onChanged: (value) {
                       setState(() => _searchQuery = value);
-                      _loadBudgetHistory();
+                      // Debounced: the reload reads twelve months of
+                      // budgets, so running it on every keystroke meant
+                      // twelve sequential requests per character typed.
+                      _searchDebounce?.cancel();
+                      _searchDebounce = Timer(
+                        const Duration(milliseconds: 300),
+                        _loadBudgetHistory,
+                      );
                     },
                     style: TextStyle(color: textFrost, fontSize: 14),
                     decoration: InputDecoration(
@@ -228,7 +258,7 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
                           },
                         );
 
-                        if (picked != null) {
+                        if (picked != null && mounted) {
                           setState(() => _selectedDate = picked);
                           _loadBudgetHistory();
                         }

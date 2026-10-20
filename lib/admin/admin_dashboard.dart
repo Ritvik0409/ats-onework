@@ -239,6 +239,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
             onPressed: () async {
               // Revokes the refresh token and clears the local JWT store.
               await ApiClient.signOut();
+              // Drop the previous user's data from the shared store.
+              ExpenseStore.instance.resetForSignOut();
 
               if (context.mounted) {
                 Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(

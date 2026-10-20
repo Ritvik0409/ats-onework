@@ -294,7 +294,18 @@ class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
                         : RefreshIndicator(
                             onRefresh: () => _store.fetchExpensesFromBackend(),
                             child: approvedExpenses.isEmpty
-                                ? Center(child: Text('Inbox Zero! No pending payouts.', style: TextStyle(color: textMuted)))
+                                // A RefreshIndicator only reacts to the
+                                // scroll notifications of a scrollable
+                                // child, so the empty state has to be one
+                                // too — otherwise pull-to-refresh does
+                                // nothing exactly when it is wanted.
+                                ? ListView(
+                                    physics: const AlwaysScrollableScrollPhysics(),
+                                    children: [
+                                      const SizedBox(height: 80),
+                                      Center(child: Text('Inbox Zero! No pending payouts.', style: TextStyle(color: textMuted))),
+                                    ],
+                                  )
                                 : ListView.builder(
                                     itemCount: approvedExpenses.length,
                             itemBuilder: (context, index) {
@@ -813,11 +824,11 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
 
                         try {
                           final timestamp = DateTime.now().millisecondsSinceEpoch;
-                          downloadFile(bytes, 'Paid_Reimbursements_$timestamp.csv');
-                          
+                          final downloaded = downloadFile(bytes, 'Paid_Reimbursements_$timestamp.csv');
+
                          ScaffoldMessenger.of(context).showSnackBar(
   SnackBar(
-    content: const Text('Download started!', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+    content: Text(downloaded ? 'Download started!' : 'CSV export is available in the web build.', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
     backgroundColor: champagneGold,
     behavior: SnackBarBehavior.floating,
   ),
@@ -1071,11 +1082,11 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
 
                         try {
                           final timestamp = DateTime.now().millisecondsSinceEpoch;
-                          downloadFile(bytes, 'Pending_Payouts_$timestamp.csv');
-                          
+                          final downloaded = downloadFile(bytes, 'Pending_Payouts_$timestamp.csv');
+
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: const Text('Download started!', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                              content: Text(downloaded ? 'Download started!' : 'CSV export is available in the web build.', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                               backgroundColor: champagneGold,
                             ),
                           );

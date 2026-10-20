@@ -171,6 +171,8 @@ class EmployeeWaitScreen extends StatelessWidget {
                           // Revokes the refresh token and clears the
                           // local JWT store (api_client.dart).
                           await ApiClient.signOut();
+                          // Drop the previous user's data from the shared store.
+                          ExpenseStore.instance.resetForSignOut();
                           if (!context.mounted) return;
                           Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
                             MaterialPageRoute(builder: (context) => const UniversalLoginScreen()),

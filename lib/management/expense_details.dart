@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/shared/api_client.dart';
 
 class ExpenseDetailsScreen extends StatefulWidget {
   final String expenseId;
@@ -57,10 +58,12 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                       onPressed: () async {
                         final picker = ImagePicker();
                         final image = await picker.pickImage(source: ImageSource.gallery);
-                        if (image != null) {
-                          final bytes = await image.readAsBytes();
-                          setDialogState(() => paymentReceiptBytes = bytes);
-                        }
+                        if (image == null) return;
+                        final bytes = await image.readAsBytes();
+                        // The dialog can be dismissed while the gallery
+                        // picker is open.
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() => paymentReceiptBytes = bytes);
                       },
                       icon: Icon(Icons.receipt_long_rounded, color: store.accentGold, size: 18),
                       label: Text(paymentReceiptBytes == null ? 'Attach Receipt (Opt.)' : 'Receipt Attached', style: TextStyle(color: store.accentGold)),
@@ -313,11 +316,30 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
 
   /// The receipt field holds a server URL (after §15 object storage) — or
   /// legacy base64 data from before the migration. Render accordingly.
+  ///
+  /// The backend stores receipts under a *relative* path
+  /// (`/uploads/receipts/...`), so it is resolved against the API base
+  /// URL. Decoding it as base64 threw a FormatException from inside
+  /// `build`, which `errorBuilder` cannot catch.
   ImageProvider<Object> _receiptImageProvider(String receipt) {
     if (receipt.startsWith('http://') || receipt.startsWith('https://')) {
       return NetworkImage(receipt);
     }
-    return MemoryImage(base64Decode(receipt));
+    if (receipt.startsWith('/')) {
+      return NetworkImage('${ApiClient.baseUrl}$receipt');
+    }
+    if (receipt.startsWith('data:')) {
+      final comma = receipt.indexOf(',');
+      if (comma > 0) {
+        return MemoryImage(base64Decode(receipt.substring(comma + 1)));
+      }
+    }
+    // Legacy inline base64 without a data-URI prefix.
+    try {
+      return MemoryImage(base64Decode(receipt));
+    } catch (_) {
+      return NetworkImage('${ApiClient.baseUrl}/$receipt');
+    }
   }
 
   void _showFullScreenImage(String receipt) {

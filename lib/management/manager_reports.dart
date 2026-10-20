@@ -22,12 +22,15 @@ class _ManagerReportsScreenState extends State<ManagerReportsScreen> {
   String _selectedStatus = 'All';
   DateTime? _selectedDate;
 
+  /// The month a date string belongs to, as "MMM yyyy".
+  ///
+  /// The API sends an ISO date ("2026-10-20"), so the previous
+  /// space-splitting never matched and every month filter returned an
+  /// empty report.
   String _getMonthYear(String dateStr) {
-    final parts = dateStr.split(' ');
-    if (parts.length >= 3) {
-      return '${parts[1]} ${parts[2]}'; 
-    }
-    return dateStr;
+    final parsed = _store.parseBackendDate(dateStr);
+    if (parsed == null) return '';
+    return '${_monthNames[parsed.month - 1]} ${parsed.year}';
   }
 
   static const List<String> _monthNames = [
@@ -228,7 +231,7 @@ class _ManagerReportsScreenState extends State<ManagerReportsScreen> {
                           },
                         );
 
-                        if (picked != null) {
+                        if (picked != null && mounted) {
                           setState(() => _selectedDate = picked);
                         }
                       },

@@ -15,6 +15,17 @@ class PendingApprovalsScreen extends StatefulWidget {
 }
 
 class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Refresh once when the screen opens. Doing it from the build method
+    // restarted the request on every rebuild, and the fetch notifies
+    // listeners — so the screen refetched itself in a loop.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ExpenseStore.instance.fetchProjectRequestsFromBackend();
+    });
+  }
+
   void _showApproveDialog(BuildContext context, Map<String, dynamic> requestData, ExpenseStore store) {
     final employeeName = requestData['name']?.toString() ?? 'Unknown';
     final employeeEmail = requestData['email']?.toString() ?? '';
@@ -136,9 +147,13 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
               padding: const EdgeInsets.all(24.0),
               // Data path: GET /api/v1/access-requests?status=pending
               // (store.projectRequests, migration 0002 flow).
-              child: FutureBuilder(
-                future: store.fetchProjectRequestsFromBackend(),
-                builder: (context, snapshot) {
+              //
+              // The list is read straight from the store. It used to be
+              // wrapped in a FutureBuilder, which started a new request
+              // on every rebuild — and the fetch notifies listeners, so
+              // the screen refetched itself forever.
+              child: Builder(
+                builder: (context) {
                   final requests = store.projectRequests;
 
                   if (requests.isEmpty) {

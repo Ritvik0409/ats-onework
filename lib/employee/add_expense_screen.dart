@@ -137,11 +137,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   Widget build(BuildContext context) {
     final store = ExpenseStore.instance;
     final bool isManagement = store.currentUserRole != 'employee';
-    final availableProjects = store.myProjects;
 
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) {
+        // Read inside the builder: captured outside, the list never
+        // refreshed when the store did.
+        final availableProjects = store.myProjects;
         final obsidianBlack = store.bg;
         final darkCharcoal = store.card;
         final textFrost = store.textFrost;
@@ -322,7 +324,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                                         );
                                       },
                                     );
-                                    if (picked != null && picked != _selectedDate) {
+                                    if (picked != null && picked != _selectedDate && mounted) {
                                       setState(() => _selectedDate = picked);
                                     }
                                   },
@@ -391,7 +393,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                                           context,
                                           MaterialPageRoute(builder: (context) => const ReceiptCaptureScreen()),
                                         );
-                                        if (capturedImage != null) {
+                                        if (capturedImage != null && mounted) {
                                           setState(() => _receiptBytes = capturedImage);
                                         }
                                       },

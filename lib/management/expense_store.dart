@@ -20,6 +20,9 @@ class ProjectRecord {
   /// Budget row the project references — needed for PATCH budget editing.
   final String? budgetId;
   final int memberCount;
+  /// Ids of the employees assigned to the project. The backend sends
+  /// these as ``assigned_employee_ids``; without them a client cannot
+  /// tell which projects the signed-in employee can act in.
   final List<String> assignedEmails;
   final bool isActive;
 
@@ -34,13 +37,16 @@ class ProjectRecord {
   });
 
   factory ProjectRecord.fromJson(Map<String, dynamic> json) {
+    final assigned = json['assigned_employee_ids'] ?? json['assignedEmails'];
     return ProjectRecord(
       id: (json['project_id'] ?? json['id'])?.toString() ?? '',
       name: json['name']?.toString() ?? 'Unnamed Project',
       budget: parseBackendDouble(json['budget'] ?? json['budget_amount']) ?? 0.0,
       budgetId: json['budget_id']?.toString(),
       memberCount: int.tryParse(json['member_count']?.toString() ?? '0') ?? 0,
-      assignedEmails: List<String>.from(json['assignedEmails'] ?? []),
+      assignedEmails: assigned is List
+          ? assigned.map((e) => e.toString()).toList()
+          : const <String>[],
       isActive: (json['is_active'] ?? json['isActive']) ?? true,
     );
   }
@@ -48,27 +54,34 @@ class ProjectRecord {
 
 class ExpenseRecord {
   final String firestoreDocId;
-  final String id; 
+  final String id;
   final String name;
   final String email;
-  final String type; 
+  /// Employee id of the submitter — the stable key for "my expenses".
+  /// The email is not: the backend exposes it, but matching on the id
+  /// is what the API itself scopes by.
+  final String employeeId;
+  final String type;
   final double amount;
-  final String date; 
+  final String date;
   final String description;
-  String status; 
-  String? rejectionReason; 
+  String status;
+  String? rejectionReason;
   /// The manager's question while a request sits in 'Info Requested'.
   String? infoMessage;
+  /// The employee's answer to that question.
+  String? infoResponse;
   final String? receiptBase64;
-  String? processedBy; 
-  final String? projectName; 
-  final String uploaderRole; 
+  String? processedBy;
+  final String? projectName;
+  final String uploaderRole;
 
   ExpenseRecord({
     this.firestoreDocId = '',
     required this.id,
     required this.name,
     required this.email,
+    this.employeeId = '',
     required this.type,
     required this.amount,
     required this.date,
@@ -76,10 +89,11 @@ class ExpenseRecord {
     this.status = 'Pending Verification',
     this.rejectionReason,
     this.infoMessage,
+    this.infoResponse,
     this.receiptBase64,
     this.processedBy,
     this.projectName,
-    this.uploaderRole = 'employee', 
+    this.uploaderRole = 'employee',
   });
 
   String get amountFormatted => '₹${amount.toStringAsFixed(2)}';
@@ -102,27 +116,36 @@ class ExpenseRecord {
       'reimbursed' || 'paid' => 'Paid',
       _ => json['status']?.toString() ?? 'Pending Verification',
     };
+    // The API sends the resolved names; the legacy field names are kept
+    // as fallbacks for older payloads.
+    final typeName = json['expense_type_name']?.toString();
+    final typeId = json['expense_type_id']?.toString();
     return ExpenseRecord(
       firestoreDocId:
           (json['expense_id'] ?? json['id'])?.toString() ?? '',
       id: (json['expense_id'] ?? json['employeeId'] ?? json['id'])?.toString() ??
           'EMP-UNKNOWN',
-      name: json['employeeName']?.toString() ?? json['name']?.toString() ?? 'Unknown Employee',
-      email: json['email']?.toString() ?? 'employee@company.com',
-      type: json['type']?.toString() ??
-          json['expense_type_id']?.toString() ??
-          'General',
+      name: (json['employee_name'] ?? json['employeeName'] ?? json['name'])
+              ?.toString() ??
+          'Unknown Employee',
+      email: (json['employee_email'] ?? json['email'])?.toString() ??
+          'employee@company.com',
+      employeeId: (json['employee_id'] ?? json['employeeId'])?.toString() ?? '',
+      type: (typeName != null && typeName.isNotEmpty)
+          ? typeName
+          : (json['type']?.toString() ?? typeId ?? 'General'),
       amount: ((json['amount'] ?? 0.0) as num?)?.toDouble() ?? 0.0,
       date: json['date']?.toString() ?? json['expense_date']?.toString() ?? 'Unknown Date',
       description: json['description']?.toString() ?? 'No description provided',
       status: status,
       rejectionReason: (json['rejectionReason'] ?? json['rejection_reason'])?.toString(),
       infoMessage: (json['infoMessage'] ?? json['info_message'])?.toString(),
+      infoResponse: json['info_response']?.toString(),
       receiptBase64: json['receiptBase64']?.toString() ??
           json['receiptUrl']?.toString() ??
           receipt,
       processedBy: json['processedBy']?.toString(),
-      projectName: json['projectName']?.toString(),
+      projectName: (json['project_name'] ?? json['projectName'])?.toString(),
       uploaderRole: json['uploaderRole']?.toString() ?? 'employee',
     );
   }
@@ -348,6 +371,32 @@ class ExpenseStore extends ChangeNotifier {
   List<ExpenseRecord> expenses = [];
   List<ProjectRecord> projects = [];
 
+  /// Clears every piece of user data held in memory.
+  ///
+  /// The store is a singleton, so without this the next person to use the
+  /// device saw the previous user's expenses, projects and directory
+  /// until a refetch happened to overwrite them.
+  void resetForSignOut() {
+    expenses = [];
+    projects = [];
+    usersList = [];
+    projectRequests = [];
+    notifications = [];
+    employeeActiveStatus.clear();
+    expensesLoaded = false;
+    projectsLoaded = false;
+    usersLoaded = false;
+    currentUserId = '';
+    currentUserEmail = '';
+    currentUserName = '';
+    currentEmployeeId = '';
+    currentEmployeeEmail = '';
+    currentEmployeeName = '';
+    currentManagerEmail = '';
+    currentManagerName = '';
+    notifyListeners();
+  }
+
   /// Replace the cached project list wholesale and notify listeners in one
   /// step — used by login-priming flows that bypass [fetchProjectsFromBackend]
   /// (external mutations of a ChangeNotifier's fields don't notify).
@@ -419,16 +468,29 @@ class ExpenseStore extends ChangeNotifier {
     if (currentUserRole == 'employee') {
       final myId = currentUserId.trim();
       final myEmail = currentEmployeeEmail.trim().toLowerCase();
-      return projects.where((p) => 
-        p.isActive && 
-        (p.assignedEmails.any((id) => id.trim().toLowerCase() == myId || id.trim().toLowerCase() == myEmail))
+      if (myId.isEmpty) return const <ProjectRecord>[];
+      return projects.where((p) =>
+        p.isActive &&
+        p.assignedEmails.any(
+          (id) => id.trim() == myId || id.trim().toLowerCase() == myEmail,
+        )
       ).toList();
     }
     return projects;
   }
 
-  List<ExpenseRecord> get myExpenses =>
-      expenses.where((e) => e.email.trim().toLowerCase() == currentEmployeeEmail.trim().toLowerCase()).toList();
+  List<ExpenseRecord> get myExpenses {
+    final myId = currentUserId.trim();
+    if (myId.isEmpty) return const <ExpenseRecord>[];
+    // Matched on the employee id: the API scopes expenses by it, and it
+    // is the only stable key. The email is a fallback for records that
+    // predate the id being present.
+    return expenses.where((e) {
+      if (e.employeeId.isNotEmpty) return e.employeeId == myId;
+      return e.email.trim().toLowerCase() ==
+          currentEmployeeEmail.trim().toLowerCase();
+    }).toList();
+  }
 
   int get myPendingCount => myExpenses.where((e) => e.status == 'Pending Verification').length;
   int get myApprovedCount => myExpenses.where((e) => e.status == 'Approved').length;
@@ -769,43 +831,91 @@ class ExpenseStore extends ChangeNotifier {
         .fold(0.0, (totalAmount, e) => totalAmount + e.amount);
   }
 
-  /// Creates the org budget for the current month, then the project
-  /// referencing it. Returns null on success or an error message.
+  /// Creates the project (referencing a budget for the current month)
+  /// and adds the selected employees to it. Returns null on success or an
+  /// error message.
   Future<String?> createProject(String name, double budget, List<String> employeeIds) async {
     final orgId = await _orgId();
     if (orgId == null) return 'You are not signed in to an organization.';
     try {
-      final now = DateTime.now();
-      final start = DateTime(now.year, now.month, 1).toIso8601String().split('T').first;
-      final end = DateTime(now.year, now.month + 1, 1)
-          .subtract(const Duration(days: 1))
-          .toIso8601String()
-          .split('T')
-          .first;
-      final budgetRes = await ApiClient.post('/organizations/$orgId/budgets', {
-        'amount': budget,
-        'start_date': start,
-        'end_date': end,
-      });
-      if (budgetRes.statusCode != 200 && budgetRes.statusCode != 201) {
-        debugPrint('createProject budget failed: ${budgetRes.statusCode}');
-        return 'Could not create the monthly budget (${budgetRes.statusCode}).';
+      // Reuse the organization's budget for this month when there is one.
+      // Creating a second budget for the same month left the two rows
+      // competing, and the newest one won — so creating a project
+      // silently replaced the organization's monthly budget.
+      final existing = await _budgetIdForMonth(DateTime.now());
+      int? budgetId = existing;
+
+      if (budgetId == null) {
+        final now = DateTime.now();
+        final start =
+            DateTime(now.year, now.month, 1).toIso8601String().split('T').first;
+        final end = DateTime(now.year, now.month + 1, 1)
+            .subtract(const Duration(days: 1))
+            .toIso8601String()
+            .split('T')
+            .first;
+        final budgetRes = await ApiClient.post('/organizations/$orgId/budgets', {
+          'amount': budget,
+          'start_date': start,
+          'end_date': end,
+        });
+        if (budgetRes.statusCode != 200 && budgetRes.statusCode != 201) {
+          debugPrint('createProject budget failed: ${budgetRes.statusCode}');
+          return 'Could not create the monthly budget (${budgetRes.statusCode}).';
+        }
+        budgetId = (json.decode(budgetRes.body) as Map<String, dynamic>)['budget_id'] as int?;
       }
-      final budgetId =
-          (json.decode(budgetRes.body) as Map<String, dynamic>)['budget_id'];
+
       final response = await ApiClient.post('/organizations/$orgId/projects', {
         'budget_id': budgetId,
         'name': name,
       });
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        await fetchProjectsFromBackend();
-        return null;
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        debugPrint('createProject project failed: ${response.statusCode}');
+        return 'Could not create the project (${response.statusCode}).';
       }
-      debugPrint('createProject project failed: ${response.statusCode}');
-      return 'Could not create the project (${response.statusCode}).';
+      final projectId =
+          (json.decode(response.body) as Map<String, dynamic>)['project_id'] as int?;
+
+      // The selected employees were silently dropped before, so every
+      // project came out empty and nobody could work in it.
+      if (projectId != null && employeeIds.isNotEmpty) {
+        for (final rawId in employeeIds) {
+          final employeeId = int.tryParse(rawId.trim());
+          if (employeeId == null) continue;
+          final added = await ApiClient.post('/projects/$projectId/members', {
+            'employee_id': employeeId,
+          });
+          if (added.statusCode != 200 && added.statusCode != 201) {
+            debugPrint('createProject member $employeeId failed: ${added.statusCode}');
+          }
+        }
+      }
+
+      await fetchProjectsFromBackend();
+      return null;
     } catch (e) {
       debugPrint('Error creating project: $e');
       return 'Network error while creating the project.';
+    }
+  }
+
+  /// The id of the organization's budget covering [month], if any.
+  Future<int?> _budgetIdForMonth(DateTime month) async {
+    try {
+      final orgId = await _orgId();
+      if (orgId == null) return null;
+      final response = await ApiClient.get(
+        '/organizations/$orgId/budgets',
+        query: {'month': _monthKey(month), 'limit': '5'},
+      );
+      if (response.statusCode != 200) return null;
+      final items = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
+      if (items.isEmpty) return null;
+      return int.tryParse(items.first['budget_id']?.toString() ?? '');
+    } catch (e) {
+      debugPrint('Network error reading budget id for month: $e');
+      return null;
     }
   }
 
@@ -985,12 +1095,27 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   Future<void> updateName(String newName, bool isManager) async {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty) return;
     try {
-      // No PATCH /users/profile in §49 — update the local display name only.
-      debugPrint('updateName: no backend endpoint — local only.');
-      currentUserName = newName;
-      currentManagerName = newName;
-      currentEmployeeName = newName;
+      // The backend does support this: PATCH /users/{employee_id} with a
+      // name. Without the call the new name was shown as saved and then
+      // reverted on the next sign-in.
+      final employeeId = int.tryParse(currentUserId.trim());
+      if (employeeId != null) {
+        final response =
+            await ApiClient.patch('/users/$employeeId', {'name': trimmed});
+        if (response.statusCode != 200) {
+          debugPrint('Name update rejected: ${response.statusCode}');
+          return;
+        }
+        final body = json.decode(response.body) as Map<String, dynamic>;
+        currentUserName = body['name']?.toString() ?? trimmed;
+      } else {
+        currentUserName = trimmed;
+      }
+      currentManagerName = trimmed;
+      currentEmployeeName = trimmed;
       notifyListeners();
     } catch (e) {
       debugPrint('Name update error: $e');
@@ -1028,7 +1153,9 @@ class ExpenseStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       currentUserRole = (prefs.getBool('is_admin') ?? false) ? 'manager' : 'employee';
     } catch (_) {
-      currentUserRole = 'manager';
+      // Fail closed. Defaulting to the privileged role meant a failure
+      // reading the preference handed the management portal to anyone.
+      currentUserRole = 'employee';
     }
 
     await _loadThemePreference();
@@ -1091,12 +1218,27 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   Future<void> fetchEmployeeStatusFromBackend() async {
-    // Canonical statuses live at GET /users/{id}/statuses (admin, per-user).
-    // The flat /employee_status stub is retired — keep local defaults.
-    debugPrint('fetchEmployeeStatusFromBackend: per-user endpoint — local defaults.');
+    // The canonical per-user status log is GET /users/{id}/statuses, but
+    // the account state the UI shows comes from the directory listing.
+    // Re-reading the directory is what keeps the toggle honest — the
+    // old version was a no-op, so the list was never refreshed.
+    await fetchUsersFromBackend();
   }
 
-  bool isEmployeeActive(String email) => employeeActiveStatus[email] ?? true;
+  /// Whether the employee is active.
+  ///
+  /// Read from the backend's `account_status`. The previous helper only
+  /// consulted a local map that was never seeded from the API, so every
+  /// employee was shown as ACTIVE however the server had them.
+  bool isEmployeeActive(String email) {
+    final target = email.trim().toLowerCase();
+    for (final user in usersList) {
+      if ((user['email'] ?? '').trim().toLowerCase() == target) {
+        return (user['account_status'] ?? 'active') == 'active';
+      }
+    }
+    return employeeActiveStatus[email] ?? true;
+  }
 
   List<Map<String, String>> get allEmployees {
     if (usersList.isNotEmpty) {
@@ -1147,7 +1289,13 @@ class ExpenseStore extends ChangeNotifier {
         'status': isActive ? 'active' : 'inactive',
       });
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Persisted — keep the optimistic value.
+        // Persisted — keep the optimistic value and mirror it into the
+        // directory the UI reads its status from.
+        for (final user in usersList) {
+          if (user['email'] == email) {
+            user['account_status'] = isActive ? 'active' : 'inactive';
+          }
+        }
       } else if (response.statusCode == 409) {
         debugPrint('setEmployeeActive: already in that status (409 treated as success).');
       } else {
@@ -1220,6 +1368,9 @@ class ExpenseStore extends ChangeNotifier {
         'expense_type_id': expenseTypeId.toString(),
         'amount': amount.toString(),
         'expense_date': expenseDate,
+        // The description used to be validated and then dropped: the
+        // backend had nowhere to put it.
+        'description': description.trim(),
       };
       final files = <http.MultipartFile>[];
       if (receiptBytes != null) {
@@ -1232,12 +1383,33 @@ class ExpenseStore extends ChangeNotifier {
         await fetchExpensesFromBackend();
         return null;
       } else {
-        return 'Server error during submission: ${response.statusCode}';
+        return _errorMessage(response, 'The expense could not be submitted.');
       }
+    } on TimeoutException {
+      return 'The server did not respond in time. Please try again.';
     } catch (e) {
       debugPrint('Detailed Expense Upload Error: $e');
-      return 'Upload failed: $e';
+      return 'Upload failed. Please check your connection and try again.';
     }
+  }
+
+  /// The backend's own error message, when it sent one. Falls back to
+  /// [fallback] so the user never sees a raw status code or an
+  /// internal exception.
+  static String _errorMessage(http.Response response, String fallback) {
+    try {
+      final body = json.decode(response.body);
+      if (body is Map<String, dynamic>) {
+        final error = body['error'];
+        if (error is Map<String, dynamic>) {
+          final message = error['message']?.toString();
+          if (message != null && message.isNotEmpty) return message;
+        }
+      }
+    } catch (_) {
+      // Not a JSON error envelope — fall through to the generic message.
+    }
+    return fallback;
   }
 
   /// Look up the backend expense-type ID by name (refreshes the cache first).
@@ -1354,7 +1526,11 @@ class ExpenseStore extends ChangeNotifier {
 
   /// POST /expenses/{id}/resubmit (§49 32b) — an employee answers an info
   /// request and returns the expense to the pending queue.
-  Future<bool> resubmitExpense(String id) async {
+  ///
+  /// [response] carries the answer to the manager's question. The
+  /// endpoint used to take no body at all, so the information the
+  /// manager asked for could never actually be sent.
+  Future<bool> resubmitExpense(String id, {String? response}) async {
     final expense = byIdOrNull(id);
     if (expense == null) return false;
     final expenseId = int.tryParse(
@@ -1362,12 +1538,16 @@ class ExpenseStore extends ChangeNotifier {
     );
     if (expenseId == null) return false;
     try {
-      final response = await ApiClient.post('/expenses/$expenseId/resubmit', {});
-      if (response.statusCode == 200) {
+      final answer = response?.trim();
+      final apiResponse = await ApiClient.post(
+        '/expenses/$expenseId/resubmit',
+        answer == null || answer.isEmpty ? <String, dynamic>{} : {'response': answer},
+      );
+      if (apiResponse.statusCode == 200) {
         await fetchExpensesFromBackend();
         return true;
       }
-      debugPrint('resubmitExpense failed: ${response.statusCode}');
+      debugPrint('resubmitExpense failed: ${apiResponse.statusCode}');
     } catch (e) {
       debugPrint('Error resubmitting expense: $e');
     }
@@ -1401,11 +1581,33 @@ class ExpenseStore extends ChangeNotifier {
         'payment_reference': cleanTxId,
       });
       if (step.statusCode != 200) return 'Server error: ${step.statusCode}';
+      // 3. The payment receipt. It used to be read into memory and then
+      //    dropped, while the UI claimed it had been attached.
+      if (receiptBytes != null) {
+        final receipt = await ApiClient.postMultipart(
+          '/reimbursements/$reimbursementId/receipt',
+          files: [
+            http.MultipartFile.fromBytes(
+              'file',
+              receiptBytes,
+              filename: 'payment-receipt.jpg',
+            ),
+          ],
+        );
+        if (receipt.statusCode != 200) {
+          debugPrint('markPaid: payment receipt upload failed (${receipt.statusCode})');
+        }
+      }
       await fetchExpensesFromBackend();
-      _addNotification(expense.id, expense.name, 'Payment for \$${expense.amount} has been processed.', 'paid');
+      _addNotification(
+        expense.id,
+        expense.name,
+        'Payment for ₹${expense.amount.toStringAsFixed(2)} has been processed.',
+        'paid',
+      );
       return null;
     } catch (e) {
-      return 'Payment failed: $e';
+      return 'Payment failed. Please try again.';
     }
   }
 

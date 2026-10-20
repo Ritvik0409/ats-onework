@@ -117,7 +117,18 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                         : RefreshIndicator(
                             onRefresh: () => _store.fetchExpensesFromBackend(),
                             child: filtered.isEmpty
-                                ? Center(child: Text('No expenses in this category.', style: TextStyle(color: textMuted)))
+                                // A RefreshIndicator only reacts to the
+                                // scroll notifications of a scrollable
+                                // child, so the empty state has to be one
+                                // too — otherwise pull-to-refresh does
+                                // nothing exactly when it is wanted.
+                                ? ListView(
+                                    physics: const AlwaysScrollableScrollPhysics(),
+                                    children: [
+                                      const SizedBox(height: 80),
+                                      Center(child: Text('No expenses in this category.', style: TextStyle(color: textMuted))),
+                                    ],
+                                  )
                                 : ListView.builder(
                                     itemCount: filtered.length,
                                     itemBuilder: (context, index) {
@@ -236,13 +247,52 @@ class _ResubmitButton extends StatefulWidget {
 class _ResubmitButtonState extends State<_ResubmitButton> {
   bool _sending = false;
 
+  /// Ask for the answer before resubmitting — the manager's question can
+  /// only be answered if the employee is actually given a place to type
+  /// it.
+  Future<String?> _askForAnswer() async {
+    final controller = TextEditingController();
+    final answer = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Provide the requested details'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          maxLength: 2000,
+          decoration: const InputDecoration(
+            hintText: 'Explain what the reviewer asked for…',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Resubmit'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return answer;
+  }
+
   Future<void> _resubmit() async {
+    final answer = await _askForAnswer();
+    if (answer == null) return; // cancelled
     setState(() => _sending = true);
-    final ok = await widget.store.resubmitExpense(widget.expenseId);
+    final ok = await widget.store.resubmitExpense(
+      widget.expenseId,
+      response: answer,
+    );
     if (!mounted) return;
     setState(() => _sending = false);
     if (ok) {
-      AppSnack.success(context, 'Details acknowledged — back in the review queue.');
+      AppSnack.success(context, 'Details sent — back in the review queue.');
     } else {
       AppSnack.error(context, 'Could not resubmit. Please try again.');
     }

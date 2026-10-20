@@ -156,9 +156,9 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
           query: {'limit': '100'},
         );
         if (projectsResponse.statusCode == 200) {
-          store.projects = ApiClient.pageItems(projectsResponse)
+          store.setProjects(ApiClient.pageItems(projectsResponse)
               .map((data) => ProjectRecord.fromJson(data as Map<String, dynamic>))
-              .toList();
+              .toList());
         }
       }
       await store.fetchUsersFromBackend();
@@ -167,7 +167,6 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
     } catch (e) {
       debugPrint('Manager data priming failed: $e');
     }
-    store.notifyListeners();
   }
 
   void _showError(String message) {

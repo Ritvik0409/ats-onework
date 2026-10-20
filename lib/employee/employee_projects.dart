@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/management/download_web.dart';
+import 'package:ats_onework/management/download_stub.dart'
+    if (dart.library.html) 'package:ats_onework/management/download_web.dart';
 
 class EmployeeProjectsScreen extends StatefulWidget {
   const EmployeeProjectsScreen({super.key});

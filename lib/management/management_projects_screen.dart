@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/management/download_web.dart';
+import 'package:ats_onework/management/download_stub.dart'
+    if (dart.library.html) 'package:ats_onework/management/download_web.dart';
 import 'package:ats_onework/management/expense_details.dart'; 
 import 'package:ats_onework/shared/app_snack.dart';
 
@@ -852,10 +853,14 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                           final ok = await store.addMembersToProject(project.id, selectedIds.toList());
                           if (!dialogContext.mounted) return;
                           Navigator.pop(dialogContext);
-                          
-                          if (!context.mounted) return;
+
                           if (ok) {
                             await store.fetchProjectMembersFromBackend(project.id);
+                          }
+                          // Guard directly before use — the fetch above is
+                          // another async gap after the pop.
+                          if (!context.mounted) return;
+                          if (ok) {
                             AppSnack.success(context, 'Members added!');
                           } else {
                             AppSnack.error(context, 'Some members could not be added. Please try again.');

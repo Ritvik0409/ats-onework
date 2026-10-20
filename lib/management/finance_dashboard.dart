@@ -90,6 +90,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transaction ID is compulsory.'), backgroundColor: Colors.redAccent));
                   return;
                 }
+                // Capture the messenger before the async gap — using
+                // context after `markPaid` may hit a disposed widget.
+                final messenger = ScaffoldMessenger.of(context);
                 final error = await store.markPaid(
                   expense.id,
                   txController.text.trim(),
@@ -97,9 +100,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                 );
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
                 if (error != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
+                  messenger.showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Expense marked as Paid!'), backgroundColor: store.accentGold));
+                  messenger.showSnackBar(SnackBar(content: const Text('Expense marked as Paid!'), backgroundColor: store.accentGold));
                 }
               },
               child: const Text('Confirm Payment', style: TextStyle(fontWeight: FontWeight.bold)),

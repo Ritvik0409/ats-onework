@@ -135,15 +135,15 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
 
             if (projectsResponse.statusCode == 200) {
               final projectsJson = ApiClient.pageItems(projectsResponse);
-              ExpenseStore.instance.projects = projectsJson
+              ExpenseStore.instance.setProjects(projectsJson
                   .map((data) => ProjectRecord.fromJson(data as Map<String, dynamic>))
-                  .toList();
+                  .toList());
             } else {
-              print('Failed to load projects: ${projectsResponse.statusCode}');
+              debugPrint('Failed to load projects: ${projectsResponse.statusCode}');
             }
           }
         } catch (e) {
-          print('Network error fetching projects: $e');
+          debugPrint('Network error fetching projects: $e');
         }
 
         if (!mounted) return;

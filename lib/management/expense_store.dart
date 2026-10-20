@@ -346,7 +346,16 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   List<ExpenseRecord> expenses = [];
-  List<ProjectRecord> projects = []; 
+  List<ProjectRecord> projects = [];
+
+  /// Replace the cached project list wholesale and notify listeners in one
+  /// step — used by login-priming flows that bypass [fetchProjectsFromBackend]
+  /// (external mutations of a ChangeNotifier's fields don't notify).
+  void setProjects(List<ProjectRecord> value) {
+    projects = value;
+    notifyListeners();
+  }
+
   List<Map<String, dynamic>> projectRequests = []; 
   /// Backend notification feed (§49 #36 — owner-scoped). Refreshed from
   /// GET /notifications; local inserts remain as optimistic cache entries
@@ -1089,7 +1098,6 @@ class ExpenseStore extends ChangeNotifier {
 
   bool isEmployeeActive(String email) => employeeActiveStatus[email] ?? true;
 
-  @override
   List<Map<String, String>> get allEmployees {
     if (usersList.isNotEmpty) {
       final sorted = List<Map<String, String>>.from(usersList);
@@ -1173,11 +1181,6 @@ class ExpenseStore extends ChangeNotifier {
     if (type.trim().isEmpty) return 'Please select an expense type.';
     if (description.trim().isEmpty) return 'Please enter a description.';
     if (amount <= 0) return 'Amount must be a positive, non-zero value.';
-    final today = DateTime.now();
-    final todayOnly = DateTime(today.year, today.month, today.day);
-    final dateOnly = DateTime(rawDate.year, rawDate.month, rawDate.day);
-    if (dateOnly.isAfter(todayOnly)) return 'Date cannot be in the future.';
-
     final today = DateTime.now();
     final todayOnly = DateTime(today.year, today.month, today.day);
     final dateOnly = DateTime(rawDate.year, rawDate.month, rawDate.day);

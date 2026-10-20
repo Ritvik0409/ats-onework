@@ -237,15 +237,14 @@ class _ResubmitButtonState extends State<_ResubmitButton> {
   bool _sending = false;
 
   Future<void> _resubmit() async {
-    final snackContext = context;
     setState(() => _sending = true);
     final ok = await widget.store.resubmitExpense(widget.expenseId);
     if (!mounted) return;
     setState(() => _sending = false);
     if (ok) {
-      AppSnack.success(snackContext, 'Details acknowledged — back in the review queue.');
+      AppSnack.success(context, 'Details acknowledged — back in the review queue.');
     } else {
-      AppSnack.error(snackContext, 'Could not resubmit. Please try again.');
+      AppSnack.error(context, 'Could not resubmit. Please try again.');
     }
   }
 

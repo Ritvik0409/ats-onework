@@ -114,7 +114,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 
                 // --- UNIVERSAL ROLE DROPDOWN ---
                 DropdownButtonFormField<String>(
-                  value: selectedRole,
+                  initialValue: selectedRole,
                   dropdownColor: store.card,
                   decoration: InputDecoration(
                     labelText: 'Assign System Role',

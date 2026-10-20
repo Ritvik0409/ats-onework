@@ -9,10 +9,10 @@ import 'package:ats_onework/management/budget_allocation_screen.dart';
 import 'package:ats_onework/management/employee_management_screen.dart';
 import 'package:ats_onework/management/expense_details.dart';
 import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/management/download_web.dart'; 
+import 'package:ats_onework/management/download_stub.dart'
+    if (dart.library.html) 'package:ats_onework/management/download_web.dart';
 import 'package:ats_onework/management/management_projects_screen.dart';
 import 'package:ats_onework/employee/add_expense_screen.dart';
-import 'package:ats_onework/admin/admin_dashboard.dart';
 import 'package:ats_onework/shared/ats_logo.dart'; // NEW: Added logo import
 
 class ManagementNavigationShell extends StatefulWidget {

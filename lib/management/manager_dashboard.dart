@@ -114,7 +114,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 const SizedBox(height: 16),
                 
                 DropdownButtonFormField<String>(
-                  value: selectedRole,
+                  initialValue: selectedRole,
                   dropdownColor: store.card,
                   decoration: InputDecoration(
                     labelText: 'Assign System Role',

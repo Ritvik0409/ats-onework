@@ -41,28 +41,6 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
     super.dispose();
   }
 
-  /// Which portal a role belongs in.
-  ///
-  /// The capabilities are the authority; the role name is the fallback
-  /// for when they could not be read.
-  String _getRouteForRole(String role) {
-    switch (role.toLowerCase()) {
-      case 'employee':
-        return '/employee_shell';
-      case 'hr':
-      case 'hr manager':
-      case 'finance':
-      case 'finance officer':
-      case 'admin':
-      case 'administrator':
-      case 'manager':
-      case 'director':
-        return '/management_shell';
-      default:
-        return '/employee_shell';
-    }
-  }
-
   Future<void> _handleLogin() async {
     setState(() {
       _errorMessage = null;
@@ -168,27 +146,10 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
 
         if (!mounted) return;
 
-        // A user who holds a management capability belongs in the
-        // management portal, whichever sign-in screen they used.
-        if (ExpenseStore.instance.hasManagementAccess) {
-          Navigator.pushReplacementNamed(context, '/management_shell');
-          return;
-        }
-
-        // The capabilities could not be read — fall back to the role.
-        if (ExpenseStore.instance.grantedPermissions.isEmpty) {
-          Navigator.pushReplacementNamed(
-            context,
-            _getRouteForRole(ExpenseStore.instance.currentUserRole),
-          );
-          return;
-        }
-
-        // The employee shell's wait screen handles the unassigned case
-        // (it offers a project-access request), so the portal choice is
-        // simply: management capabilities -> management portal, else
-        // the employee portal.
-        Navigator.pushReplacementNamed(context, '/employee_shell');
+        // One portal, tab set built from the capabilities this profile
+        // carried. The grantedPermissions fallback lands in the same
+        // shell (its tabs just stay empty until the server answers).
+        Navigator.pushReplacementNamed(context, '/portal_shell');
 
       } else if (response.statusCode == 401 || response.statusCode == 404) {
         if (!mounted) return;

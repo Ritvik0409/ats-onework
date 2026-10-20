@@ -87,6 +87,9 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transaction ID is compulsory.'), backgroundColor: Colors.redAccent));
                   return;
                 }
+                // Capture the messenger before the async gap — using
+                // context after `markPaid` may hit a disposed widget.
+                final messenger = ScaffoldMessenger.of(context);
                 final error = await store.markPaid(
                   expenseId,
                   txController.text.trim(),
@@ -94,9 +97,9 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                 );
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
                 if (error != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
+                  messenger.showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Expense marked as Paid!'), backgroundColor: _softAmber));
+                  messenger.showSnackBar(SnackBar(content: const Text('Expense marked as Paid!'), backgroundColor: _softAmber));
                 }
               },
               child: const Text('Confirm Payment', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -333,7 +336,7 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
               child: Image(
                 image: imageProvider,
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Center(
+                errorBuilder: (_, _, _) => const Center(
                   child: Text(
                     'Receipt file unavailable.',
                     style: TextStyle(color: Colors.white70),
@@ -474,7 +477,7 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                               child: Stack(
                                 alignment: Alignment.bottomRight,
                                 children: [
-                                  ClipRRect(borderRadius: BorderRadius.circular(12), child: Container(color: _store.isDarkMode ? Colors.black45 : Colors.grey.shade200, child: Image(image: _receiptImageProvider(employeeData.receiptBase64!), height: 300, width: double.infinity, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Center(child: Text('Receipt file unavailable.', style: TextStyle(color: Colors.grey)))))),
+                                  ClipRRect(borderRadius: BorderRadius.circular(12), child: Container(color: _store.isDarkMode ? Colors.black45 : Colors.grey.shade200, child: Image(image: _receiptImageProvider(employeeData.receiptBase64!), height: 300, width: double.infinity, fit: BoxFit.contain, errorBuilder: (_, _, _) => const Center(child: Text('Receipt file unavailable.', style: TextStyle(color: Colors.grey)))))),
                                   const Padding(padding: EdgeInsets.all(8.0), child: CircleAvatar(radius: 16, backgroundColor: Colors.black54, child: Icon(Icons.fullscreen, color: Colors.white, size: 20))),
                                 ],
                               ),

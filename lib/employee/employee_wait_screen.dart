@@ -28,7 +28,7 @@ class EmployeeWaitScreen extends StatelessWidget {
                   style: TextStyle(color: store.textMuted),
                 )
               : DropdownButtonFormField<String>(
-                  value: selectedProjectId,
+                  initialValue: selectedProjectId,
                   dropdownColor: store.card,
                   style: TextStyle(color: store.textFrost),
                   decoration: InputDecoration(
@@ -63,7 +63,8 @@ class EmployeeWaitScreen extends StatelessWidget {
     );
 
     if (confirmed != true || selectedProjectId == null || !context.mounted) return;
-    final sent = await store.submitProjectAccessRequest(selectedProjectId);
+    final projectId = selectedProjectId!;
+    final sent = await store.submitProjectAccessRequest(projectId);
     if (!context.mounted) return;
     if (sent) {
       AppSnack.success(context, 'Access request sent! A manager will review it.');

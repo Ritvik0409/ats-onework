@@ -134,7 +134,10 @@ class ExpenseRecord {
       type: (typeName != null && typeName.isNotEmpty)
           ? typeName
           : (json['type']?.toString() ?? typeId ?? 'General'),
-      amount: ((json['amount'] ?? 0.0) as num?)?.toDouble() ?? 0.0,
+      // Money arrives as a JSON string ("1000.00") — the serializer
+      // emits Decimal as text. A bare `as num?` cast threw a TypeError
+      // on the first row and the whole expense list stayed empty.
+      amount: parseBackendDouble(json['amount']) ?? 0.0,
       date: json['date']?.toString() ?? json['expense_date']?.toString() ?? 'Unknown Date',
       description: json['description']?.toString() ?? 'No description provided',
       status: status,

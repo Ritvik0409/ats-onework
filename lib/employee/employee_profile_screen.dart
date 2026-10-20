@@ -452,12 +452,15 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
           final isLast = index == items.length - 1;
           return Container(
             decoration: BoxDecoration(border: isLast ? null : Border(bottom: BorderSide(color: store.isDarkMode ? const Color(0xFF262633) : Colors.grey.shade200, width: 1))),
-            child: ListTile(
-              leading: Icon(item.icon, color: store.accentGold, size: 20),
-              title: Text(item.title, style: TextStyle(color: store.textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
-              subtitle: Text(item.subtitle, style: TextStyle(color: store.textMuted, fontSize: 12)),
-              trailing: Icon(Icons.chevron_right_rounded, color: store.textMuted, size: 20),
-              onTap: item.onTap,
+            child: Material(
+              color: store.card,
+              child: ListTile(
+                leading: Icon(item.icon, color: store.accentGold, size: 20),
+                title: Text(item.title, style: TextStyle(color: store.textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: Text(item.subtitle, style: TextStyle(color: store.textMuted, fontSize: 12)),
+                trailing: Icon(Icons.chevron_right_rounded, color: store.textMuted, size: 20),
+                onTap: item.onTap,
+              ),
             ),
           );
         }),

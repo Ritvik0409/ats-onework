@@ -182,7 +182,9 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: store.accentGold.withValues(alpha: 0.2)),
                         ),
-                        child: ListTile(
+                        child: Material(
+                          color: store.card,
+                          child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           leading: CircleAvatar(
                             backgroundColor: store.accentGold.withValues(alpha: 0.1),
@@ -224,6 +226,7 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                               ),
                             ],
                           ),
+                        ),
                         ),
                       );
                     },

@@ -204,7 +204,9 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
                                     ? [BoxShadow(color: Colors.redAccent.withValues(alpha: 0.05), blurRadius: 10, spreadRadius: 1), ...cardShadows]
                                     : cardShadows,
                                 ),
-                                child: ListTile(
+                                child: Material(
+                                  color: darkCharcoal,
+                                  child: ListTile(
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                                   leading: CircleAvatar(
                                     radius: 24,
@@ -287,6 +289,7 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
                                     );
                                   },
                                 ),
+                                  ),
                               );
                             },
                           ),

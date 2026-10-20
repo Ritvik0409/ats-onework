@@ -369,7 +369,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(color: champagneGold.withValues(alpha: 0.05)),
                                   ),
-                                  child: ListTile(
+                                  // The tile's own Material — the ripple
+                                  // painted on the Scaffold behind the
+                                  // row's card color otherwise.
+                                  child: Material(
+                                    color: obsidianBlack,
+                                    child: ListTile(
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                                     leading: CircleAvatar(
                                       backgroundColor: champagneGold.withValues(alpha: 0.2),
@@ -410,6 +415,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                           ],
                                         ),
                                       ),
+                                    ),
                                     ),
                                   ),
                                 );
@@ -520,7 +526,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                   ? [BoxShadow(color: Colors.redAccent.withValues(alpha: 0.05), blurRadius: 10, spreadRadius: 1), ...cardShadows]
                                   : cardShadows,
                               ),
-                              child: ListTile(
+                              // The tile's own Material — its ripple paints
+                              // here rather than on the Scaffold hidden
+                              // behind the row color.
+                              child: Material(
+                                color: darkCharcoal,
+                                child: ListTile(
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                                 leading: CircleAvatar(
                                   radius: 24,
@@ -602,6 +613,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                     MaterialPageRoute(builder: (context) => ExpenseDetailsScreen(expenseId: expense.id)),
                                   );
                                 },
+                                ),
                               ),
                             );
                           },

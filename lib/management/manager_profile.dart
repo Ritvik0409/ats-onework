@@ -565,12 +565,19 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             decoration: BoxDecoration(
               border: isLast ? null : Border(bottom: BorderSide(color: dividerColor, width: 1)),
             ),
-            child: ListTile(
-              leading: Icon(item.icon, color: store.accentGold, size: 20),
-              title: Text(item.title, style: TextStyle(color: store.textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
-              subtitle: Text(item.subtitle, style: TextStyle(color: store.textMuted, fontSize: 12)),
-              trailing: Icon(Icons.chevron_right_rounded, color: store.textMuted, size: 20),
-              onTap: item.onTap,
+            // The tile's own Material: the ripple used to paint on the
+            // Scaffold below the group's card color, so every build
+            // logged "ListTile background color or ink splashes may be
+            // invisible".
+            child: Material(
+              color: store.card,
+              child: ListTile(
+                leading: Icon(item.icon, color: store.accentGold, size: 20),
+                title: Text(item.title, style: TextStyle(color: store.textFrost, fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: Text(item.subtitle, style: TextStyle(color: store.textMuted, fontSize: 12)),
+                trailing: Icon(Icons.chevron_right_rounded, color: store.textMuted, size: 20),
+                onTap: item.onTap,
+              ),
             ),
           );
         }),

@@ -6,10 +6,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.v1.deps import CurrentUser, get_current_user
+from app.api.v1.deps import CurrentUser
 from app.budgets.schemas import BudgetCreate, BudgetResponse, BudgetUpdate
 from app.budgets.service import service as budget_service
 from app.common.pagination import Page
+from app.common.permissions import RequirePathPermission
 from app.db.connection import get_connection
 from app.db.types import Conn
 
@@ -31,7 +32,7 @@ def _parse_cursor(cursor: str | None) -> int | None:
 @router.get("/{organization_id}/budgets", response_model=Page[BudgetResponse])
 async def list_budgets(
     organization_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("budget.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
     month: Annotated[str | None, Query(description="Optional YYYY-MM overlap filter")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -55,7 +56,7 @@ async def list_budgets(
 async def create_budget(
     organization_id: int,
     payload: BudgetCreate,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("budget.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> BudgetResponse:
     return await budget_service.create_budget(
@@ -68,7 +69,7 @@ async def update_budget(
     organization_id: int,
     budget_id: int,
     payload: BudgetUpdate,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePathPermission("budget.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> BudgetResponse:
     return await budget_service.update_budget(

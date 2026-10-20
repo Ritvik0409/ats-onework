@@ -17,6 +17,7 @@ is rejected with 409 so an org can never be orphaned.
 
 from __future__ import annotations
 
+from app.access.repository import AccessRepository
 from app.common.audit import service as audit_service
 from app.common.tenant import require_path_admin, require_path_member
 from app.common.utils import slugify
@@ -34,14 +35,25 @@ from app.organizations.schemas import (
 )
 
 _repository = OrganizationRepository()
+_access = AccessRepository()
+
+#: The role a new member holds unless the administrator picks another.
+DEFAULT_MEMBER_ROLE = "employee"
+#: The role an organization's administrator holds.
+ADMIN_ROLE = "admin"
 
 
 class OrganizationService:
     """Owns orgs + memberships (§35 MembershipService duties live here
     until the module needs splitting — one class, no premature abstraction)."""
 
-    def __init__(self, repository: OrganizationRepository | None = None) -> None:
+    def __init__(
+        self,
+        repository: OrganizationRepository | None = None,
+        access: AccessRepository | None = None,
+    ) -> None:
         self._repository = repository or _repository
+        self._access = access or _access
 
     # -- organizations -----------------------------------------------------
 
@@ -49,26 +61,38 @@ class OrganizationService:
         self, conn: Conn, *, actor_id: int, payload: OrganizationCreate
     ) -> OrganizationResponse:
         """Create the org and stamp the creator as its first admin — one
-        request-scoped transaction, so neither row survives without the other."""
+        request-scoped transaction, so neither row survives without the other.
+
+        The organization also gets the platform's standard capabilities and
+        roles installed, and the creator holds the ``admin`` role, so the
+        new organization is immediately usable rather than empty.
+        """
         slug = payload.slug or slugify(payload.name)
         if not slug:
             raise ValidationError("Organization name must contain at least one letter or digit.")
         org = await self._repository.create_organization(
             conn, name=payload.name, slug=slug, description=payload.description
         )
-        await self._repository.add_membership(
+        organization_id = int(org["organization_id"])
+        await self._access.install_catalog_for_org(conn, organization_id)
+        membership = await self._repository.add_membership(
             conn,
             employee_id=actor_id,
-            organization_id=org["organization_id"],
+            organization_id=organization_id,
             is_admin=True,
         )
+        admin_role = await self._access.get_role_by_name(conn, organization_id, ADMIN_ROLE)
+        if admin_role is not None:
+            await self._access.add_member_role(
+                conn, organization_id, int(membership["membership_id"]), int(admin_role["role_id"])
+            )
         await audit_service.log(
             conn,
             actor_id=actor_id,
-            organization_id=org["organization_id"],
+            organization_id=organization_id,
             action="organization.create",
             table_name="organizations",
-            record_id=str(org["organization_id"]),
+            record_id=str(organization_id),
             new_values={"name": org["name"], "slug": org["slug"]},
         )
         return OrganizationResponse.model_validate(org)
@@ -156,6 +180,13 @@ class OrganizationService:
             organization_id=organization_id,
             is_admin=payload.is_admin,
         )
+        await self._assign_default_roles(
+            conn,
+            organization_id=organization_id,
+            membership_id=int(row["membership_id"]),
+            is_admin=payload.is_admin,
+            requested=payload.roles,
+        )
         await audit_service.log(
             conn,
             actor_id=actor_id,
@@ -167,6 +198,7 @@ class OrganizationService:
                 "employee_id": payload.employee_id,
                 "organization_id": organization_id,
                 "is_admin": payload.is_admin,
+                "roles": payload.roles,
             },
         )
         return MembershipResponse.model_validate(row)
@@ -244,6 +276,33 @@ class OrganizationService:
         return RoleResponse.model_validate(row)
 
     # -- guards ------------------------------------------------------------------
+
+    async def _assign_default_roles(
+        self,
+        conn: Conn,
+        *,
+        organization_id: int,
+        membership_id: int,
+        is_admin: bool,
+        requested: list[str] | None,
+    ) -> None:
+        """Give a new member a role to hold.
+
+        Without a role a membership holds no capability at all, so this
+        is what makes a new member able to do anything. An administrator
+        gets the ``admin`` role, everyone else the ``employee`` role,
+        unless the caller named the roles they want.
+        """
+        names = list(requested or [])
+        if not names:
+            names = [ADMIN_ROLE if is_admin else DEFAULT_MEMBER_ROLE]
+        for name in names:
+            role = await self._access.get_role_by_name(conn, organization_id, name)
+            if role is None:
+                raise NotFoundError(f"Role not found: {name}")
+            await self._access.add_member_role(
+                conn, organization_id, membership_id, int(role["role_id"])
+            )
 
     async def _require_member(self, conn: Conn, employee_id: int, organization_id: int) -> Row:
         # Canonical path-org gate lives in app.common.tenant — the 404 here

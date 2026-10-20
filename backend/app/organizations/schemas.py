@@ -49,10 +49,17 @@ class OrganizationResponse(BaseModel):
 
 
 class MembershipCreate(BaseModel):
-    """Add an existing user to the org — §49 #17."""
+    """Add an existing user to the org — §49 #17.
+
+    ``roles`` names the roles the new member holds. When it is left
+    empty an administrator gets the ``admin`` role and everyone else the
+    ``employee`` role — a membership with no role holds no capability at
+    all.
+    """
 
     employee_id: int = Field(gt=0)
     is_admin: bool = False
+    roles: list[str] = Field(default_factory=list)
 
 
 class MembershipResponse(BaseModel):

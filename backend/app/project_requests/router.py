@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from app.api.v1.deps import CurrentUser, get_current_user
 from app.common.pagination import Page
+from app.common.permissions import RequirePermission
 from app.core.constants import ProjectAccessStatus
 from app.core.exceptions import ValidationError
 from app.db.connection import get_connection
@@ -51,7 +52,7 @@ def _parse_cursor(cursor: str | None) -> int | None:
 )
 async def request_project_access(
     project_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.access.request"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ProjectAccessResponse:
     return await project_access_service.request_access(
@@ -85,7 +86,7 @@ async def list_project_access_requests(
 
 @router.get("", response_model=Page[ProjectAccessListItem])
 async def list_org_access_requests(
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.access.review"))],
     conn: Annotated[Conn, Depends(get_connection)],
     status_filter: Annotated[ProjectAccessStatus | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -106,7 +107,7 @@ async def list_org_access_requests(
 
 @router.get("/mine", response_model=Page[ProjectAccessListItem])
 async def list_my_access_requests(
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.access.request"))],
     conn: Annotated[Conn, Depends(get_connection)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
@@ -126,7 +127,7 @@ async def list_my_access_requests(
 async def approve_access_request(
     request_id: int,
     payload: AccessDecisionRequest,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.access.review"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ProjectAccessResponse:
     return await project_access_service.approve(
@@ -138,7 +139,7 @@ async def approve_access_request(
 async def reject_access_request(
     request_id: int,
     payload: AccessDecisionRequest,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.access.review"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ProjectAccessResponse:
     return await project_access_service.reject(

@@ -6,10 +6,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.v1.deps import CurrentUser, get_current_user
+from app.api.v1.deps import CurrentUser
 from app.audit_logs.schemas import AuditLogListItem
 from app.audit_logs.service import service as audit_log_service
 from app.common.pagination import Page
+from app.common.permissions import RequirePermission
 from app.db.connection import get_connection
 from app.db.types import Conn
 
@@ -30,7 +31,7 @@ def _parse_cursor(cursor: str | None) -> int | None:
 
 @router.get("", response_model=Page[AuditLogListItem])
 async def list_audit_logs(
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("audit.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
     table_name: Annotated[str | None, Query()] = None,
     actor_id: Annotated[int | None, Query(gt=0)] = None,

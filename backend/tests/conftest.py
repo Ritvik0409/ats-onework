@@ -163,7 +163,14 @@ async def db_connection(test_database: str) -> AsyncIterator[AsyncConnection[dic
 @pytest_asyncio.fixture
 async def seeded_orgs(db_connection: AsyncConnection[dict]) -> dict[str, dict]:
     """Two orgs (A/B) each with an admin and a member — the tenant-isolation
-    layout §27 requires. Rolls back nothing; callers truncate explicitly."""
+    layout §27 requires. Rolls back nothing; callers truncate explicitly.
+
+    The fixture writes rows directly, so it also installs the access model
+    the way the application does: the standard capabilities and roles
+    into each organization, and a role on each membership. Without a
+    role a membership holds no capability at all, so the seeded accounts
+    could do nothing.
+    """
     conn = db_connection
     orgs: dict[str, dict] = {}
     async with conn.cursor() as cur:
@@ -176,6 +183,10 @@ async def seeded_orgs(db_connection: AsyncConnection[dict]) -> dict[str, dict]:
             assert row is not None
             org_id = row["organization_id"]
             orgs[key] = {"organization_id": org_id, "slug": slug, "users": {}}
+            # The standard access model, installed the same way an
+            # organization created through the API gets it.
+            await cur.execute("SELECT ats_install_permissions(%s)", (org_id,))
+            await cur.execute("SELECT ats_install_roles(%s)", (org_id,))
             for role, admin in (("admin", True), ("member", False)):
                 email = _unique(f"{key}-{role}") + "@test.invalid"
                 await cur.execute(_SEED_USER_SQL, (f"{key} {role}", email))
@@ -183,6 +194,20 @@ async def seeded_orgs(db_connection: AsyncConnection[dict]) -> dict[str, dict]:
                 assert user is not None
                 emp_id = user["employee_id"]
                 await cur.execute(_SEED_MEMBERSHIP_SQL, (emp_id, org_id, admin))
+                # The membership holds a role: an administrator the
+                # ``admin`` role, everyone else the ``employee`` role.
+                await cur.execute(
+                    """
+                    INSERT INTO membership_roles (membership_id, role_id, organization_id)
+                    SELECT m.membership_id, r.role_id, m.organization_id
+                      FROM memberships m
+                      JOIN roles r
+                        ON r.organization_id = m.organization_id
+                       AND r.name = %s
+                     WHERE m.employee_id = %s AND m.organization_id = %s
+                    """,
+                    ("admin" if admin else "employee", emp_id, org_id),
+                )
                 orgs[key]["users"][role] = {
                     "employee_id": emp_id,
                     "email": email,

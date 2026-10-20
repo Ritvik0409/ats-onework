@@ -27,6 +27,7 @@ from app.api.v1 import deps as deps_module
 from app.api.v1.deps import CurrentUser
 from app.budgets import service as budget_service_module
 from app.budgets.schemas import BudgetResponse
+from app.common import permissions as permissions_module
 from app.core.exceptions import ConflictError, NotFoundError
 from app.db.connection import get_connection
 from app.expenses import service as expense_service_module
@@ -122,6 +123,23 @@ def _make_client(monkeypatch: pytest.MonkeyPatch, user: CurrentUser) -> AsyncCli
 
     app.dependency_overrides[get_connection] = _dummy_conn
     app.dependency_overrides[deps_module.get_current_user] = lambda: user
+
+    # The route guards ask the database what the caller may do. These
+    # tests are about the HTTP contract, not about access, so the
+    # lookup is stubbed to grant everything.
+    class _AllGranted:
+        def __contains__(self, item: object) -> bool:
+            return True
+
+    async def _all_granted(
+        _conn: Any,
+        *,
+        employee_id: int,  # noqa: ARG001
+        organization_id: int,  # noqa: ARG001
+    ) -> _AllGranted:
+        return _AllGranted()
+
+    monkeypatch.setattr(permissions_module, "granted_permissions", _all_granted)
     app.dependency_overrides[deps_module.require_membership] = lambda: user
     app.dependency_overrides[deps_module.require_admin] = lambda: user
 

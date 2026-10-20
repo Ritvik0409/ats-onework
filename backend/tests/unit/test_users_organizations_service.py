@@ -328,10 +328,63 @@ def org_repo() -> _OrgRepositoryStub:
     return repo
 
 
+class _AccessRepositoryStub:
+    """Stands in for the access model: the standard roles and the
+    membership-role assignments the organization service makes."""
+
+    def __init__(self) -> None:
+        self.roles: dict[tuple[int, str], dict[str, Any]] = {}
+        self.membership_roles: list[tuple[int, int]] = []
+        self.installed: list[int] = []
+        self._next_role = 1
+
+    async def install_catalog_for_org(self, _conn: Any, organization_id: int) -> tuple[int, int]:
+        self.installed.append(organization_id)
+        for name in ("admin", "employee", "manager", "finance", "director", "hr"):
+            key = (organization_id, name)
+            if key not in self.roles:
+                self.roles[key] = {
+                    "role_id": self._next_role,
+                    "name": name,
+                    "organization_id": organization_id,
+                    "description": None,
+                    "is_active": True,
+                    "created_at": _now(),
+                    "updated_at": _now(),
+                }
+                self._next_role += 1
+        return 6, 6
+
+    async def get_role_by_name(
+        self, _conn: Any, organization_id: int, name: str
+    ) -> dict[str, Any] | None:
+        return self.roles.get((organization_id, name))
+
+    async def add_member_role(
+        self,
+        _conn: Any,
+        organization_id: int,  # noqa: ARG002 - mirrors the repository signature
+        membership_id: int,
+        role_id: int,
+    ) -> None:
+        self.membership_roles.append((membership_id, role_id))
+
+
 @pytest.fixture
-def org_svc(org_repo: _OrgRepositoryStub, monkeypatch: pytest.MonkeyPatch) -> OrganizationService:
+def access_repo() -> _AccessRepositoryStub:
+    return _AccessRepositoryStub()
+
+
+@pytest.fixture
+def org_svc(
+    org_repo: _OrgRepositoryStub,
+    access_repo: _AccessRepositoryStub,
+    monkeypatch: pytest.MonkeyPatch,
+) -> OrganizationService:
     monkeypatch.setattr(org_service_module, "audit_service", _AuditStub())
-    return OrganizationService(repository=org_repo)  # type: ignore[arg-type]
+    return OrganizationService(  # type: ignore[arg-type]
+        repository=org_repo, access=access_repo
+    )
 
 
 # -- users ---------------------------------------------------------------------
@@ -554,7 +607,9 @@ async def test_non_admin_update_403(
 
 
 async def test_update_org_noop_writes_no_audit(
-    org_repo: _OrgRepositoryStub, monkeypatch: pytest.MonkeyPatch
+    org_repo: _OrgRepositoryStub,
+    access_repo: _AccessRepositoryStub,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An empty PATCH returns current state without a misleading audit row."""
     from app.organizations import service as org_service_module
@@ -562,7 +617,9 @@ async def test_update_org_noop_writes_no_audit(
 
     audit = _AuditStub()
     monkeypatch.setattr(org_service_module, "audit_service", audit)
-    svc = OrganizationService(repository=org_repo)  # type: ignore[arg-type]
+    svc = OrganizationService(  # type: ignore[arg-type]
+        repository=org_repo, access=access_repo
+    )
     org = await svc.create_organization(
         object(), actor_id=1, payload=OrganizationCreate(name="Steady")
     )

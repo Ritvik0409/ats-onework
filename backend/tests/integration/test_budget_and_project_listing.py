@@ -176,13 +176,11 @@ async def test_project_member_pagination_advances(
     org_id = 1
     project_id = await _project(client, headers, org_id, "Paging Project")
 
-    role = await client.post(
-        f"/api/v1/organizations/{org_id}/roles",
-        json={"name": "employee", "description": "Default member role"},
-        headers=headers,
-    )
-    assert role.status_code == 201, role.text
-    role_id = role.json()["role_id"]
+    # The organization already has the standard roles from the access
+    # catalogue; the member role is the one a project member defaults to.
+    roles = await client.get(f"/api/v1/organizations/{org_id}/roles", headers=headers)
+    assert roles.status_code == 200, roles.text
+    role_id = next(r["role_id"] for r in roles.json() if r["name"] == "employee")
 
     # Add enough people to the organization to need more than one page.
     employee_ids: list[int] = []

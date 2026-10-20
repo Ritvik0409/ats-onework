@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.api.v1.deps import CurrentUser, get_current_user
 from app.common.pagination import Page
+from app.common.permissions import RequirePermission
 from app.db.connection import get_connection
 from app.db.types import Conn
 from app.projects.schemas import (
@@ -75,7 +76,7 @@ async def list_projects(
 async def update_project(
     project_id: int,
     payload: ProjectUpdate,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ProjectResponse:
     return await project_service.update_project(
@@ -86,7 +87,7 @@ async def update_project(
 @router.get("/{project_id}/members", response_model=Page[ProjectMemberListItem])
 async def list_project_members(
     project_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query()] = None,
@@ -110,7 +111,7 @@ async def list_project_members(
 async def add_project_member(
     project_id: int,
     payload: ProjectMemberAdd,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.member.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> ProjectMemberListItem:
     return await project_service.add_member(
@@ -122,7 +123,7 @@ async def add_project_member(
 async def remove_project_member(
     project_id: int,
     employee_id: int,
-    user: Annotated[CurrentUser, Depends(get_current_user)],
+    user: Annotated[CurrentUser, Depends(RequirePermission("project.member.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> Response:
     await project_service.remove_member(

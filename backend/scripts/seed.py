@@ -47,8 +47,9 @@ USERS = [
     ("employee@globex-inc.dev", "Guru Employee", "globex-inc", False),
 ]
 
-ROLES = ["employee", "manager"]
-
+# The standard roles (employee, manager, finance, director, hr, admin) are
+# not listed here: they come from the access catalogue, which is the single
+# place the platform's access model is defined.
 EXPENSE_TYPES = [
     {"name": "Travel", "requires_receipt": True, "default_limit": "5000.00"},
     {"name": "Meals", "requires_receipt": True, "default_limit": "1500.00"},
@@ -138,16 +139,40 @@ def seed_users_and_memberships(cur, password: str) -> None:
             org["admin_employee_id"] = employee_id
 
 
-def seed_roles(cur) -> None:
+def seed_access(cur) -> None:
+    """Install the standard capabilities and roles into every organization.
+
+    The seeder creates organizations with raw SQL, so it does not go
+    through the application's "create organization" path and cannot rely
+    on that path to install the access model. The same install functions
+    the application uses are called here instead, so both routes end up
+    with the same standard capabilities and roles.
+    """
     for org in ORGS:
-        for role in ROLES:
+        cur.execute("SELECT ats_install_permissions(%s)", (org["organization_id"],))
+        cur.execute("SELECT ats_install_roles(%s)", (org["organization_id"],))
+
+
+def seed_membership_roles(cur) -> None:
+    """Give every membership the standard role for its status.
+
+    An administrator holds the ``admin`` role, everyone else holds
+    ``employee``. Without a role a membership holds no capability at
+    all, so this is what makes a seeded account able to do anything.
+    """
+    for org in ORGS:
+        for role_name, is_admin in (("admin", True), ("employee", False)):
             cur.execute(
                 """
-                INSERT INTO roles (name, organization_id, description)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (name, organization_id) DO NOTHING
+                INSERT INTO membership_roles (membership_id, role_id, organization_id)
+                SELECT m.membership_id, r.role_id, m.organization_id
+                  FROM memberships m
+                  JOIN roles r
+                    ON r.organization_id = m.organization_id AND r.name = %s
+                 WHERE m.organization_id = %s AND m.is_admin = %s
+                ON CONFLICT DO NOTHING
                 """,
-                (role, org["organization_id"], f"Seed role {role}"),
+                (role_name, org["organization_id"], is_admin),
             )
 
 
@@ -189,10 +214,18 @@ def seed_budgets_and_projects(cur) -> None:
         if project is None:
             cur.execute(
                 """
-                INSERT INTO projects (budget_id, name, description, start_date, end_date)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO projects
+                    (budget_id, organization_id, name, description, start_date, end_date)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (budget_id, "Atlas Migration", "Seed project", "2026-01-01", "2026-12-31"),
+                (
+                    budget_id,
+                    org["organization_id"],
+                    "Atlas Migration",
+                    "Seed project",
+                    "2026-01-01",
+                    "2026-12-31",
+                ),
             )
 
 
@@ -230,13 +263,15 @@ def main() -> int:
     ):
         seed_organizations(cur)
         seed_users_and_memberships(cur, password)
-        seed_roles(cur)
+        seed_access(cur)
+        seed_membership_roles(cur)
         seed_budgets_and_projects(cur)
         seed_expense_types(cur)
 
     print(
         "Seed complete: "
-        f"{len(ORGS)} orgs, {len(USERS)} users, {len(ROLES) * len(ORGS)} roles, "
+        f"{len(ORGS)} orgs, {len(USERS)} users, "
+        "the standard capabilities and roles per org, "
         "1 budget + 1 project + 2 expense types per org."
     )
     return 0

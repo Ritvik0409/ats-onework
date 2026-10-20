@@ -221,7 +221,13 @@ class ExpenseRepository:
         to_date: date | None,
         limit: int,
         before_id: int | None,
+        employee_id: int | None = None,
     ) -> list[Row]:
+        """List expenses, newest first.
+
+        ``employee_id`` narrows the list to one submitter — the scope an
+        employee without ``expense.read_all`` is given.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT "
@@ -232,6 +238,7 @@ class ExpenseRepository:
                 " AND (%s::date IS NULL OR e.expense_date >= %s::date)"
                 " AND (%s::date IS NULL OR e.expense_date <= %s::date)"
                 " AND (%s::int IS NULL OR e.expense_id < %s::int)"
+                " AND (%s::int IS NULL OR e.employee_id = %s::int)"
                 " ORDER BY e.expense_id DESC LIMIT %s::int",
                 (
                     organization_id,
@@ -243,6 +250,8 @@ class ExpenseRepository:
                     to_date,
                     before_id,
                     before_id,
+                    employee_id,
+                    employee_id,
                     limit,
                 ),
             )

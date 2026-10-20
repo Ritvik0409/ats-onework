@@ -16,8 +16,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.v1.deps import CurrentUser, get_current_user, require_admin
+from app.api.v1.deps import CurrentUser, get_current_user
 from app.common.pagination import Page
+from app.common.permissions import RequirePermission
 from app.core.constants import AccountStatus
 from app.db.connection import get_connection
 from app.db.types import Conn
@@ -43,7 +44,7 @@ async def get_me(
 
 @router.get("", response_model=Page[UserListItem])
 async def list_users(
-    admin: Annotated[CurrentUser, Depends(require_admin)],
+    admin: Annotated[CurrentUser, Depends(RequirePermission("user.read"))],
     conn: Annotated[Conn, Depends(get_connection)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
@@ -64,7 +65,7 @@ async def list_users(
 async def update_user(
     employee_id: int,
     payload: UserUpdate,
-    admin: Annotated[CurrentUser, Depends(require_admin)],
+    admin: Annotated[CurrentUser, Depends(RequirePermission("user.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> UserResponse:
     return await user_service.update_user(
@@ -79,7 +80,7 @@ async def update_user(
 @router.get("/{employee_id}/statuses", response_model=list[EmployeeStatusResponse])
 async def list_statuses(
     employee_id: int,
-    admin: Annotated[CurrentUser, Depends(require_admin)],
+    admin: Annotated[CurrentUser, Depends(RequirePermission("employee_status.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> list[EmployeeStatusResponse]:
     return await user_service.list_statuses(
@@ -95,7 +96,7 @@ async def list_statuses(
 async def create_status(
     employee_id: int,
     payload: EmployeeStatusCreate,
-    admin: Annotated[CurrentUser, Depends(require_admin)],
+    admin: Annotated[CurrentUser, Depends(RequirePermission("employee_status.manage"))],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> EmployeeStatusResponse:
     return await user_service.create_status(

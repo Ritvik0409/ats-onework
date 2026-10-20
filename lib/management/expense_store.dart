@@ -589,7 +589,7 @@ class ExpenseStore extends ChangeNotifier {
 
   final Map<String, bool> employeeActiveStatus = {};
 
-  double currentMonthBudget = 60000.0;
+  double currentMonthBudget = 0.0;
   /// Computed from the backend: approved + reimbursed spend this month.
   double currentMonthSpent = 0.0;
 
@@ -695,16 +695,25 @@ class ExpenseStore extends ChangeNotifier {
       if (orgId == null) return;
       final response = await ApiClient.get(
         '/organizations/$orgId/budgets',
-        query: {'month': _monthKey(DateTime.now()), 'limit': '10'},
+        query: {'month': _monthKey(DateTime.now()), 'limit': '100'},
       );
       if (response.statusCode == 200) {
         final items = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
-        if (items.isNotEmpty) {
-          final first = items.first;
-          currentMonthBudget = parseBackendDouble(first['amount']) ?? currentMonthBudget;
-          currentMonthSpent = double.tryParse(first['spent']?.toString() ?? '') ?? 0.0;
-          notifyListeners();
+        // The month endpoint returns every budget period overlapping the
+        // month (the yearly seed allocation plus any monthly rows).
+        // Taking items.first displayed whichever row was created last —
+        // the "always ₹7777" bug — so the totals are summed instead.
+        // ``spent`` never double-counts: an expense belongs to one
+        // project, which belongs to one budget.
+        double budgetTotal = 0.0;
+        double spentTotal = 0.0;
+        for (final item in items) {
+          budgetTotal += parseBackendDouble(item['amount']) ?? 0.0;
+          spentTotal += parseBackendDouble(item['spent']) ?? 0.0;
         }
+        currentMonthBudget = budgetTotal;
+        currentMonthSpent = spentTotal;
+        notifyListeners();
       }
     } catch (e) {
       debugPrint('Network error fetching budgets: $e');
@@ -1338,20 +1347,32 @@ class ExpenseStore extends ChangeNotifier {
   String _monthKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
   Future<double?> getBudgetForMonth(DateTime month) async {
-    // Real read: budget whose date range overlaps the requested month.
+    // Real read. Only the *explicit monthly allocation row* for the
+    // month counts here — the row this flow itself creates (first day
+    // to last day). Budget periods that merely overlap the month (the
+    // yearly seed allocation) are ignored: showing them in the edit box
+    // invited saving a second overlapping row instead of editing one.
     try {
       final orgId = await _orgId();
       if (orgId != null) {
         final response = await ApiClient.get(
           '/organizations/$orgId/budgets',
-          query: {'month': _monthKey(month), 'limit': '5'},
+          query: {'month': _monthKey(month), 'limit': '100'},
         );
         if (response.statusCode == 200) {
+          final monthStart =
+              DateTime(month.year, month.month, 1).toIso8601String().split('T').first;
           final items = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
-          if (items.isNotEmpty) {
-            return parseBackendDouble(items.first['amount']);
+          double total = 0.0;
+          var found = false;
+          for (final item in items) {
+            if ((item['start_date']?.toString() ?? '') == monthStart) {
+              found = true;
+              total += parseBackendDouble(item['amount']) ?? 0.0;
+            }
           }
-          return null; // no budget row for that month — honest null
+          if (found) return total;
+          return null; // no allocation row for that month — honest null
         }
       }
     } catch (e) {
@@ -1371,16 +1392,38 @@ class ExpenseStore extends ChangeNotifier {
           .toIso8601String()
           .split('T')
           .first;
-      final response = await ApiClient.post('/organizations/$orgId/budgets', {
-        'amount': amount,
-        'start_date': start,
-        'end_date': end,
-      });
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        if (_monthKey(month) == _monthKey(DateTime.now())) {
-          currentMonthBudget = amount;
-          notifyListeners();
+      // Editing an existing allocation updates that row. POSTing a new
+      // one stacked a duplicate monthly row on every save, and the
+      // dashboard's summed totals drifted upward each time.
+      int? existingId;
+      try {
+        final existing = await ApiClient.get(
+          '/organizations/$orgId/budgets',
+          query: {'month': _monthKey(month), 'limit': '100'},
+        );
+        if (existing.statusCode == 200) {
+          for (final item in ApiClient.pageItems(existing).cast<Map<String, dynamic>>()) {
+            if ((item['start_date']?.toString() ?? '') == start) {
+              existingId = (item['budget_id'] as num?)?.toInt();
+              break;
+            }
+          }
         }
+      } catch (_) {
+        // Listing failed — fall through to the POST, worst case a row duplicates.
+      }
+      final response = existingId != null
+          ? await ApiClient.patch(
+              '/organizations/$orgId/budgets/$existingId',
+              {'amount': amount},
+            )
+          : await ApiClient.post('/organizations/$orgId/budgets', {
+              'amount': amount,
+              'start_date': start,
+              'end_date': end,
+            });
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        await fetchBudgetFromBackend();
         return null;
       } else {
         return 'Server error setting budget: ${response.statusCode}';

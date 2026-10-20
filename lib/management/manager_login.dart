@@ -133,11 +133,13 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
       List<String> roles = <String>[];
       List<String> permissions = <String>[];
       bool superuser = false;
+      String empId = '';
       try {
         final me = await ApiClient.get('/users/me');
         if (me.statusCode == 200) {
           final profile = json.decode(me.body) as Map<String, dynamic>;
           userName = profile['name']?.toString() ?? userName;
+          empId = profile['employee_id']?.toString() ?? empId;
           roles = stringList(profile['roles']);
           permissions = stringList(profile['permissions']);
           superuser = profile['is_superuser'] == true;
@@ -145,6 +147,11 @@ class _ManagerLoginScreenState extends State<ManagerLoginScreen> {
       } catch (_) {}
 
       ExpenseStore.instance.currentOrganizationId = orgId;
+      // "My Requests" matches on the employee id; without this the id
+      // stayed empty after a fresh sign-in and the request list read as
+      // empty even though the expenses were there.
+      ExpenseStore.instance.currentUserId = empId;
+      ExpenseStore.instance.currentEmployeeId = empId;
       ExpenseStore.instance.setUserAccess(
         roles: roles,
         permissions: permissions,

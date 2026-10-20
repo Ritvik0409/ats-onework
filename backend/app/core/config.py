@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     db_pool_min_size: int = 2
     db_pool_max_size: int = 10
     db_statement_timeout_ms: int = 15_000
+    # The clock every TIMESTAMP (without time zone) column lives on. The
+    # session pins ``TimeZone`` per connection, so ``CURRENT_TIMESTAMP``
+    # writes and comparisons inside SQL all land on this zone — naive
+    # wall time here and naive Python datetimes agree with no conversion.
+    db_timezone: str = "Asia/Kolkata"
 
     @property
     def effective_database_url(self) -> str:

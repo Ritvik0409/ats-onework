@@ -69,7 +69,7 @@ class _AuthRepositoryStub:
     async def create_user(
         self, _conn: Any, *, name: str, email: str, password_hash: str
     ) -> dict[str, Any]:
-        now = opaque_tokens.utc_now_naive()
+        now = opaque_tokens.ist_now_naive()
         user_id = self._next_user
         self._next_user += 1
         row = {
@@ -146,7 +146,7 @@ class _AuthRepositoryStub:
             "token_hash": token_hash,
             "purpose": purpose.value,
             "expires_at": expires_at,
-            "created_at": opaque_tokens.utc_now_naive(),
+            "created_at": opaque_tokens.ist_now_naive(),
             "family_id": family_id or f"family-{token_id}",
             "replaced_by_token_id": None,
             "revoked_at": None,
@@ -170,13 +170,13 @@ class _AuthRepositoryStub:
         for row in self.tokens.values():
             if row["token_id"] == token_id:
                 row["replaced_by_token_id"] = replaced_by_token_id
-                row["revoked_at"] = opaque_tokens.utc_now_naive()
+                row["revoked_at"] = opaque_tokens.ist_now_naive()
 
     async def revoke_family(self, _conn: Any, family_id: Any) -> int:
         count = 0
         for row in self.tokens.values():
             if row["family_id"] == family_id and row["revoked_at"] is None:
-                row["revoked_at"] = opaque_tokens.utc_now_naive()
+                row["revoked_at"] = opaque_tokens.ist_now_naive()
                 count += 1
         return count
 
@@ -188,7 +188,7 @@ class _AuthRepositoryStub:
                 and row["purpose"] == TokenPurpose.REFRESH.value
                 and row["revoked_at"] is None
             ):
-                row["revoked_at"] = opaque_tokens.utc_now_naive()
+                row["revoked_at"] = opaque_tokens.ist_now_naive()
                 count += 1
         return count
 
@@ -214,7 +214,7 @@ class _AuthRepositoryStub:
         *,
         status: str = AccountStatus.ACTIVE.value,
     ) -> dict[str, Any]:
-        now = opaque_tokens.utc_now_naive()
+        now = opaque_tokens.ist_now_naive()
         user_id = self._next_user
         self._next_user += 1
         row = {
@@ -362,7 +362,7 @@ async def test_refresh_expired_token_401_and_cleaned(
         employee_id=user["employee_id"],
         token_hash=token_hash,
         purpose=TokenPurpose.REFRESH,
-        expires_at=opaque_tokens.utc_now_naive() - timedelta(seconds=1),
+        expires_at=opaque_tokens.ist_now_naive() - timedelta(seconds=1),
     )
     with pytest.raises(AuthenticationError) as exc:
         await svc.refresh(object(), RefreshRequest(refresh_token=raw))

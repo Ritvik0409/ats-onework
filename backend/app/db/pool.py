@@ -2,7 +2,11 @@
 
 The pool is created with ``open=False`` and opened explicitly in the app
 lifespan — constructor-open is deprecated in psycopg3. All connections use
-``dict_row`` and inherit a ``statement_timeout`` from settings.
+``dict_row``, inherit a ``statement_timeout`` from settings, and pin the
+session ``TimeZone`` to ``Settings.db_timezone`` — that is the clock every
+``CURRENT_TIMESTAMP`` write and in-SQL comparison of a ``TIMESTAMP`` column
+lands on, so the Python side never has to guess what zone a naive value
+came from.
 """
 
 from __future__ import annotations
@@ -25,7 +29,10 @@ def create_pool(settings: Settings) -> AsyncConnectionPool:
         open=False,
         kwargs={
             "row_factory": dict_row,
-            "options": f"-c statement_timeout={settings.db_statement_timeout_ms}",
+            "options": (
+                f"-c statement_timeout={settings.db_statement_timeout_ms}"
+                f" -c TimeZone={settings.db_timezone}"
+            ),
         },
     )
     return _pool

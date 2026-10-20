@@ -459,7 +459,7 @@ async def test_expired_tokens_cleanup_helper(clean_db: AsyncConnection[dict]) ->
                 user.employee_id,
                 opaque_tokens.hash_token("stale"),
                 TokenPurpose.REFRESH.value,
-                opaque_tokens.utc_now_naive(),
+                opaque_tokens.ist_now_naive(),
             ),
         )
     await clean_db.commit()

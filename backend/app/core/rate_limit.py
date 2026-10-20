@@ -12,14 +12,20 @@ their own account by a colleague's guessing.
 Verifying a password is deliberately expensive (Argon2id, tens of
 milliseconds of CPU), so an unlimited sign-in endpoint is also a way to
 make the server spend all its time hashing. These limits bound that.
+
+All clock arithmetic here lives on the IST axis: the connection pool
+pins every session's ``TimeZone`` to ``Settings.db_timezone``, so
+``CURRENT_TIMESTAMP`` written into the buckets and the comparisons
+against it are consistent with :func:`ist_now_naive` — no UTC-side
+assumption, no session-zone drift.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC
 
 from app.core.exceptions import RateLimitExceeded
+from app.core.security.tokens import ist_now_naive
 from app.db.types import Conn
 
 
@@ -67,7 +73,7 @@ async def hit(conn: Conn, *, key: str, limit: Limit) -> None:
         row = await cur.fetchone()
 
     if row is not None and int(row["hits"]) >= limit.count:
-        elapsed = (await _elapsed(conn, key)).total_seconds()
+        elapsed = await _elapsed(conn, key)
         retry_after = max(1, int(limit.window_seconds - elapsed))
         raise RateLimitExceeded(retry_after)
 
@@ -102,25 +108,22 @@ async def hit(conn: Conn, *, key: str, limit: Limit) -> None:
     await conn.commit()
 
 
-async def _elapsed(conn: Conn, key: str):
+async def _elapsed(conn: Conn, key: str) -> float:
+    """Seconds since the bucket's window opened, 0 when there is no bucket.
+
+    The subtraction is the Python mirror of what the SQL comparisons in
+    :func:`hit` already rely on: the session's ``TimeZone`` is pinned to
+    ``Settings.db_timezone``, and :func:`ist_now_naive` reads the same
+    clock, so a naive stored value and a naive now() subtract cleanly.
+    """
     async with conn.cursor() as cur:
         await cur.execute(
-            "SELECT window_start FROM rate_limit_buckets WHERE bucket_key = %s",
-            (key,),
+            "SELECT window_start FROM rate_limit_buckets WHERE bucket_key = %s", (key,)
         )
         row = await cur.fetchone()
     if row is None:
-        return _zero_seconds()
-    from datetime import datetime
-
-    now = datetime.now(UTC).replace(tzinfo=None)
-    return now - row["window_start"]
-
-
-def _zero_seconds():
-    from datetime import timedelta
-
-    return timedelta(0)
+        return 0.0
+    return max(0.0, (ist_now_naive() - row["window_start"]).total_seconds())
 
 
 async def clear(conn: Conn, *, key: str) -> None:

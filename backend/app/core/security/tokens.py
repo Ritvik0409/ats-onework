@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
 
@@ -27,23 +28,27 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def utc_now_naive() -> datetime:
-    """Naive UTC now.
+def ist_now_naive() -> datetime:
+    """Naive IST now.
 
-    The schema uses ``TIMESTAMP`` (without time zone) — naive UTC datetimes are
-    the convention for every value written to those columns.
+    The schema uses ``TIMESTAMP`` (without time zone). The connection pool
+    pins every session's ``TimeZone`` to ``Settings.db_timezone``
+    (Asia/Kolkata by default), so a bare timestamp read back from
+    PostgreSQL is IST wall time — this returns its matching Python value
+    to write or compare against. Timezone-aware datetimes must never be
+    written to those columns.
     """
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
 
 
 def refresh_token_expiry(now: datetime | None = None) -> datetime:
-    """Expiry timestamp for a freshly issued refresh token (naive UTC)."""
-    current = now or utc_now_naive()
+    """Expiry timestamp for a freshly issued refresh token (naive IST)."""
+    current = now or ist_now_naive()
     return current + timedelta(days=get_settings().jwt_refresh_token_expire_days)
 
 
 def is_expired(expires_at: datetime, now: datetime | None = None) -> bool:
     """Expiry check, tolerant of naive values read from PostgreSQL."""
     if expires_at.tzinfo is not None:
-        expires_at = expires_at.astimezone(UTC).replace(tzinfo=None)
-    return expires_at <= (now or utc_now_naive())
+        expires_at = expires_at.astimezone(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    return expires_at <= (now or ist_now_naive())

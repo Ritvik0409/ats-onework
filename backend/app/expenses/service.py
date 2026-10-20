@@ -26,7 +26,7 @@ from app.core.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from app.core.security.tokens import utc_now_naive
+from app.core.security.tokens import ist_now_naive
 from app.db.transaction import transaction
 from app.db.types import Conn, Row
 from app.expenses.repository import ExpenseRepository
@@ -272,7 +272,7 @@ class ExpenseService:
                 status=ExpenseStatus.INFO_REQUESTED,
                 rejection_reason=row["rejection_reason"],
                 info_message=message[:500],
-                info_requested_at=utc_now_naive(),
+                info_requested_at=ist_now_naive(),
             )
             assert updated is not None
             # The question is kept in the approval history, so it survives

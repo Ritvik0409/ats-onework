@@ -269,7 +269,7 @@ class AuthService:
         )
         if touch_login:
             await self._repository.update_last_login(
-                conn, employee_id, opaque_tokens.utc_now_naive()
+                conn, employee_id, opaque_tokens.ist_now_naive()
             )
         access = jwt_security.create_access_token(
             employee_id=employee_id,
@@ -312,7 +312,7 @@ class AuthService:
         )
         if touch_login:
             await self._repository.update_last_login(
-                conn, employee_id, opaque_tokens.utc_now_naive()
+                conn, employee_id, opaque_tokens.ist_now_naive()
             )
         access = jwt_security.create_access_token(
             employee_id=employee_id,

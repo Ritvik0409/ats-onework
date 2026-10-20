@@ -257,7 +257,11 @@ def main() -> int:
     password = resolve_password()
 
     with (
-        psycopg.connect(dsn, row_factory=dict_row) as conn,
+        psycopg.connect(
+            dsn,
+            row_factory=dict_row,
+            options=f"-c TimeZone={get_settings().db_timezone}",
+        ) as conn,
         conn.transaction(),
         conn.cursor() as cur,
     ):

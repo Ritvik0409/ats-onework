@@ -122,7 +122,7 @@ def test_opaque_token_hash_is_64_hex_and_unique() -> None:
 def test_refresh_expiry_and_expiry_check() -> None:
     future = opaque_tokens.refresh_token_expiry()
     assert not opaque_tokens.is_expired(future)
-    assert opaque_tokens.is_expired(opaque_tokens.utc_now_naive() - timedelta(seconds=1))
+    assert opaque_tokens.is_expired(opaque_tokens.ist_now_naive() - timedelta(seconds=1))
 
 
 def test_user_response_never_exposes_password_hash() -> None:

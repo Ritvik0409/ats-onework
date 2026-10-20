@@ -44,7 +44,7 @@ class _AuditStub:
 
 
 def _now() -> Any:
-    return opaque_tokens.utc_now_naive()
+    return opaque_tokens.ist_now_naive()
 
 
 def _user_row(employee_id: int, **overrides: Any) -> dict[str, Any]:

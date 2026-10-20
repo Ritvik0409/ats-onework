@@ -59,15 +59,20 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
       12,
       (i) => DateTime(now.year, now.month - i),
     );
+    // Coverage read: every period overlapping the month, so months
+    // under the yearly seed allocation report the yearly amount without
+    // an explicit monthly row. (The exact-month allocation read that
+    // getBudgetForMonth performs is what the allocation screen edits,
+    // not what a report should show.)
     final budgets = await Future.wait(
-      months.map(_store.getBudgetForMonth),
+      months.map(_store.getBudgetCoverageForMonth),
     );
 
     for (int i = 0; i < months.length; i++) {
       final targetMonth = months[i];
       final monthName = '${_fullMonthNames[targetMonth.month - 1]} ${targetMonth.year}';
 
-      final double budget = budgets[i] ?? 0.0;
+      final double budget = budgets[i];
 
       double spent = 0.0;
       for (var e in _store.expenses) {

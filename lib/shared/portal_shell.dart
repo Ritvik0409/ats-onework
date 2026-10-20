@@ -227,9 +227,9 @@ class _PortalShellState extends State<PortalShell> {
         // the capability used to open a screen the API refuses).
         final drawerChildren = <Widget>[
           DrawerHeader(
-            decoration: const BoxDecoration(
-              color: Color(0xFF0D0D11),
-              border: Border(bottom: BorderSide(color: Color(0xFFD4AF37), width: 2)),
+            decoration: BoxDecoration(
+              color: store.bg,
+              border: Border(bottom: BorderSide(color: store.accentGold, width: 2)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,8 +239,8 @@ class _PortalShellState extends State<PortalShell> {
                 const SizedBox(height: 12),
                 Text(
                   'Access Level: ${store.currentUserRole.toUpperCase()}',
-                  style: const TextStyle(
-                      color: Color(0xFFD4AF37),
+                  style: TextStyle(
+                      color: store.accentGold,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.5),
@@ -249,8 +249,8 @@ class _PortalShellState extends State<PortalShell> {
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.home_rounded, color: Color(0xFF9CA3AF)),
-            title: const Text('Home', style: TextStyle(color: Color(0xFFF3F4F6))),
+            leading: Icon(Icons.home_rounded, color: store.textMuted),
+            title: Text('Home', style: TextStyle(color: store.textFrost)),
             onTap: () {
               Navigator.pop(context);
               setState(() => _selectedTab = PortalTab.dashboard);
@@ -259,12 +259,12 @@ class _PortalShellState extends State<PortalShell> {
         ];
         if (store.can('budget.manage') || store.canManagePeople) {
           drawerChildren.add(const SizedBox(height: 8));
-          drawerChildren.add(const Padding(
-            padding: EdgeInsets.only(left: 16, bottom: 8),
+          drawerChildren.add(Padding(
+            padding: const EdgeInsets.only(left: 16, bottom: 8),
             child: Text(
               'ADMIN TOOLS',
               style: TextStyle(
-                  color: Color(0xCCD4AF37),
+                  color: store.accentGold.withValues(alpha: 0.8),
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 1.5),
@@ -273,10 +273,9 @@ class _PortalShellState extends State<PortalShell> {
         }
         if (store.can('budget.manage')) {
           drawerChildren.add(ListTile(
-            leading:
-                const Icon(Icons.account_balance_wallet_rounded, color: Color(0xFFD4AF37)),
-            title: const Text('Budget Allocation',
-                style: TextStyle(color: Color(0xFFF3F4F6), fontWeight: FontWeight.w500)),
+            leading: Icon(Icons.account_balance_wallet_rounded, color: store.accentGold),
+            title: Text('Budget Allocation',
+                style: TextStyle(color: store.textFrost, fontWeight: FontWeight.w500)),
             onTap: () {
               Navigator.pop(context);
               Navigator.push(
@@ -289,9 +288,9 @@ class _PortalShellState extends State<PortalShell> {
         }
         if (store.canManagePeople) {
           drawerChildren.add(ListTile(
-            leading: const Icon(Icons.manage_accounts_rounded, color: Color(0xFFD4AF37)),
-            title: const Text('Employee Management',
-                style: TextStyle(color: Color(0xFFF3F4F6), fontWeight: FontWeight.w500)),
+            leading: Icon(Icons.manage_accounts_rounded, color: store.accentGold),
+            title: Text('Employee Management',
+                style: TextStyle(color: store.textFrost, fontWeight: FontWeight.w500)),
             onTap: () {
               Navigator.pop(context);
               Navigator.push(

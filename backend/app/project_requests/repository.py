@@ -15,9 +15,14 @@ _PAR_COLUMNS = (
     "decided_by, decision_comment, requested_at, decided_at, updated_at"
 )
 
-# Joined context for UI queues — requester identity + target project name.
+# Joined variant for UI queues — requester identity + target project name.
+# Every source column MUST carry the ``par.`` prefix: the bare names are
+# ambiguous the moment the projects/users tables join in.
 _PAR_JOINED_COLUMNS = (
-    _PAR_COLUMNS + ", u.name AS employee_name, u.email AS employee_email, p.name AS project_name"
+    "par.access_request_id, par.project_id, par.employee_id, par.organization_id,"
+    " par.status, par.decided_by, par.decision_comment, par.requested_at,"
+    " par.decided_at, par.updated_at,"
+    " u.name AS employee_name, u.email AS employee_email, p.name AS project_name"
 )
 
 _JOINS = (

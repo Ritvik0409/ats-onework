@@ -9,6 +9,7 @@ in ``expense_media.receipt_url``. Admin decisions live under
 
 from __future__ import annotations
 
+import mimetypes
 import uuid
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -20,6 +21,7 @@ from app.api.v1.deps import CurrentUser, require_admin, require_membership
 from app.common.object_storage import get_object_storage
 from app.common.pagination import Page
 from app.core.constants import ExpenseStatus
+from app.core.exceptions import ValidationError
 from app.db.connection import get_connection
 from app.db.types import Conn
 from app.expenses.schemas import (
@@ -34,6 +36,26 @@ approvals_router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 _MAX_FILE_BYTES = 5 * 1024 * 1024
+
+
+def _resolve_content_type(filename: str | None, declared: str | None) -> str:
+    """Pick a validated MIME type for an uploaded receipt.
+
+    Trusting the declared Content-Type alone breaks real clients: Flutter's
+    ``MultipartFile.fromBytes`` sends generic ``application/octet-stream``
+    even for a named ``receipt.jpg``. So when the declared type is missing
+    or generic, fall back to the filename extension. Neither route to an
+    allowed type → 422.
+    """
+    ctype = (declared or "").split(";")[0].strip().lower()
+    if ctype in _ALLOWED_CONTENT_TYPES:
+        return ctype
+    guessed, _ = mimetypes.guess_type(filename or "")
+    if guessed and guessed in _ALLOWED_CONTENT_TYPES:
+        return guessed
+    raise ValidationError(
+        f"File {filename or 'receipt'} has an unsupported type. Accepted: jpeg, png, webp, pdf."
+    )
 
 
 def _parse_cursor(cursor: str | None) -> int | None:
@@ -82,17 +104,14 @@ async def submit_expense(
             from app.core.exceptions import ValidationError
 
             raise ValidationError(f"File {upload.filename} exceeds 5MB.")
-        if upload.content_type and upload.content_type not in _ALLOWED_CONTENT_TYPES:
-            from app.core.exceptions import ValidationError
-
-            raise ValidationError(f"File {upload.filename} has an unsupported type.")
+        resolved_type = _resolve_content_type(upload.filename, upload.content_type)
         key = f"receipts/{user.organization_id}/{uuid.uuid4().hex}-{upload.filename or 'receipt'}"
         import io
 
         url = await storage.upload(
             key=key,
             data=io.BytesIO(content),
-            content_type=upload.content_type or "application/octet-stream",
+            content_type=resolved_type,
         )
         stored.append((url, upload.filename))
     background.add_task(lambda: None)

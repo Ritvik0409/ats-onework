@@ -30,6 +30,18 @@ _BUDGET_SELECT = (
     f" b.start_date, b.end_date, b.created_at, b.updated_at, {_SPENT_EXPR}"
 )
 
+# Same select spelled against INSERT ... RETURNING / UPDATE ... RETURNING
+# (no aliases exist there, so the target table is referenced by name —
+# the spent subquery still correlates against ``budgets.budget_id``).
+_BUDGET_SELECT_NAMED = (
+    "budgets.budget_id, budgets.amount, budgets.employee_id, budgets.organization_id,"
+    " budgets.start_date, budgets.end_date, budgets.created_at, budgets.updated_at,"
+    " COALESCE((SELECT SUM(e.amount) FROM expenses e"
+    " JOIN projects p ON p.project_id = e.project_id"
+    " WHERE p.budget_id = budgets.budget_id"
+    " AND e.status IN ('approved', 'reimbursed')), 0) AS spent"
+)
+
 
 class BudgetRepository:
     async def get_membership(self, conn: Conn, employee_id: int, org_id: int) -> Row | None:
@@ -54,7 +66,7 @@ class BudgetRepository:
         async with conn.cursor() as cur:
             await cur.execute(
                 "INSERT INTO budgets (amount, employee_id, organization_id, start_date, end_date)"
-                " VALUES (%s, %s, %s, %s, %s) RETURNING " + _BUDGET_SELECT,
+                " VALUES (%s, %s, %s, %s, %s) RETURNING " + _BUDGET_SELECT_NAMED,
                 (str(amount), employee_id, organization_id, start_date, end_date),
             )
             row = await cur.fetchone()
@@ -140,7 +152,7 @@ class BudgetRepository:
                 "UPDATE budgets SET "
                 + ", ".join(assignments)
                 + " WHERE budget_id = %s RETURNING "
-                + _BUDGET_SELECT,
+                + _BUDGET_SELECT_NAMED,
                 tuple(params),
             )
             return await cur.fetchone()

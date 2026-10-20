@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from app.auth.repository import AuthRepository
 from app.auth.schemas import (
+    ChangePasswordRequest,
     LoginRequest,
     OrganizationSummary,
     OrganizationSwitchRequest,
@@ -30,6 +31,7 @@ from app.core.exceptions import (
     AuthorizationError,
     ConflictError,
     NotFoundError,
+    ValidationError,
 )
 from app.core.security import jwt as jwt_security
 from app.core.security import passwords
@@ -52,6 +54,9 @@ class AuthService:
         existing = await self._repository.get_user_by_email(conn, payload.email)
         if existing is not None:
             raise ConflictError("An account with this email already exists.")
+        weak = passwords.validate_password_strength(payload.password, email=payload.email)
+        if weak is not None:
+            raise ValidationError(weak)
         password_hash = await passwords.hash_password(payload.password)
         row = await self._repository.create_user(
             conn,
@@ -71,6 +76,42 @@ class AuthService:
         return UserResponse.model_validate(row)
 
     # -- login ----------------------------------------------------------
+
+    # -- password --------------------------------------------------------
+
+    async def change_password(
+        self, conn: Conn, *, employee_id: int, payload: ChangePasswordRequest
+    ) -> None:
+        """Change the signed-in user's own password.
+
+        The current password is required, and every other session of
+        theirs is ended — a password change is how someone recovers from
+        a compromise, so it must not leave the old sessions alive.
+        """
+        row = await self._repository.get_user_by_id(conn, employee_id)
+        if row is None:
+            raise NotFoundError("User not found.")
+        ok, _ = await passwords.verify_and_update_password(
+            payload.current_password, row["password_hash"]
+        )
+        if not ok:
+            raise AuthenticationError("The current password is incorrect.")
+        if payload.current_password == payload.new_password:
+            raise ValidationError("The new password must be different.")
+        weak = passwords.validate_password_strength(payload.new_password, email=row["email"])
+        if weak is not None:
+            raise ValidationError(weak)
+        password_hash = await passwords.hash_password(payload.new_password)
+        await self._repository.update_password_hash(conn, employee_id, password_hash)
+        await self._repository.revoke_refresh_tokens_for_employee(conn, employee_id=employee_id)
+        await audit_service.log(
+            conn,
+            actor_id=employee_id,
+            organization_id=None,
+            action="user.change_password",
+            table_name="users",
+            record_id=str(employee_id),
+        )
 
     async def login(self, conn: Conn, payload: LoginRequest) -> TokenPair:
         row = await self._repository.get_user_by_email(conn, payload.email)

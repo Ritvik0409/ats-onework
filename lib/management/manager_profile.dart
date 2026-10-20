@@ -6,6 +6,7 @@ import 'package:ats_onework/management/employee_management_screen.dart';
 import 'package:ats_onework/management/pending_approvals_screen.dart';
 import 'package:ats_onework/shared/api_client.dart';
 import 'package:ats_onework/shared/app_snack.dart';
+import 'package:ats_onework/shared/change_password_dialog.dart';
 
 class ManagerProfileScreen extends StatefulWidget {
   const ManagerProfileScreen({super.key});
@@ -121,31 +122,8 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
     );
   }
 
-  void _showChangePassword() {
-    // No self-service password endpoint in the backend (§49) — passwords
-    // are bcrypt-hashed server-side; resets are admin actions
-    // (PATCH /users/{id} or a future /auth/reset flow).
-    final store = ExpenseStore.instance;
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-        ),
-        title: Text('Change Password', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-        content: const Text(
-          'For security, password changes are admin-managed. Contact an administrator to reset your password.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text('Close', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
+  Future<void> _showChangePassword() async {
+    await showChangePasswordDialog(context);
   }
 
   void _showNotificationPreferences() {

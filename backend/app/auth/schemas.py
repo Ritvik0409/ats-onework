@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from app.users.schemas import UserResponse
 
 __all__ = [
+    "ChangePasswordRequest",
     "LoginRequest",
     "OrganizationSummary",
     "OrganizationSwitchRequest",
@@ -57,6 +58,19 @@ class LoginRequest(BaseModel):
             return validate_email(value, check_deliverability=False).normalized
         # Employee-ID path (e.g. EMP202) — case-insensitive lookup.
         return value.lower()
+
+
+class ChangePasswordRequest(BaseModel):
+    """Change the signed-in user's own password.
+
+    The current password is required: a stolen session must not be
+    enough to take the account over permanently.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=False)
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class RefreshRequest(BaseModel):

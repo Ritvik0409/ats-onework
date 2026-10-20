@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from app.api.v1.deps import CurrentUser, get_current_user
 from app.auth.schemas import (
+    ChangePasswordRequest,
     LoginRequest,
     OrganizationSwitchRequest,
     RefreshRequest,
@@ -64,3 +65,18 @@ async def switch_organization(
     return await auth_service.switch_organization(
         conn, employee_id=user.employee_id, payload=payload
     )
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: ChangePasswordRequest,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+    conn: Annotated[Conn, Depends(get_connection)],
+) -> Response:
+    """Change the signed-in user's own password.
+
+    Every other session of theirs ends, so a password change is a way
+    to recover from a compromise.
+    """
+    await auth_service.change_password(conn, employee_id=user.employee_id, payload=payload)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

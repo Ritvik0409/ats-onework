@@ -20,11 +20,19 @@ class PermissionResponse(BaseModel):
 
 
 class PermissionCreate(BaseModel):
-    """Create a capability for the organization."""
+    """Create a capability for the organization.
+
+    The name follows the catalogue's shape: lower-case segments joined by
+    dots, such as ``expense.approve`` or ``project.member.manage``.
+    """
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    api_name: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9_]+$")
+    api_name: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$",
+    )
     description: str | None = Field(default=None, max_length=500)
 
 

@@ -303,6 +303,43 @@ class AccessRepository:
             )
             return cur.rowcount
 
+    # -- platform administration --------------------------------------------
+
+    async def list_all_organizations(self, conn: Conn) -> list[Row]:
+        """Every organization, with a member count.
+
+        For the platform super administrator, who is not a member of the
+        organizations they administer.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT o.organization_id, o.name, o.slug, o.description,"
+                " o.is_system, o.is_active, o.created_at, o.updated_at,"
+                " (SELECT COUNT(*) FROM memberships m"
+                "   WHERE m.organization_id = o.organization_id) AS member_count"
+                " FROM organizations o ORDER BY o.organization_id ASC"
+            )
+            return list(await cur.fetchall())
+
+    async def list_superusers(self, conn: Conn) -> list[Row]:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT employee_id, name, email, account_status, is_superuser,"
+                " last_login_at, created_at, updated_at"
+                " FROM users WHERE is_superuser ORDER BY employee_id ASC"
+            )
+            return list(await cur.fetchall())
+
+    async def set_superuser(self, conn: Conn, employee_id: int, is_superuser: bool) -> Row | None:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE users SET is_superuser = %s WHERE employee_id = %s"
+                " RETURNING employee_id, name, email, account_status, is_superuser,"
+                " last_login_at, created_at, updated_at",
+                (is_superuser, employee_id),
+            )
+            return await cur.fetchone()
+
     # -- installation ------------------------------------------------------
 
     async def install_catalog_for_org(self, conn: Conn, organization_id: int) -> tuple[int, int]:

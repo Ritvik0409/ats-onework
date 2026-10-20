@@ -172,7 +172,7 @@ def app_with_overrides(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(auth_svc, "logout", _logout)
     monkeypatch.setattr(auth_svc, "switch_organization", _switch)
 
-    async def _get_me(_conn: Any, _employee_id: int) -> UserResponse:
+    async def _get_me(_conn: Any, _employee_id: int, **_kwargs: Any) -> UserResponse:
         return UserResponse.model_validate(_user_dict())
 
     async def _list_users(_conn: Any, **_kwargs: Any) -> Page[UserListItem]:

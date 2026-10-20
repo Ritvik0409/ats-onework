@@ -24,11 +24,14 @@ from app.access.schemas import (
     MemberAccessResponse,
     MemberPermissionsUpdate,
     MemberRolesUpdate,
+    OrganizationSummary,
     PermissionCreate,
     PermissionResponse,
     RoleCreate,
     RolePermissionsUpdate,
     RoleResponse,
+    SuperuserResponse,
+    SuperuserUpdate,
 )
 from app.access.service import service as access_service
 from app.api.v1.deps import CurrentUser, get_current_user, require_superuser
@@ -50,7 +53,10 @@ async def list_permissions(
 ) -> list[PermissionResponse]:
     """The capabilities this organization holds."""
     return await access_service.list_permissions(
-        conn, employee_id=user.employee_id, organization_id=organization_id
+        conn,
+        employee_id=user.employee_id,
+        organization_id=organization_id,
+        is_superuser=user.is_superuser,
     )
 
 
@@ -86,7 +92,10 @@ async def list_roles(
 ) -> list[RoleResponse]:
     """This organization's roles, each with the capabilities it grants."""
     return await access_service.list_roles(
-        conn, employee_id=user.employee_id, organization_id=organization_id
+        conn,
+        employee_id=user.employee_id,
+        organization_id=organization_id,
+        is_superuser=user.is_superuser,
     )
 
 
@@ -127,6 +136,7 @@ async def get_role_permissions(
         employee_id=user.employee_id,
         organization_id=organization_id,
         role_id=role_id,
+        is_superuser=user.is_superuser,
     )
 
 
@@ -290,4 +300,38 @@ async def install_catalog(
     """
     return await access_service.install_catalog(
         conn, actor_id=user.employee_id, organization_id=organization_id
+    )
+
+
+@system_router.get("/organizations", response_model=list[OrganizationSummary])
+async def list_organizations(
+    _user: Annotated[CurrentUser, Depends(require_superuser)],
+    conn: Annotated[Conn, Depends(get_connection)],
+) -> list[OrganizationSummary]:
+    """Every organization on the platform."""
+    return await access_service.list_organizations(conn)
+
+
+@system_router.get("/users/superusers", response_model=list[SuperuserResponse])
+async def list_superusers(
+    _user: Annotated[CurrentUser, Depends(require_superuser)],
+    conn: Annotated[Conn, Depends(get_connection)],
+) -> list[SuperuserResponse]:
+    """The platform super administrators."""
+    return await access_service.list_superusers(conn)
+
+
+@system_router.put("/users/{employee_id}/superuser", response_model=SuperuserResponse)
+async def set_superuser(
+    employee_id: int,
+    payload: SuperuserUpdate,
+    user: Annotated[CurrentUser, Depends(require_superuser)],
+    conn: Annotated[Conn, Depends(get_connection)],
+) -> SuperuserResponse:
+    """Grant or revoke platform super administrator rights."""
+    return await access_service.set_superuser(
+        conn,
+        actor_id=user.employee_id,
+        employee_id=employee_id,
+        is_superuser=payload.is_superuser,
     )

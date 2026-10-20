@@ -134,3 +134,40 @@ class InstallResult(BaseModel):
 
     permissions_installed: int
     roles_installed: int
+
+
+class SuperuserResponse(BaseModel):
+    """A platform super administrator."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    employee_id: int
+    name: str
+    email: str
+    account_status: str
+    is_superuser: bool
+    last_login_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SuperuserUpdate(BaseModel):
+    """Grant or revoke platform super administrator rights."""
+
+    is_superuser: bool
+
+
+class OrganizationSummary(BaseModel):
+    """An organization, for the platform administration list."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    organization_id: int
+    name: str
+    slug: str
+    description: str | None = None
+    is_system: bool
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    member_count: int = 0

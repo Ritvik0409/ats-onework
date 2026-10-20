@@ -39,7 +39,9 @@ async def get_me(
     user: Annotated[CurrentUser, Depends(get_current_user)],
     conn: Annotated[Conn, Depends(get_connection)],
 ) -> UserResponse:
-    return await user_service.get_me(conn, user.employee_id)
+    """The caller's own profile, with the roles and capabilities they hold
+    in their active organization."""
+    return await user_service.get_me(conn, user.employee_id, organization_id=user.organization_id)
 
 
 @router.get("", response_model=Page[UserListItem])

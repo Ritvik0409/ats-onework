@@ -33,11 +33,13 @@ from app.access.schemas import (
     MemberAccessResponse,
     MemberPermissionsUpdate,
     MemberRolesUpdate,
+    OrganizationSummary,
     PermissionCreate,
     PermissionResponse,
     RoleCreate,
     RolePermissionsUpdate,
     RoleResponse,
+    SuperuserResponse,
 )
 from app.common.audit import service as audit_service
 from app.common.permissions import granted_permissions
@@ -55,9 +57,14 @@ class AccessService:
     # -- capabilities -------------------------------------------------------
 
     async def list_permissions(
-        self, conn: Conn, *, employee_id: int, organization_id: int
+        self,
+        conn: Conn,
+        *,
+        employee_id: int,
+        organization_id: int,
+        is_superuser: bool = False,
     ) -> list[PermissionResponse]:
-        await self._require_member(conn, employee_id, organization_id)
+        await self._require_member(conn, employee_id, organization_id, is_superuser)
         rows = await self._repository.list_permissions(conn, organization_id)
         return [PermissionResponse.model_validate(row) for row in rows]
 
@@ -97,13 +104,18 @@ class AccessService:
     # -- roles --------------------------------------------------------------
 
     async def list_roles(
-        self, conn: Conn, *, employee_id: int, organization_id: int
+        self,
+        conn: Conn,
+        *,
+        employee_id: int,
+        organization_id: int,
+        is_superuser: bool = False,
     ) -> list[RoleResponse]:
-        await self._require_member(conn, employee_id, organization_id)
+        await self._require_member(conn, employee_id, organization_id, is_superuser)
         rows = await self._repository.list_roles(conn, organization_id)
         return [
             RoleResponse(
-                **RoleResponse.model_validate(row).model_dump(),
+                **RoleResponse.model_validate(row).model_dump(exclude={"permissions"}),
                 permissions=await self._repository.list_role_grants(
                     conn, organization_id, row["role_id"]
                 ),
@@ -147,16 +159,22 @@ class AccessService:
             },
         )
         return RoleResponse(
-            **RoleResponse.model_validate(row).model_dump(),
+            **RoleResponse.model_validate(row).model_dump(exclude={"permissions"}),
             permissions=await self._repository.list_role_grants(
                 conn, organization_id, row["role_id"]
             ),
         )
 
     async def get_role_grants(
-        self, conn: Conn, *, employee_id: int, organization_id: int, role_id: int
+        self,
+        conn: Conn,
+        *,
+        employee_id: int,
+        organization_id: int,
+        role_id: int,
+        is_superuser: bool = False,
     ) -> list[str]:
-        await self._require_member(conn, employee_id, organization_id)
+        await self._require_member(conn, employee_id, organization_id, is_superuser)
         role = await self._repository.get_role(conn, organization_id, role_id)
         if role is None:
             raise NotFoundError("Role not found.")
@@ -394,6 +412,43 @@ class AccessService:
         )
         return InstallResult(permissions_installed=permissions, roles_installed=roles)
 
+    # -- platform administration --------------------------------------------
+
+    async def list_organizations(self, conn: Conn) -> list[OrganizationSummary]:
+        """Every organization on the platform."""
+        rows = await self._repository.list_all_organizations(conn)
+        return [OrganizationSummary.model_validate(row) for row in rows]
+
+    async def list_superusers(self, conn: Conn) -> list[SuperuserResponse]:
+        """The platform super administrators."""
+        rows = await self._repository.list_superusers(conn)
+        return [SuperuserResponse.model_validate(row) for row in rows]
+
+    async def set_superuser(
+        self, conn: Conn, *, actor_id: int, employee_id: int, is_superuser: bool
+    ) -> SuperuserResponse:
+        """Grant or revoke platform super administrator rights."""
+        current = await self._repository.list_superusers(conn)
+        if (
+            not is_superuser
+            and employee_id == actor_id
+            and any(row["employee_id"] == actor_id for row in current)
+        ):
+            raise ConflictError("You cannot remove your own super administrator rights.")
+        row = await self._repository.set_superuser(conn, employee_id, is_superuser)
+        if row is None:
+            raise NotFoundError("User not found.")
+        await audit_service.log(
+            conn,
+            actor_id=actor_id,
+            organization_id=None,
+            action="access.superuser.update",
+            table_name="users",
+            record_id=str(employee_id),
+            new_values={"is_superuser": is_superuser},
+        )
+        return SuperuserResponse.model_validate(row)
+
     # -- helpers -------------------------------------------------------------
 
     async def _membership(self, conn: Conn, employee_id: int, organization_id: int) -> Row:
@@ -408,7 +463,13 @@ class AccessService:
             raise NotFoundError("Member not found.")
         return row
 
-    async def _require_member(self, conn: Conn, employee_id: int, org_id: int) -> Row:
+    async def _require_member(
+        self, conn: Conn, employee_id: int, org_id: int, is_superuser: bool = False
+    ) -> Row | None:
+        # A super administrator is not a member of the organization they
+        # administer, so their membership is not required.
+        if is_superuser:
+            return None
         return require_path_member(await self._membership(conn, employee_id, org_id))
 
     async def _require_admin(

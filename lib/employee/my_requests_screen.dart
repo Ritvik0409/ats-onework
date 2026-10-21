@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/shared/app_snack.dart';
-import 'package:ats_onework/shared/load_more.dart';
 
+import '../management/expense_store.dart';
+import '../shared/app_snack.dart';
+import '../shared/load_more.dart';
+import '../ui/expense_row.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+
+/// The employee's own claims: one list, one filter row, one row widget.
 class MyRequestsScreen extends StatefulWidget {
   const MyRequestsScreen({super.key});
 
@@ -11,232 +16,211 @@ class MyRequestsScreen extends StatefulWidget {
 }
 
 class _MyRequestsScreenState extends State<MyRequestsScreen> {
-  String _selectedFilter = 'All';
-  final ExpenseStore _store = ExpenseStore.instance;
+  static const List<String> _filters = <String>[
+    'All',
+    'Pending',
+    'Approved',
+    'Paid',
+    'Rejected',
+  ];
 
-  Color _statusColor(String status, Color defaultGold) {
-    if (status == 'Approved' || status == 'Paid') return Colors.greenAccent.shade400;
-    if (status == 'Rejected') return Colors.redAccent.shade400;
-    if (status == 'Info Requested') return Colors.orangeAccent.shade200;
-    return defaultGold;
-  }
+  final ExpenseStore _store = ExpenseStore.instance;
+  String _selectedFilter = 'All';
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _store,
-      builder: (context, _) {
-        final obsidianBlack = _store.bg;
-        final darkCharcoal = _store.card;
-        final champagneGold = _store.accentGold;
-        final textFrost = _store.textFrost;
-        final textMuted = _store.textMuted;
-        
-        final List<BoxShadow> cardShadows = _store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 4)),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 12), spreadRadius: -4),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
-              ];
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
 
-        // `myExpenses` already scopes by the signed-in employee id (with an
-        // email fallback for legacy rows). Re-filtering by email here hid
-        // rows whose record carried an id but no email, so the list could
-        // be empty even though the dashboard counted claims.
-        final all = _store.myExpenses.toList();
-        
-        // Newest first — backend ids are numeric; the old string compare
-        // on the id field put "10" before "9".
-        int expenseNumber(ExpenseRecord e) => int.tryParse(e.firestoreDocId) ?? 0;
-        all.sort((a, b) => expenseNumber(b).compareTo(expenseNumber(a)));
+        // `myExpenses` already scopes by the signed-in employee id (with
+        // an email fallback for legacy rows). Re-filtering by email here
+        // hid rows whose record carried an id but no email, so the list
+        // could be empty even though the dashboard counted claims.
+        final List<ExpenseRecord> all = _store.myExpenses.toList()
+          // Newest first — backend ids are numeric; the old string
+          // compare on the id field put "10" before "9".
+          ..sort(
+            (ExpenseRecord a, ExpenseRecord b) =>
+                _number(b).compareTo(_number(a)),
+          );
 
-        final filtered = all.where((e) {
-          if (_selectedFilter == 'All') return true;
-          if (_selectedFilter == 'Pending') {
-            return e.status == 'Pending Verification' || e.status == 'Info Requested';
-          }
-          return e.status == _selectedFilter;
-        }).toList();
+        final List<ExpenseRecord> filtered = all
+            .where((ExpenseRecord e) {
+              if (_selectedFilter == 'All') return true;
+              if (_selectedFilter == 'Pending') {
+                return e.status == 'Pending Verification' ||
+                    e.status == 'Info Requested';
+              }
+              return e.status == _selectedFilter;
+            })
+            .toList(growable: false);
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
-          appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            elevation: 0,
-            title: Text('My Expenses', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 20)),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
-            ),
-          ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 600),
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: ['All', 'Pending', 'Approved', 'Paid', 'Rejected'].map((category) {
-                        final isSelected = _selectedFilter == category;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8.0),
-                          child: ChoiceChip(
-                            label: Text(category),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              if (selected) setState(() => _selectedFilter = category);
-                            },
-                            labelStyle: TextStyle(
-                              color: isSelected ? (_store.isDarkMode ? obsidianBlack : Colors.white) : textFrost, 
-                              fontWeight: FontWeight.bold, 
-                              fontSize: 13
-                            ),
-                            selectedColor: champagneGold,
-                            backgroundColor: darkCharcoal,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                              side: BorderSide(color: isSelected ? champagneGold : champagneGold.withValues(alpha: 0.15)),
-                            ),
-                            showCheckmark: false,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Expanded(
-                    child: !_store.expensesLoaded
-                        ? const Center(child: CircularProgressIndicator())
-                        : RefreshIndicator(
-                            onRefresh: () => _store.fetchExpensesFromBackend(),
-                            child: filtered.isEmpty
-                                // A RefreshIndicator only reacts to the
-                                // scroll notifications of a scrollable
-                                // child, so the empty state has to be one
-                                // too — otherwise pull-to-refresh does
-                                // nothing exactly when it is wanted.
-                                ? ListView(
-                                    physics: const AlwaysScrollableScrollPhysics(),
-                                    children: [
-                                      const SizedBox(height: 80),
-                                      Center(child: Text('No expenses in this category.', style: TextStyle(color: textMuted))),
-                                    ],
-                                  )
-                                : ListView.builder(
-                                    // One extra row for the "load more"
-                                    // footer, so a list longer than one
-                                    // page can be walked through.
-                                    itemCount:
-                                        filtered.length + (_store.hasMoreExpenses ? 1 : 0),
-                                    itemBuilder: (context, index) {
-                                      if (index >= filtered.length) {
-                                        return LoadMoreFooter(
-                                          hasMore: _store.hasMoreExpenses,
-                                          loading: _store.expensesLoadingMore,
-                                          onLoad: _store.loadMoreExpenses,
-                                        );
-                                      }
-                                      final e = filtered[index];
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 14),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: _store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
-                                  boxShadow: cardShadows,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: BoxDecoration(color: champagneGold.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-                                      child: Icon(Icons.receipt_long_rounded, color: champagneGold, size: 20),
-                                    ),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Text('${e.type} Expense', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 14)),
-                                            
-                                            if (e.projectName != null && e.projectName!.isNotEmpty) ...[
-                                              const SizedBox(width: 8),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                decoration: BoxDecoration(
-                                                  color: champagneGold.withValues(alpha: 0.1),
-                                                  borderRadius: BorderRadius.circular(6),
-                                                  border: Border.all(color: champagneGold.withValues(alpha: 0.5)),
-                                                ),
-                                                child: Text(
-                                                  e.projectName!,
-                                                  style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold),
-                                                ),
-                                              ),
-                                            ]
-                                          ],
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Text('${e.date} • ${e.id}', style: TextStyle(color: textMuted, fontSize: 12)),
-                                        if (e.status == 'Rejected' && e.rejectionReason != null) ...[
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            'Reason: ${e.rejectionReason}',
-                                            style: TextStyle(color: Colors.redAccent.withValues(alpha: 0.85), fontSize: 11, fontStyle: FontStyle.italic),
-                                          ),
-                                        ],
-                                        if (e.status == 'Info Requested' && e.infoMessage != null && e.infoMessage!.isNotEmpty) ...[
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            'Manager asked: ${e.infoMessage}',
-                                            style: TextStyle(color: Colors.orangeAccent.withValues(alpha: 0.9), fontSize: 11, fontStyle: FontStyle.italic),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                    ),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text(e.amountFormatted, style: TextStyle(color: textFrost, fontWeight: FontWeight.w900, fontSize: 14)),
-                                        const SizedBox(height: 4),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: _statusColor(e.status, champagneGold).withValues(alpha: 0.08),
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: _statusColor(e.status, champagneGold).withValues(alpha: 0.3)),
-                                          ),
-                                          child: Text(e.status == 'Approved' ? 'Approved • Payment Pending' : e.status, style: TextStyle(color: _statusColor(e.status, champagneGold), fontSize: 10, fontWeight: FontWeight.bold)),
-                                        ),
-                                        if (e.status == 'Info Requested') ...[
-                                          const SizedBox(height: 8),
-                                          _ResubmitButton(store: _store, expenseId: e.id),
-                                        ],
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                  ),
-                ],
+          backgroundColor: palette.bg,
+          appBar: AppBar(title: const Text('My claims')),
+          body: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
+                child: AppFilterBar(
+                  options: _filters,
+                  value: _selectedFilter,
+                  onChanged: (String filter) =>
+                      setState(() => _selectedFilter = filter),
+                ),
               ),
-            ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: !_store.expensesLoaded
+                    ? const _ListSkeleton()
+                    : RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: filtered.isEmpty
+                            // A RefreshIndicator only reacts to the scroll
+                            // notifications of a scrollable child, so the
+                            // empty state has to be one too — otherwise
+                            // pull-to-refresh does nothing exactly when
+                            // it is wanted.
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: <Widget>[
+                                  const SizedBox(height: 60),
+                                  EmptyState(
+                                    icon: Icons.receipt_long_rounded,
+                                    title: _selectedFilter == 'All'
+                                        ? 'No claims yet'
+                                        : 'Nothing in this filter',
+                                    message: _selectedFilter == 'All'
+                                        ? 'Submit an expense and it will '
+                                              'show up here.'
+                                        : 'Try another filter to see the '
+                                              'rest of your claims.',
+                                    action: _selectedFilter == 'All'
+                                        ? null
+                                        : TextButton(
+                                            onPressed: () => setState(
+                                              () => _selectedFilter = 'All',
+                                            ),
+                                            child: const Text('Show all'),
+                                          ),
+                                  ),
+                                ],
+                              )
+                            : ListView.separated(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  0,
+                                  18,
+                                  32,
+                                ),
+                                // One extra row for the "load more"
+                                // footer, so a list longer than one page
+                                // can be walked through.
+                                itemCount:
+                                    filtered.length +
+                                    (_store.hasMoreExpenses ? 1 : 0),
+                                separatorBuilder:
+                                    (BuildContext context, int index) =>
+                                        const SizedBox(height: 10),
+                                itemBuilder: (BuildContext context, int index) {
+                                  if (index >= filtered.length) {
+                                    return LoadMoreFooter(
+                                      hasMore: _store.hasMoreExpenses,
+                                      loading: _store.expensesLoadingMore,
+                                      onLoad: _store.loadMoreExpenses,
+                                    );
+                                  }
+                                  final ExpenseRecord expense = filtered[index];
+                                  return ExpenseRow(
+                                    expense: expense,
+                                    showOwner: false,
+                                    showId: true,
+                                    note: _note(expense, palette),
+                                    trailing: expense.status == 'Info Requested'
+                                        ? _ResubmitButton(
+                                            store: _store,
+                                            expenseId: expense.id,
+                                          )
+                                        : null,
+                                  );
+                                },
+                              ),
+                      ),
+              ),
+            ],
           ),
         );
       },
+    );
+  }
+
+  static int _number(ExpenseRecord expense) =>
+      int.tryParse(expense.firestoreDocId) ?? 0;
+
+  /// The reason the claim was rejected, or the question the reviewer
+  /// asked — the two things the employee needs to read first.
+  Widget? _note(ExpenseRecord expense, AppPalette palette) {
+    if (expense.status == 'Rejected' &&
+        expense.rejectionReason != null &&
+        expense.rejectionReason!.isNotEmpty) {
+      return Text(
+        'Reason: ${expense.rejectionReason}',
+        style: TextStyle(
+          color: palette.danger.withValues(alpha: 0.9),
+          fontSize: 11.5,
+          fontStyle: FontStyle.italic,
+        ),
+      );
+    }
+    if (expense.status == 'Info Requested' &&
+        expense.infoMessage != null &&
+        expense.infoMessage!.isNotEmpty) {
+      return Text(
+        'Reviewer asked: ${expense.infoMessage}',
+        style: TextStyle(
+          color: palette.warning.withValues(alpha: 0.95),
+          fontSize: 11.5,
+          fontStyle: FontStyle.italic,
+        ),
+      );
+    }
+    return null;
+  }
+}
+
+/// Placeholder rows while the first page is loading.
+class _ListSkeleton extends StatelessWidget {
+  const _ListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(18, 4, 18, 32),
+      itemCount: 4,
+      separatorBuilder: (BuildContext context, int index) =>
+          const SizedBox(height: 10),
+      itemBuilder: (BuildContext context, int index) => const AppCard(
+        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        child: Row(
+          children: <Widget>[
+            SkeletonBox(width: 40, height: 40, radius: 10),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  SkeletonBox(width: 140, height: 14),
+                  SizedBox(height: 8),
+                  SkeletonBox(width: 90, height: 11),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -244,10 +228,10 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
 /// Resubmit affordance for an expense in 'Info Requested' — the honest
 /// backend action: POST /expenses/{id}/resubmit (no fake success).
 class _ResubmitButton extends StatefulWidget {
+  const _ResubmitButton({required this.store, required this.expenseId});
+
   final ExpenseStore store;
   final String expenseId;
-
-  const _ResubmitButton({required this.store, required this.expenseId});
 
   @override
   State<_ResubmitButton> createState() => _ResubmitButtonState();
@@ -260,10 +244,10 @@ class _ResubmitButtonState extends State<_ResubmitButton> {
   /// only be answered if the employee is actually given a place to type
   /// it.
   Future<String?> _askForAnswer() async {
-    final controller = TextEditingController();
-    final answer = await showDialog<String>(
+    final TextEditingController controller = TextEditingController();
+    final String? answer = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (BuildContext dialogContext) => AlertDialog(
         title: const Text('Provide the requested details'),
         content: TextField(
           controller: controller,
@@ -274,12 +258,12 @@ class _ResubmitButtonState extends State<_ResubmitButton> {
             hintText: 'Explain what the reviewer asked for…',
           ),
         ),
-        actions: [
+        actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.pop(dialogContext, controller.text),
             child: const Text('Resubmit'),
           ),
@@ -291,12 +275,17 @@ class _ResubmitButtonState extends State<_ResubmitButton> {
   }
 
   Future<void> _resubmit() async {
-    final answer = await _askForAnswer();
+    final String? answer = await _askForAnswer();
     if (answer == null) return; // cancelled
+    if (!mounted) return;
+    if (answer.trim().isEmpty) {
+      AppSnack.error(context, 'Please write an answer first.');
+      return;
+    }
     setState(() => _sending = true);
-    final ok = await widget.store.resubmitExpense(
+    final bool ok = await widget.store.resubmitExpense(
       widget.expenseId,
-      response: answer,
+      response: answer.trim(),
     );
     if (!mounted) return;
     setState(() => _sending = false);
@@ -309,30 +298,35 @@ class _ResubmitButtonState extends State<_ResubmitButton> {
 
   @override
   Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
     return SizedBox(
-      height: 26,
-      child: ElevatedButton.icon(
+      height: 28,
+      child: OutlinedButton.icon(
         onPressed: _sending ? null : _resubmit,
         icon: _sending
-            ? const SizedBox(
+            ? SizedBox(
                 width: 12,
                 height: 12,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: palette.warning,
+                ),
               )
             : const Icon(Icons.replay_rounded, size: 13),
         label: Text(
-          _sending ? 'Sending…' : "I've updated it — resubmit",
-          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+          _sending ? 'Sending…' : "I've updated it",
+          style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700),
         ),
-        style: ElevatedButton.styleFrom(
+        style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 10),
-          backgroundColor: Colors.orangeAccent.withValues(alpha: 0.15),
-          foregroundColor: Colors.orangeAccent,
-          elevation: 0,
+          foregroundColor: palette.warning,
+          side: BorderSide(color: palette.warning.withValues(alpha: 0.4)),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
-            side: BorderSide(color: Colors.orangeAccent.withValues(alpha: 0.4)),
+            borderRadius: BorderRadius.circular(AppTokens.radiusSm),
           ),
+          textStyle: const TextStyle(fontSize: 10.5),
+          minimumSize: const Size(0, 28),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       ),
     );

@@ -1,7 +1,4 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../core/formatting.dart';
 import '../core/status.dart';
@@ -9,6 +6,7 @@ import '../data/analytics_controller.dart';
 import '../data/analytics_repository.dart';
 import '../shared/app_snack.dart';
 import '../ui/charts.dart';
+import '../ui/mark_paid_dialog.dart';
 import '../ui/tokens.dart';
 import '../ui/widgets.dart';
 import 'expense_details.dart';
@@ -61,8 +59,8 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
                   subtitle: data == null
                       ? 'Move approved claims to paid'
                       : '${formatDateRange(data.fromDate, data.toDate)} · '
-                          '${formatCount(data.summary.approvedCount)} approved '
-                          'in period',
+                            '${formatCount(data.summary.approvedCount)} approved '
+                            'in period',
                   initials: _store.getInitials(_store.currentUserName),
                   trailing: RangePicker(
                     value: _analytics.range,
@@ -150,18 +148,19 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
     );
   }
 
-  Widget _buildPipelineAndStatus(
-    AnalyticsOverview? data,
-    AppPalette palette,
-  ) {
+  Widget _buildPipelineAndStatus(AnalyticsOverview? data, AppPalette palette) {
     final ReimbursementStats stats =
         data?.reimbursements ?? const ReimbursementStats();
-    final double maxPipeline = <double>[
-      stats.pendingAmount,
-      stats.processingAmount,
-      stats.paidAmount,
-      stats.failedAmount,
-    ].fold<double>(0, (double best, double value) => value > best ? value : best);
+    final double maxPipeline =
+        <double>[
+          stats.pendingAmount,
+          stats.processingAmount,
+          stats.paidAmount,
+          stats.failedAmount,
+        ].fold<double>(
+          0,
+          (double best, double value) => value > best ? value : best,
+        );
 
     final Widget pipeline = ChartCard(
       title: 'Payout pipeline',
@@ -204,8 +203,9 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
 
     final List<StatusSlice> statuses =
         data?.statusBreakdown ?? const <StatusSlice>[];
-    final List<StatusSlice> visible =
-        statuses.where((StatusSlice s) => s.amount > 0).toList(growable: false);
+    final List<StatusSlice> visible = statuses
+        .where((StatusSlice s) => s.amount > 0)
+        .toList(growable: false);
 
     final Widget statusCard = ChartCard(
       title: 'Claims by status',
@@ -279,18 +279,19 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
   }
 
   Widget _buildToPay(AppPalette palette) {
-    final List<ExpenseRecord> approved = _store.expenses
-        .where((ExpenseRecord e) => e.status == 'Approved')
-        .toList()
-      ..sort((ExpenseRecord a, ExpenseRecord b) {
-        // Oldest first: those have waited longest for payment.
-        final DateTime? left = parseLooseDate(a.date);
-        final DateTime? right = parseLooseDate(b.date);
-        if (left == null && right == null) return 0;
-        if (left == null) return 1;
-        if (right == null) return -1;
-        return left.compareTo(right);
-      });
+    final List<ExpenseRecord> approved =
+        _store.expenses
+            .where((ExpenseRecord e) => e.status == 'Approved')
+            .toList()
+          ..sort((ExpenseRecord a, ExpenseRecord b) {
+            // Oldest first: those have waited longest for payment.
+            final DateTime? left = parseLooseDate(a.date);
+            final DateTime? right = parseLooseDate(b.date);
+            if (left == null && right == null) return 0;
+            if (left == null) return 1;
+            if (right == null) return -1;
+            return left.compareTo(right);
+          });
     final double total = approved.fold<double>(
       0,
       (double sum, ExpenseRecord e) => sum + e.amount,
@@ -304,7 +305,7 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           subtitle: approved.isEmpty
               ? 'Nothing waiting for payment'
               : '${formatCount(approved.length)} claims · '
-                  '${formatMoney(total)}',
+                    '${formatMoney(total)}',
         ),
         if (!_store.expensesLoaded)
           const AppCard(child: SkeletonBox(height: 70, radius: 12))
@@ -319,217 +320,123 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
           )
         else
           Column(
-            children: approved.map((ExpenseRecord expense) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: AppCard(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          ExpenseDetailsScreen(expenseId: expense.id),
-                    ),
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: palette.warning.withValues(alpha: 0.12),
-                          borderRadius:
-                              BorderRadius.circular(AppTokens.radiusSm),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          _store.getInitials(expense.name),
-                          style: TextStyle(
-                            color: palette.warning,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 13,
-                          ),
+            children: approved
+                .map((ExpenseRecord expense) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: AppCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              ExpenseDetailsScreen(expenseId: expense.id),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              expense.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: palette.text,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13.5,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${expense.type} · ${expense.date}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: palette.muted,
-                                fontSize: 11.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                      child: Row(
                         children: <Widget>[
-                          Text(
-                            formatMoney(expense.amount),
-                            style: TextStyle(
-                              color: palette.text,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: palette.warning.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(
+                                AppTokens.radiusSm,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              _store.getInitials(expense.name),
+                              style: TextStyle(
+                                color: palette.warning,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          SizedBox(
-                            height: 30,
-                            child: FilledButton(
-                              style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  expense.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: palette.text,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13.5,
+                                  ),
                                 ),
-                                textStyle: const TextStyle(fontSize: 11.5),
-                              ),
-                              onPressed: () =>
-                                  _showMarkPaidDialog(expense, palette),
-                              child: const Text('Mark paid'),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${expense.type} · ${expense.date}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: palette.muted,
+                                    fontSize: 11.5,
+                                  ),
+                                ),
+                              ],
                             ),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: <Widget>[
+                              Text(
+                                formatMoney(expense.amount),
+                                style: TextStyle(
+                                  color: palette.text,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                height: 30,
+                                child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    textStyle: const TextStyle(fontSize: 11.5),
+                                  ),
+                                  onPressed: () =>
+                                      _showMarkPaidDialog(expense, palette),
+                                  child: const Text('Mark paid'),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(growable: false),
+                    ),
+                  );
+                })
+                .toList(growable: false),
           ),
       ],
     );
   }
 
-  Future<void> _showMarkPaidDialog(ExpenseRecord expense, AppPalette palette) async {
+  Future<void> _showMarkPaidDialog(
+    ExpenseRecord expense,
+    AppPalette palette,
+  ) async {
     final BuildContext messengerContext = context;
-    final TextEditingController txController = TextEditingController();
-    Uint8List? paymentReceiptBytes;
-
-    await showDialog<void>(
-      context: context,
-      builder: (BuildContext dialogContext) => StatefulBuilder(
-        builder: (BuildContext context, StateSetter setDialogState) {
-          return AlertDialog(
-            title: const Text('Mark expense as paid'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    'Transaction ID is required for the audit trail. '
-                    '${formatMoney(expense.amount)} to ${expense.name}.',
-                    style: TextStyle(color: palette.muted, fontSize: 12.5),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: txController,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Transaction ID *',
-                      hintText: 'UPI / NEFT reference',
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final XFile? image = await ImagePicker()
-                                .pickImage(source: ImageSource.gallery);
-                            if (image == null) return;
-                            final Uint8List bytes = await image.readAsBytes();
-                            if (!dialogContext.mounted) return;
-                            setDialogState(
-                              () => paymentReceiptBytes = bytes,
-                            );
-                          },
-                          icon: Icon(
-                            paymentReceiptBytes == null
-                                ? Icons.receipt_long_rounded
-                                : Icons.check_circle_rounded,
-                            size: 18,
-                          ),
-                          label: Text(
-                            paymentReceiptBytes == null
-                                ? 'Attach receipt (optional)'
-                                : 'Receipt attached',
-                          ),
-                        ),
-                      ),
-                      if (paymentReceiptBytes != null) ...<Widget>[
-                        const SizedBox(width: 6),
-                        IconButton(
-                          tooltip: 'Remove receipt',
-                          onPressed: () => setDialogState(
-                            () => paymentReceiptBytes = null,
-                          ),
-                          icon: const Icon(Icons.delete_outline_rounded),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  if (txController.text.trim().isEmpty) {
-                    AppSnack.error(
-                      context,
-                      'Transaction ID is compulsory.',
-                    );
-                    return;
-                  }
-                  final String? error = await _store.markPaid(
-                    expense.id,
-                    txController.text.trim(),
-                    receiptBytes: paymentReceiptBytes,
-                  );
-                  if (!mounted || !messengerContext.mounted) return;
-                  if (error != null) {
-                    // The payment failed: keep the dialog open so the
-                    // transaction ID the user typed is not thrown away.
-                    AppSnack.error(messengerContext, error);
-                    return;
-                  }
-                  if (dialogContext.mounted) Navigator.pop(dialogContext);
-                  AppSnack.success(messengerContext, 'Expense marked as paid.');
-                },
-                child: const Text('Confirm payment'),
-              ),
-            ],
-          );
-        },
-      ),
+    final MarkPaidOutcome outcome = await showMarkPaidDialog(
+      messengerContext,
+      expense,
+      store: _store,
     );
-
-    txController.dispose();
+    if (!mounted || !messengerContext.mounted) return;
+    if (outcome == MarkPaidOutcome.paid) {
+      AppSnack.success(messengerContext, 'Expense marked as paid.');
+    }
   }
 }

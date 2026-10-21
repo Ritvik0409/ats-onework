@@ -325,6 +325,8 @@ class StatusBadge extends StatelessWidget {
           ],
           Text(
             label ?? status,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: color,
               fontSize: 10.5,
@@ -919,3 +921,163 @@ class InlineError extends StatelessWidget {
 /// Infinity from reaching layout.
 double safeFraction(double value) =>
     value.isFinite ? value.clamp(0.0, 1.0).toDouble() : 0.0;
+
+/// Small muted label above a form field.
+class AppFieldLabel extends StatelessWidget {
+  const AppFieldLabel(this.text, {super.key, this.trailing});
+
+  final String text;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: palette.muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (trailing case final Widget widget) widget,
+        ],
+      ),
+    );
+  }
+}
+
+/// Filter chips for the list screens. One implementation so every list
+/// filters the same way — the old copies each styled their own chips.
+class AppFilterBar extends StatelessWidget {
+  const AppFilterBar({
+    super.key,
+    required this.options,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final List<String> options;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: options
+          .map((String option) {
+            final bool selected = option == value;
+            return ChoiceChip(
+              label: Text(option),
+              selected: selected,
+              showCheckmark: false,
+              onSelected: (bool isSelected) {
+                if (isSelected) onChanged(option);
+              },
+              selectedColor: palette.gold.withValues(alpha: 0.18),
+              backgroundColor: palette.surfaceAlt,
+              side: BorderSide(color: selected ? palette.gold : palette.border),
+              labelStyle: TextStyle(
+                color: selected ? palette.gold : palette.muted,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                fontSize: 12.5,
+              ),
+            );
+          })
+          .toList(growable: false),
+    );
+  }
+}
+
+/// Themed search field used by the list screens.
+class AppSearchField extends StatelessWidget {
+  const AppSearchField({
+    super.key,
+    required this.onChanged,
+    this.hint = 'Search…',
+    this.controller,
+  });
+
+  final ValueChanged<String> onChanged;
+  final String hint;
+  final TextEditingController? controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      style: TextStyle(color: palette.text, fontSize: 13.5),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(color: palette.muted, fontSize: 13.5),
+        prefixIcon: Icon(Icons.search_rounded, color: palette.gold, size: 20),
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+      ),
+    );
+  }
+}
+
+/// Small pill for metadata (a project name, a category, a count).
+class AppTag extends StatelessWidget {
+  const AppTag({
+    super.key,
+    required this.label,
+    this.icon,
+    this.color,
+    this.dense = false,
+  });
+
+  final String label;
+  final IconData? icon;
+  final Color? color;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    final Color tint = color ?? palette.gold;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? 7 : 9,
+        vertical: dense ? 2 : 3,
+      ),
+      decoration: BoxDecoration(
+        color: tint.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: tint.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (icon != null) ...<Widget>[
+            Icon(icon, size: dense ? 10 : 12, color: tint),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              color: tint,
+              fontSize: dense ? 10 : 11.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -9,11 +9,15 @@ import 'package:flutter/material.dart';
 
 import 'package:ats_onework/management/download_stub.dart'
     if (dart.library.html) 'package:ats_onework/management/download_web.dart';
+import 'package:ats_onework/core/formatting.dart';
 import 'package:ats_onework/management/expense_details.dart';
 import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/load_more.dart';
+import 'package:ats_onework/ui/expense_row.dart';
+import 'package:ats_onework/ui/tokens.dart';
+import 'package:ats_onework/ui/widgets.dart';
 
-
+/// Claims that are approved and waiting to be paid out.
 class FinanceToPayScreen extends StatefulWidget {
   const FinanceToPayScreen({super.key});
 
@@ -22,404 +26,332 @@ class FinanceToPayScreen extends StatefulWidget {
 }
 
 class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
-  String _searchQuery = '';
   final ExpenseStore _store = ExpenseStore.instance;
+  String _searchQuery = '';
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _store,
-      builder: (context, _) {
-        final obsidianBlack = _store.bg;
-        final darkCharcoal = _store.card;
-        final champagneGold = _store.accentGold;
-        final textFrost = _store.textFrost;
-        final textMuted = _store.textMuted;
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
 
-        final approvedExpenses = _store.expenses.where((expense) {
-          if (expense.status != 'Approved') return false;
-          return expense.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              expense.id.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              expense.type.toLowerCase().contains(_searchQuery.toLowerCase());
-        }).toList();
+        final List<ExpenseRecord> approved = _store.expenses
+            .where(
+              (ExpenseRecord expense) =>
+                  expense.status == 'Approved' && _matches(expense),
+            )
+            .toList(growable: false);
+
+        final double total = approved.fold<double>(
+          0,
+          (double sum, ExpenseRecord expense) => sum + expense.amount,
+        );
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
+          backgroundColor: palette.bg,
           appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            elevation: 0,
-            title: Text('Pending Payouts', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 20)),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
-            ),
-          ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 1000),
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          onChanged: (value) => setState(() => _searchQuery = value),
-                          style: TextStyle(color: textFrost),
-                          decoration: InputDecoration(
-                            hintText: 'Search approved requests by name, ID or type...',
-                            hintStyle: TextStyle(color: textMuted, fontSize: 14),
-                            prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
-                            filled: true,
-                            fillColor: darkCharcoal,
-                            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: champagneGold, width: 1.5),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      SizedBox(
-                        height: 52, 
-                        child: OutlinedButton.icon(
-                          icon: Icon(Icons.download_rounded, size: 16),
-                          label: Text('Reports', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: champagneGold,
-                            side: BorderSide(color: champagneGold.withValues(alpha: 0.5)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                          ),
-                          onPressed: () {
-                            Navigator.push(context, MaterialPageRoute(builder: (context) => const FinanceReportsScreen()));
-                          },
-                        ),
-                      ),
-                    ],
+            title: const Text('To pay'),
+            actions: <Widget>[
+              IconButton(
+                tooltip: 'Reports',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (BuildContext context) =>
+                        const FinanceReportsScreen(),
                   ),
-                  const SizedBox(height: 24),
-                  Expanded(
-                    child: !_store.expensesLoaded
-                        ? const Center(child: CircularProgressIndicator())
-                        : RefreshIndicator(
-                            onRefresh: () => _store.fetchExpensesFromBackend(),
-                            child: approvedExpenses.isEmpty
-                                // A RefreshIndicator only reacts to the
-                                // scroll notifications of a scrollable
-                                // child, so the empty state has to be one
-                                // too — otherwise pull-to-refresh does
-                                // nothing exactly when it is wanted.
-                                ? ListView(
-                                    physics: const AlwaysScrollableScrollPhysics(),
-                                    children: [
-                                      const SizedBox(height: 80),
-                                      Center(child: Text('Inbox Zero! No pending payouts.', style: TextStyle(color: textMuted))),
-                                    ],
-                                  )
-                                : ListView.builder(
-                                    // One extra row for the "load more"
-                                    // footer, so a list longer than one
-                                    // page can be walked through.
-                                    itemCount: approvedExpenses.length +
-                                        (_store.hasMoreExpenses ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (index >= approvedExpenses.length) {
-                                return LoadMoreFooter(
-                                  hasMore: _store.hasMoreExpenses,
-                                  loading: _store.expensesLoadingMore,
-                                  onLoad: _store.loadMoreExpenses,
-                                );
-                              }
-                              final expense = approvedExpenses[index];
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 14),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.fromBorderSide(BorderSide(color: Colors.orangeAccent.withValues(alpha: 0.2), width: 1)),
-                                  boxShadow: [
-                                    if (!_store.isDarkMode)
-                                      BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))
-                                  ],
-                                ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                  leading: CircleAvatar(
-                                    radius: 24,
-                                    backgroundColor: Colors.orangeAccent.withValues(alpha: 0.1),
-                                    child: Text(
-                                      expense.name.isNotEmpty ? expense.name.substring(0, 1) : 'E',
-                                      style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 18),
-                                    ),
-                                  ),
-                                  title: Wrap(
-                                    crossAxisAlignment: WrapCrossAlignment.center,
-                                    children: [
-                                      Text(expense.name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                                      const SizedBox(width: 8),
-                                      Text('(${expense.id})', style: TextStyle(color: textMuted)),
-                                    ],
-                                  ),
-                                  subtitle: Padding(
-                                    padding: const EdgeInsets.only(top: 6.0),
-                                    child: Text('${expense.type} Expense • ${expense.date}', style: TextStyle(color: textMuted, fontSize: 13)),
-                                  ),
-                                  trailing: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Text(expense.amountFormatted, style: TextStyle(color: textFrost, fontWeight: FontWeight.w900, fontSize: 15)),
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.orangeAccent.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.fromBorderSide(BorderSide(color: Colors.orangeAccent.withValues(alpha: 0.3), width: 1)),
-                                        ),
-                                        child: Text('Approved', style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ],
-                                  ),
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => ExpenseDetailsScreen(expenseId: expense.id)),
-                                    );
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                  ),
-                ],
+                ),
+                icon: const Icon(Icons.bar_chart_rounded),
               ),
-            ),
+            ],
+          ),
+          body: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
+                child: Column(
+                  children: <Widget>[
+                    AppSearchField(
+                      hint: 'Search approved claims by employee, id or type…',
+                      onChanged: (String value) =>
+                          setState(() => _searchQuery = value),
+                    ),
+                    const SizedBox(height: 14),
+                    AppCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  'Waiting for payout',
+                                  style: TextStyle(
+                                    color: palette.muted,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  formatMoney(total),
+                                  style: TextStyle(
+                                    color: palette.text,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.6,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          AppTag(
+                            label:
+                                '${approved.length} claim${approved.length == 1 ? '' : 's'}',
+                            icon: Icons.account_balance_wallet_rounded,
+                            color: palette.warning,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: !_store.expensesLoaded
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: approved.isEmpty
+                            // A RefreshIndicator only reacts to the scroll
+                            // notifications of a scrollable child, so the
+                            // empty state has to be one too — otherwise
+                            // pull-to-refresh does nothing exactly when
+                            // it is wanted.
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: <Widget>[
+                                  const SizedBox(height: 60),
+                                  EmptyState(
+                                    icon: Icons.task_alt_rounded,
+                                    title: 'Inbox zero',
+                                    message:
+                                        'Every approved claim has been paid.',
+                                  ),
+                                ],
+                              )
+                            : ListView.separated(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  0,
+                                  18,
+                                  32,
+                                ),
+                                // One extra row for the "load more"
+                                // footer, so a list longer than one page
+                                // can be walked through.
+                                itemCount:
+                                    approved.length +
+                                    (_store.hasMoreExpenses ? 1 : 0),
+                                separatorBuilder:
+                                    (BuildContext context, int index) =>
+                                        const SizedBox(height: 10),
+                                itemBuilder: (BuildContext context, int index) {
+                                  if (index >= approved.length) {
+                                    return LoadMoreFooter(
+                                      hasMore: _store.hasMoreExpenses,
+                                      loading: _store.expensesLoadingMore,
+                                      onLoad: _store.loadMoreExpenses,
+                                    );
+                                  }
+                                  final ExpenseRecord expense = approved[index];
+                                  return ExpenseRow(
+                                    expense: expense,
+                                    showId: true,
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (BuildContext context) =>
+                                            ExpenseDetailsScreen(
+                                              expenseId: expense.id,
+                                            ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+              ),
+            ],
           ),
         );
       },
     );
   }
+
+  bool _matches(ExpenseRecord expense) {
+    final String query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return expense.name.toLowerCase().contains(query) ||
+        expense.id.toLowerCase().contains(query) ||
+        expense.type.toLowerCase().contains(query);
+  }
 }
 
+/// Claims that have been paid out.
 class PaidReimbursementsScreen extends StatefulWidget {
   const PaidReimbursementsScreen({super.key});
+
   @override
-  State<PaidReimbursementsScreen> createState() => _PaidReimbursementsScreenState();
+  State<PaidReimbursementsScreen> createState() =>
+      _PaidReimbursementsScreenState();
 }
 
 class _PaidReimbursementsScreenState extends State<PaidReimbursementsScreen> {
-  String _searchQuery = '';
   final ExpenseStore _store = ExpenseStore.instance;
+  String _searchQuery = '';
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _store,
-      builder: (context, _) {
-        final obsidianBlack = _store.bg;
-        final darkCharcoal = _store.card;
-        final champagneGold = _store.accentGold;
-        final textFrost = _store.textFrost;
-        final textMuted = _store.textMuted;
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
 
-        final paidExpenses = _store.expenses.where((expense) {
-          if (expense.status != 'Paid') return false;
-          return expense.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              expense.id.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              expense.type.toLowerCase().contains(_searchQuery.toLowerCase());
-        }).toList();
+        final List<ExpenseRecord> paid = _store.expenses
+            .where(
+              (ExpenseRecord expense) =>
+                  expense.status == 'Paid' && _matches(expense),
+            )
+            .toList(growable: false);
 
-        final double totalPaidAmount = paidExpenses.fold(0.0, (sum, item) => sum + item.amount);
+        final double total = paid.fold<double>(
+          0,
+          (double sum, ExpenseRecord expense) => sum + expense.amount,
+        );
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
+          backgroundColor: palette.bg,
           appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            elevation: 0,
-            title: Text('Paid Reimbursements', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 20)),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
-            ),
-          ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 1000),
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: darkCharcoal,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.fromBorderSide(BorderSide(color: Colors.greenAccent.withValues(alpha: 0.2), width: 1)),
-                      boxShadow: [
-                        if (!_store.isDarkMode)
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Total Settled & Disbursed', style: TextStyle(color: textMuted, fontSize: 13)),
-                            const SizedBox(height: 6),
-                            Text('₹${totalPaidAmount.toStringAsFixed(2)}', style: TextStyle(color: textFrost, fontSize: 26, fontWeight: FontWeight.w900)),
-                          ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.greenAccent.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.fromBorderSide(BorderSide(color: Colors.greenAccent.withValues(alpha: 0.3), width: 1)),
-                          ),
-                          child: Text(
-                            '${paidExpenses.length} Paid Records',
-                            style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
+            title: const Text('Paid'),
+            actions: <Widget>[
+              IconButton(
+                tooltip: 'Reports',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (BuildContext context) =>
+                        const PaidReportsScreen(),
                   ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          onChanged: (value) => setState(() => _searchQuery = value),
-                          style: TextStyle(color: textFrost),
-                          decoration: InputDecoration(
-                            hintText: 'Search paid records by employee, ID or type...',
-                            hintStyle: TextStyle(color: textMuted, fontSize: 14),
-                            prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
-                            filled: true,
-                            fillColor: darkCharcoal,
-                            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: champagneGold, width: 1.5),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      SizedBox(
-                        height: 52, 
-                        child: OutlinedButton.icon(
-                          icon: Icon(Icons.download_rounded, size: 16),
-                          label: Text('Reports', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: champagneGold,
-                            side: BorderSide(color: champagneGold.withValues(alpha: 0.5)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                          ),
-                          onPressed: () {
-                            Navigator.push(context, MaterialPageRoute(builder: (context) => const PaidReportsScreen()));
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  Expanded(
-                    child: !_store.expensesLoaded
-                        ? const Center(child: CircularProgressIndicator())
-                        : paidExpenses.isEmpty
-                        ? Center(child: Text('No paid reimbursement records found.', style: TextStyle(color: textMuted)))
-                        : ListView.builder(
-                            itemCount: paidExpenses.length,
-                            itemBuilder: (context, index) {
-                              final expense = paidExpenses[index];
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 14),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.fromBorderSide(BorderSide(color: Colors.greenAccent.withValues(alpha: 0.2), width: 1)),
-                                  boxShadow: [
-                                    if (!_store.isDarkMode)
-                                      BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))
-                                  ],
-                                ),
-                                child: ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                  leading: CircleAvatar(
-                                    radius: 24,
-                                    backgroundColor: Colors.greenAccent.withValues(alpha: 0.1),
-                                    child: Text(
-                                      expense.name.isNotEmpty ? expense.name.substring(0, 1) : 'E',
-                                      style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 18),
-                                    ),
-                                  ),
-                                  title: Wrap(
-                                    crossAxisAlignment: WrapCrossAlignment.center,
-                                    children: [
-                                      Text(expense.name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                                      const SizedBox(width: 8),
-                                      Text('(${expense.id})', style: TextStyle(color: textMuted)),
-                                    ],
-                                  ),
-                                  subtitle: Padding(
-                                    padding: const EdgeInsets.only(top: 6.0),
-                                    child: Text('${expense.type} Expense • Settled: ${expense.date}', style: TextStyle(color: textMuted, fontSize: 13)),
-                                  ),
-                                  trailing: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Text(expense.amountFormatted, style: TextStyle(color: textFrost, fontWeight: FontWeight.w900, fontSize: 15)),
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.greenAccent.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.fromBorderSide(BorderSide(color: Colors.greenAccent.withValues(alpha: 0.3), width: 1)),
-                                        ),
-                                        child: Text('Paid', style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ],
-                                  ),
-                                  onTap: () {
-                                    Navigator.push(context, MaterialPageRoute(builder: (context) => ExpenseDetailsScreen(expenseId: expense.id)));
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
+                ),
+                icon: const Icon(Icons.bar_chart_rounded),
               ),
-            ),
+            ],
+          ),
+          body: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
+                child: Column(
+                  children: <Widget>[
+                    AppSearchField(
+                      hint: 'Search paid claims by employee, id or type…',
+                      onChanged: (String value) =>
+                          setState(() => _searchQuery = value),
+                    ),
+                    const SizedBox(height: 14),
+                    AppCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  'Total settled & disbursed',
+                                  style: TextStyle(
+                                    color: palette.muted,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  formatMoney(total),
+                                  style: TextStyle(
+                                    color: palette.text,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.6,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          AppTag(
+                            label: '${paid.length} paid',
+                            icon: Icons.verified_rounded,
+                            color: palette.success,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: !_store.expensesLoaded
+                    ? const Center(child: CircularProgressIndicator())
+                    : paid.isEmpty
+                    ? Center(
+                        child: EmptyState(
+                          icon: Icons.payments_outlined,
+                          title: 'No paid claims yet',
+                          message:
+                              'Reimbursements appear here once they are '
+                              'marked as paid.',
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
+                        itemCount: paid.length,
+                        separatorBuilder: (BuildContext context, int index) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (BuildContext context, int index) {
+                          final ExpenseRecord expense = paid[index];
+                          return ExpenseRow(
+                            expense: expense,
+                            showId: true,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (BuildContext context) =>
+                                    ExpenseDetailsScreen(expenseId: expense.id),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
           ),
         );
       },
     );
+  }
+
+  bool _matches(ExpenseRecord expense) {
+    final String query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return expense.name.toLowerCase().contains(query) ||
+        expense.id.toLowerCase().contains(query) ||
+        expense.type.toLowerCase().contains(query);
   }
 }
 
@@ -468,22 +400,31 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
           if (!_matchesTimeframe(e.date)) return false;
 
           final q = _searchQuery.toLowerCase();
-          return e.name.toLowerCase().contains(q) || 
-                 e.id.toLowerCase().contains(q) || 
-                 e.type.toLowerCase().contains(q);
+          return e.name.toLowerCase().contains(q) ||
+              e.id.toLowerCase().contains(q) ||
+              e.type.toLowerCase().contains(q);
         }).toList();
 
-        final totalAmount = paidExpenses.fold(0.0, (sum, item) => sum + item.amount);
+        final totalAmount = paidExpenses.fold(
+          0.0,
+          (sum, item) => sum + item.amount,
+        );
 
         return Scaffold(
           backgroundColor: obsidianBlack,
           appBar: AppBar(
             backgroundColor: darkCharcoal,
-            title: Text('Paid Reimbursements Report', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
+            title: Text(
+              'Paid Reimbursements Report',
+              style: TextStyle(color: textFrost, fontWeight: FontWeight.bold),
+            ),
             iconTheme: IconThemeData(color: textFrost),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
+              child: Container(
+                color: champagneGold.withValues(alpha: 0.15),
+                height: 1,
+              ),
             ),
           ),
           body: Center(
@@ -498,18 +439,30 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
                     decoration: InputDecoration(
                       hintText: 'Search by employee name, ID or type...',
                       hintStyle: TextStyle(color: textMuted, fontSize: 14),
-                      prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        color: champagneGold,
+                        size: 22,
+                      ),
                       filled: true,
                       fillColor: darkCharcoal,
                       contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
+                        borderSide: BorderSide(
+                          color: champagneGold.withValues(alpha: 0.15),
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold, width: 1.5),
+                        borderSide: BorderSide(
+                          color: champagneGold,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                   ),
@@ -518,11 +471,19 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: obsidianBlack,
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.fromBorderSide(BorderSide(color: champagneGold.withValues(alpha: 0.3), width: 1)),
+                          border: Border.fromBorderSide(
+                            BorderSide(
+                              color: champagneGold.withValues(alpha: 0.3),
+                              width: 1,
+                            ),
+                          ),
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
@@ -530,22 +491,43 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
                             value: _selectedTimeframe,
                             icon: Padding(
                               padding: const EdgeInsets.only(left: 8.0),
-                              child: Icon(Icons.arrow_drop_down, color: champagneGold),
+                              child: Icon(
+                                Icons.arrow_drop_down,
+                                color: champagneGold,
+                              ),
                             ),
-                            items: <String>['All Time', 'This Month', 'Last 3 Months'].map((String value) {
-                              return DropdownMenuItem<String>(
-                                value: value,
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.calendar_month_rounded, color: champagneGold, size: 16),
-                                    const SizedBox(width: 8),
-                                    Text(value, style: TextStyle(color: textFrost, fontSize: 13, fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
+                            items:
+                                <String>[
+                                  'All Time',
+                                  'This Month',
+                                  'Last 3 Months',
+                                ].map((String value) {
+                                  return DropdownMenuItem<String>(
+                                    value: value,
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.calendar_month_rounded,
+                                          color: champagneGold,
+                                          size: 16,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          value,
+                                          style: TextStyle(
+                                            color: textFrost,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
                             onChanged: (newValue) {
-                              if (newValue != null) setState(() => _selectedTimeframe = newValue);
+                              if (newValue != null) {
+                                setState(() => _selectedTimeframe = newValue);
+                              }
                             },
                           ),
                         ),
@@ -558,10 +540,16 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
                     decoration: BoxDecoration(
                       color: darkCharcoal,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.fromBorderSide(BorderSide(color: store.border, width: 1)),
+                      border: Border.fromBorderSide(
+                        BorderSide(color: store.border, width: 1),
+                      ),
                       boxShadow: [
                         if (!store.isDarkMode)
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
                       ],
                     ),
                     child: Row(
@@ -570,17 +558,37 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Total reimbursed', style: TextStyle(color: textMuted, fontSize: 13)),
+                            Text(
+                              'Total reimbursed',
+                              style: TextStyle(color: textMuted, fontSize: 13),
+                            ),
                             const SizedBox(height: 4),
-                            Text('₹${totalAmount.toStringAsFixed(2)}', style: TextStyle(color: textFrost, fontSize: 24, fontWeight: FontWeight.bold)),
+                            Text(
+                              '₹${totalAmount.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                color: textFrost,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ],
                         ),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('Records', style: TextStyle(color: textMuted, fontSize: 13)),
+                            Text(
+                              'Records',
+                              style: TextStyle(color: textMuted, fontSize: 13),
+                            ),
                             const SizedBox(height: 4),
-                            Text('${paidExpenses.length}', style: TextStyle(color: champagneGold, fontSize: 24, fontWeight: FontWeight.bold)),
+                            Text(
+                              '${paidExpenses.length}',
+                              style: TextStyle(
+                                color: champagneGold,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -589,42 +597,77 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
                   const SizedBox(height: 24),
                   Expanded(
                     child: !store.expensesLoaded
-                      ? const Center(child: CircularProgressIndicator())
-                      : paidExpenses.isEmpty 
-                      ? Center(child: Text('No matching paid records found.', style: TextStyle(color: textMuted)))
-                      : ListView.builder(
-                          itemCount: paidExpenses.length,
-                          itemBuilder: (context, index) {
-                            final expense = paidExpenses[index];
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: darkCharcoal,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.fromBorderSide(BorderSide(color: store.border, width: 1)),
-                                boxShadow: [
-                                  if (!store.isDarkMode)
-                                    BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(expense.name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 15)),
-                                      const SizedBox(height: 4),
-                                      Text('${expense.type} • ${expense.date}', style: TextStyle(color: textMuted, fontSize: 12)),
-                                    ],
+                        ? const Center(child: CircularProgressIndicator())
+                        : paidExpenses.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No matching paid records found.',
+                              style: TextStyle(color: textMuted),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: paidExpenses.length,
+                            itemBuilder: (context, index) {
+                              final expense = paidExpenses[index];
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: darkCharcoal,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.fromBorderSide(
+                                    BorderSide(color: store.border, width: 1),
                                   ),
-                                  Text(expense.amountFormatted, style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold, fontSize: 16)),
-                                ],
-                              ),
-                            );
-                          }
-                      ),
+                                  boxShadow: [
+                                    if (!store.isDarkMode)
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.03,
+                                        ),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          expense.name,
+                                          style: TextStyle(
+                                            color: textFrost,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '${expense.type} • ${expense.date}',
+                                          style: TextStyle(
+                                            color: textMuted,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Text(
+                                      expense.amountFormatted,
+                                      style: TextStyle(
+                                        color: champagneGold,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                   ),
                   const SizedBox(height: 16),
                   SizedBox(
@@ -633,43 +676,73 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: champagneGold,
-                        foregroundColor: store.isDarkMode ? obsidianBlack : Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        foregroundColor: store.isDarkMode
+                            ? obsidianBlack
+                            : Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                       onPressed: () {
                         if (paidExpenses.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('No records to download.'), backgroundColor: Colors.redAccent),
+                            const SnackBar(
+                              content: Text('No records to download.'),
+                              backgroundColor: Colors.redAccent,
+                            ),
                           );
                           return;
                         }
 
-                        String csvContent = "Employee Name,Expense ID,Type,Amount,Date Settled,Status\n";
+                        String csvContent =
+                            "Employee Name,Expense ID,Type,Amount,Date Settled,Status\n";
                         for (var exp in paidExpenses) {
-                          final cleanName = exp.name.replaceAll(',', ''); 
-                          csvContent += "$cleanName,${exp.id},${exp.type},${exp.amount},${exp.date},Paid\n";
+                          final cleanName = exp.name.replaceAll(',', '');
+                          csvContent +=
+                              "$cleanName,${exp.id},${exp.type},${exp.amount},${exp.date},Paid\n";
                         }
                         final bytes = utf8.encode(csvContent);
 
                         try {
-                          final timestamp = DateTime.now().millisecondsSinceEpoch;
-                          final downloaded = downloadFile(bytes, 'Paid_Reimbursements_$timestamp.csv');
+                          final timestamp =
+                              DateTime.now().millisecondsSinceEpoch;
+                          final downloaded = downloadFile(
+                            bytes,
+                            'Paid_Reimbursements_$timestamp.csv',
+                          );
 
-                         ScaffoldMessenger.of(context).showSnackBar(
-  SnackBar(
-    content: Text(downloaded ? 'Download started!' : 'CSV export is available in the web build.', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-    backgroundColor: champagneGold,
-    behavior: SnackBarBehavior.floating,
-  ),
-);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                downloaded
+                                    ? 'Download started!'
+                                    : 'CSV export is available in the web build.',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              backgroundColor: champagneGold,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
                         } catch (e) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error downloading file: $e'), backgroundColor: Colors.redAccent),
+                            SnackBar(
+                              content: Text('Error downloading file: $e'),
+                              backgroundColor: Colors.redAccent,
+                            ),
                           );
                         }
                       },
                       icon: Icon(Icons.download_rounded, size: 20),
-                      label: Text('Download CSV Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      label: Text(
+                        'Download CSV Report',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -677,7 +750,7 @@ class _PaidReportsScreenState extends State<PaidReportsScreen> {
             ),
           ),
         );
-      }
+      },
     );
   }
 }
@@ -726,22 +799,31 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
           if (!_matchesTimeframe(e.date)) return false;
 
           final q = _searchQuery.toLowerCase();
-          return e.name.toLowerCase().contains(q) || 
-                 e.id.toLowerCase().contains(q) || 
-                 e.type.toLowerCase().contains(q);
+          return e.name.toLowerCase().contains(q) ||
+              e.id.toLowerCase().contains(q) ||
+              e.type.toLowerCase().contains(q);
         }).toList();
 
-        final totalAmount = pendingPayouts.fold(0.0, (sum, item) => sum + item.amount);
+        final totalAmount = pendingPayouts.fold(
+          0.0,
+          (sum, item) => sum + item.amount,
+        );
 
         return Scaffold(
           backgroundColor: obsidianBlack,
           appBar: AppBar(
             backgroundColor: darkCharcoal,
-            title: Text('Pending Payouts Report', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
+            title: Text(
+              'Pending Payouts Report',
+              style: TextStyle(color: textFrost, fontWeight: FontWeight.bold),
+            ),
             iconTheme: IconThemeData(color: textFrost),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
+              child: Container(
+                color: champagneGold.withValues(alpha: 0.15),
+                height: 1,
+              ),
             ),
           ),
           body: Center(
@@ -756,18 +838,30 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                     decoration: InputDecoration(
                       hintText: 'Search by employee name, ID or type...',
                       hintStyle: TextStyle(color: textMuted, fontSize: 14),
-                      prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        color: champagneGold,
+                        size: 22,
+                      ),
                       filled: true,
                       fillColor: darkCharcoal,
                       contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
+                        borderSide: BorderSide(
+                          color: champagneGold.withValues(alpha: 0.15),
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold, width: 1.5),
+                        borderSide: BorderSide(
+                          color: champagneGold,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                   ),
@@ -776,11 +870,19 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: obsidianBlack,
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.fromBorderSide(BorderSide(color: champagneGold.withValues(alpha: 0.3), width: 1)),
+                          border: Border.fromBorderSide(
+                            BorderSide(
+                              color: champagneGold.withValues(alpha: 0.3),
+                              width: 1,
+                            ),
+                          ),
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
@@ -788,22 +890,43 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                             value: _selectedTimeframe,
                             icon: Padding(
                               padding: const EdgeInsets.only(left: 8.0),
-                              child: Icon(Icons.arrow_drop_down, color: champagneGold),
+                              child: Icon(
+                                Icons.arrow_drop_down,
+                                color: champagneGold,
+                              ),
                             ),
-                            items: <String>['All Time', 'This Month', 'Last 3 Months'].map((String value) {
-                              return DropdownMenuItem<String>(
-                                value: value,
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.calendar_month_rounded, color: champagneGold, size: 16),
-                                    const SizedBox(width: 8),
-                                    Text(value, style: TextStyle(color: textFrost, fontSize: 13, fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
+                            items:
+                                <String>[
+                                  'All Time',
+                                  'This Month',
+                                  'Last 3 Months',
+                                ].map((String value) {
+                                  return DropdownMenuItem<String>(
+                                    value: value,
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.calendar_month_rounded,
+                                          color: champagneGold,
+                                          size: 16,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          value,
+                                          style: TextStyle(
+                                            color: textFrost,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
                             onChanged: (newValue) {
-                              if (newValue != null) setState(() => _selectedTimeframe = newValue);
+                              if (newValue != null) {
+                                setState(() => _selectedTimeframe = newValue);
+                              }
                             },
                           ),
                         ),
@@ -816,10 +939,16 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                     decoration: BoxDecoration(
                       color: darkCharcoal,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.fromBorderSide(BorderSide(color: store.border, width: 1)),
+                      border: Border.fromBorderSide(
+                        BorderSide(color: store.border, width: 1),
+                      ),
                       boxShadow: [
                         if (!store.isDarkMode)
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
                       ],
                     ),
                     child: Row(
@@ -828,17 +957,37 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Total Pending Payout', style: TextStyle(color: textMuted, fontSize: 13)),
+                            Text(
+                              'Total Pending Payout',
+                              style: TextStyle(color: textMuted, fontSize: 13),
+                            ),
                             const SizedBox(height: 4),
-                            Text('₹${totalAmount.toStringAsFixed(2)}', style: TextStyle(color: textFrost, fontSize: 24, fontWeight: FontWeight.bold)),
+                            Text(
+                              '₹${totalAmount.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                color: textFrost,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ],
                         ),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('Records', style: TextStyle(color: textMuted, fontSize: 13)),
+                            Text(
+                              'Records',
+                              style: TextStyle(color: textMuted, fontSize: 13),
+                            ),
                             const SizedBox(height: 4),
-                            Text('${pendingPayouts.length}', style: TextStyle(color: Colors.orangeAccent, fontSize: 24, fontWeight: FontWeight.bold)),
+                            Text(
+                              '${pendingPayouts.length}',
+                              style: TextStyle(
+                                color: Colors.orangeAccent,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -847,42 +996,77 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                   const SizedBox(height: 24),
                   Expanded(
                     child: !store.expensesLoaded
-                      ? const Center(child: CircularProgressIndicator())
-                      : pendingPayouts.isEmpty 
-                      ? Center(child: Text('No matching pending records found.', style: TextStyle(color: textMuted)))
-                      : ListView.builder(
-                          itemCount: pendingPayouts.length,
-                          itemBuilder: (context, index) {
-                            final expense = pendingPayouts[index];
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: darkCharcoal,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.fromBorderSide(BorderSide(color: store.border, width: 1)),
-                                boxShadow: [
-                                  if (!store.isDarkMode)
-                                    BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(expense.name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 15)),
-                                      const SizedBox(height: 4),
-                                      Text('${expense.type} • ${expense.date}', style: TextStyle(color: textMuted, fontSize: 12)),
-                                    ],
+                        ? const Center(child: CircularProgressIndicator())
+                        : pendingPayouts.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No matching pending records found.',
+                              style: TextStyle(color: textMuted),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: pendingPayouts.length,
+                            itemBuilder: (context, index) {
+                              final expense = pendingPayouts[index];
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: darkCharcoal,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.fromBorderSide(
+                                    BorderSide(color: store.border, width: 1),
                                   ),
-                                  Text(expense.amountFormatted, style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 16)),
-                                ],
-                              ),
-                            );
-                          }
-                      ),
+                                  boxShadow: [
+                                    if (!store.isDarkMode)
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.03,
+                                        ),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          expense.name,
+                                          style: TextStyle(
+                                            color: textFrost,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '${expense.type} • ${expense.date}',
+                                          style: TextStyle(
+                                            color: textMuted,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Text(
+                                      expense.amountFormatted,
+                                      style: TextStyle(
+                                        color: Colors.orangeAccent,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                   ),
                   const SizedBox(height: 16),
                   SizedBox(
@@ -891,42 +1075,72 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: champagneGold,
-                        foregroundColor: store.isDarkMode ? obsidianBlack : Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        foregroundColor: store.isDarkMode
+                            ? obsidianBlack
+                            : Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                       onPressed: () {
                         if (pendingPayouts.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('No records to download.'), backgroundColor: Colors.redAccent),
+                            const SnackBar(
+                              content: Text('No records to download.'),
+                              backgroundColor: Colors.redAccent,
+                            ),
                           );
                           return;
                         }
 
-                        String csvContent = "Employee Name,Expense ID,Type,Amount,Date Approved,Status\n";
+                        String csvContent =
+                            "Employee Name,Expense ID,Type,Amount,Date Approved,Status\n";
                         for (var exp in pendingPayouts) {
-                          final cleanName = exp.name.replaceAll(',', ''); 
-                          csvContent += "$cleanName,${exp.id},${exp.type},${exp.amount},${exp.date},Approved\n";
+                          final cleanName = exp.name.replaceAll(',', '');
+                          csvContent +=
+                              "$cleanName,${exp.id},${exp.type},${exp.amount},${exp.date},Approved\n";
                         }
                         final bytes = utf8.encode(csvContent);
 
                         try {
-                          final timestamp = DateTime.now().millisecondsSinceEpoch;
-                          final downloaded = downloadFile(bytes, 'Pending_Payouts_$timestamp.csv');
+                          final timestamp =
+                              DateTime.now().millisecondsSinceEpoch;
+                          final downloaded = downloadFile(
+                            bytes,
+                            'Pending_Payouts_$timestamp.csv',
+                          );
 
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text(downloaded ? 'Download started!' : 'CSV export is available in the web build.', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                              content: Text(
+                                downloaded
+                                    ? 'Download started!'
+                                    : 'CSV export is available in the web build.',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                               backgroundColor: champagneGold,
                             ),
                           );
                         } catch (e) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error downloading file: $e'), backgroundColor: Colors.redAccent),
+                            SnackBar(
+                              content: Text('Error downloading file: $e'),
+                              backgroundColor: Colors.redAccent,
+                            ),
                           );
                         }
                       },
                       icon: Icon(Icons.download_rounded, size: 20),
-                      label: Text('Download CSV Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      label: Text(
+                        'Download CSV Report',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -934,7 +1148,7 @@ class _FinanceReportsScreenState extends State<FinanceReportsScreen> {
             ),
           ),
         );
-      }
+      },
     );
   }
 }

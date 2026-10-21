@@ -873,10 +873,19 @@ class RangePicker extends StatelessWidget {
 /// Inline error with a retry affordance. Replaces bare red text and the
 /// silent empty states the dashboards used to show on a failed load.
 class InlineError extends StatelessWidget {
-  const InlineError({super.key, required this.message, this.onRetry});
+  const InlineError({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.title = 'Could not load analytics',
+  });
 
   final String message;
   final VoidCallback? onRetry;
+
+  /// What failed. Defaults to the analytics wording; other screens pass
+  /// their own.
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -892,7 +901,7 @@ class InlineError extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'Could not load analytics',
+                  title,
                   style: TextStyle(
                     color: palette.text,
                     fontWeight: FontWeight.w800,
@@ -921,6 +930,170 @@ class InlineError extends StatelessWidget {
 /// Infinity from reaching layout.
 double safeFraction(double value) =>
     value.isFinite ? value.clamp(0.0, 1.0).toDouble() : 0.0;
+
+/// The identity block at the top of the profile screens: avatar, name,
+/// email and the tags under it.
+class ProfileHeader extends StatelessWidget {
+  const ProfileHeader({
+    super.key,
+    required this.initials,
+    required this.name,
+    required this.email,
+    this.tags = const <Widget>[],
+  });
+
+  final String initials;
+  final String name;
+  final String email;
+  final List<Widget> tags;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    return Row(
+      children: <Widget>[
+        Container(
+          width: 64,
+          height: 64,
+          decoration: BoxDecoration(
+            color: palette.gold.withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: palette.gold.withValues(alpha: 0.3),
+              width: 1.5,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            initials,
+            style: TextStyle(
+              color: palette.gold,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: palette.text,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                email,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: palette.muted, fontSize: 13),
+              ),
+              if (tags.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 6, children: tags),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A card of settings rows with dividers between them.
+class SettingsGroup extends StatelessWidget {
+  const SettingsGroup({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: <Widget>[
+          for (int i = 0; i < children.length; i++) ...<Widget>[
+            children[i],
+            if (i != children.length - 1)
+              Divider(height: 1, color: palette.border),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A tappable row: title, optional subtitle, optional leading and
+/// trailing. The access catalogue, the people list and the tool menus
+/// all used to carry their own copy of this card.
+class AppListTile extends StatelessWidget {
+  const AppListTile({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.leading,
+    this.trailing,
+    this.onTap,
+  });
+
+  final String title;
+  final String? subtitle;
+  final Widget? leading;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    return AppCard(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      child: Row(
+        children: <Widget>[
+          if (leading != null) ...<Widget>[leading!, const SizedBox(width: 12)],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.text,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
+                ),
+                if (subtitle != null && subtitle!.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: palette.muted, fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null) ...<Widget>[
+            const SizedBox(width: 10),
+            trailing!,
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 /// Small muted label above a form field.
 class AppFieldLabel extends StatelessWidget {

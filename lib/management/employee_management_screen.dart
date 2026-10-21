@@ -1,59 +1,70 @@
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/expense_store.dart';
 
+import '../management/expense_store.dart';
+import '../shared/app_snack.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+
+/// The directory: who is in the organization and whether their access is
+/// active.
 class EmployeeManagementScreen extends StatefulWidget {
   const EmployeeManagementScreen({super.key});
 
   @override
-  State<EmployeeManagementScreen> createState() => _EmployeeManagementScreenState();
+  State<EmployeeManagementScreen> createState() =>
+      _EmployeeManagementScreenState();
 }
 
 class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
-  final store = ExpenseStore.instance;
+  final ExpenseStore store = ExpenseStore.instance;
   String _searchQuery = '';
 
-  Future<void> _confirmToggle(String email, String name, bool currentlyActive) async {
-    final action = currentlyActive ? 'Deactivate' : 'Reactivate';
-    final confirmed = await showDialog<bool>(
+  Future<void> _confirmToggle(
+    String email,
+    String name,
+    bool currentlyActive,
+  ) async {
+    final String action = currentlyActive ? 'Deactivate' : 'Reactivate';
+    final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AnimatedBuilder(
-        animation: store,
-        builder: (context, _) {
-          return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
+      builder: (BuildContext dialogContext) {
+        final AppPalette palette = context.palette;
+        return AlertDialog(
+          title: Text('$action $name?'),
+          content: Text(
+            currentlyActive
+                ? '$name will no longer be able to sign in or submit '
+                      'expenses.'
+                : '$name will regain access to the portal.',
+            style: const TextStyle(fontSize: 13),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
             ),
-            title: Text('$action $name?', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-            content: Text(
-              currentlyActive
-                  ? '$name will no longer be able to log in or submit expenses through the employee portal.'
-                  : '$name will regain access to the employee portal.',
-              style: TextStyle(color: store.textMuted, fontSize: 13),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: Text(action, style: TextStyle(color: currentlyActive ? Colors.redAccent : Colors.greenAccent, fontWeight: FontWeight.bold)),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: currentlyActive
+                    ? palette.danger
+                    : palette.success,
+                foregroundColor: Colors.white,
               ),
-            ],
-          );
-        }
-      ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(action),
+            ),
+          ],
+        );
+      },
     );
 
-    if (confirmed == true) {
-      await store.setEmployeeActive(email, !currentlyActive);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$name ${currentlyActive ? 'deactivated' : 'reactivated'}'),
-            backgroundColor: currentlyActive ? Colors.redAccent : Colors.green,
-          ),
-        );
-      }
+    if (confirmed != true) return;
+    await store.setEmployeeActive(email, !currentlyActive);
+    if (!mounted) return;
+    if (currentlyActive) {
+      AppSnack.error(context, '$name deactivated');
+    } else {
+      AppSnack.success(context, '$name reactivated');
     }
   }
 
@@ -61,127 +72,134 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: store,
-      builder: (context, _) {
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final champagneGold = store.accentGold;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
 
-        final List<BoxShadow> cardShadows = store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.07),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 4,
-                  offset: const Offset(0, 1),
-                ),
-              ];
-
-        final employees = store.allEmployees.where((e) {
-          if (_searchQuery.isEmpty) return true;
-          final q = _searchQuery.toLowerCase();
-          return e['name']!.toLowerCase().contains(q) || e['email']!.toLowerCase().contains(q);
-        }).toList();
+        final List<Map<String, dynamic>> employees = store.allEmployees
+            .where((Map<String, dynamic> e) {
+              final String query = _searchQuery.trim().toLowerCase();
+              if (query.isEmpty) return true;
+              return (e['name']?.toString() ?? '').toLowerCase().contains(
+                    query,
+                  ) ||
+                  (e['email']?.toString() ?? '').toLowerCase().contains(query);
+            })
+            .toList(growable: false);
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
-          appBar: AppBar(
-            backgroundColor: obsidianBlack,
-            elevation: 0,
-            iconTheme: IconThemeData(color: textFrost),
-            title: Text('Manage Employees', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-          ),
+          backgroundColor: palette.bg,
+          appBar: AppBar(title: const Text('People')),
           body: Column(
-            children: [
+            children: <Widget>[
               Padding(
-                padding: const EdgeInsets.all(16),
-                child: TextField(
-                  onChanged: (value) => setState(() => _searchQuery = value),
-                  style: TextStyle(color: textFrost, fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: 'Search by employee name or email...',
-                    hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.7)),
-                    prefixIcon: Icon(Icons.search_rounded, color: champagneGold),
-                    filled: true,
-                    fillColor: darkCharcoal,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: champagneGold, width: 1.5),
-                    ),
-                  ),
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
+                child: AppSearchField(
+                  hint: 'Search by name or email…',
+                  onChanged: (String value) =>
+                      setState(() => _searchQuery = value),
                 ),
               ),
+              const SizedBox(height: 14),
               Expanded(
                 child: !store.usersLoaded
                     ? const Center(child: CircularProgressIndicator())
                     : employees.isEmpty
-                    ? Center(child: Text('No employees found.', style: TextStyle(color: textMuted)))
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                    ? Center(
+                        child: EmptyState(
+                          icon: Icons.people_outline_rounded,
+                          title: _searchQuery.isEmpty
+                              ? 'No people yet'
+                              : 'No matches',
+                          message: _searchQuery.isEmpty
+                              ? 'People appear here once they join the '
+                                    'organization.'
+                              : 'Try another name or email.',
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
                         itemCount: employees.length,
-                        itemBuilder: (context, index) {
-                          final e = employees[index];
-                          final email = e['email']!;
-                          final name = e['name']!;
-                          final isActive = store.isEmployeeActive(email);
-                          
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: darkCharcoal,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
-                              boxShadow: cardShadows,
+                        separatorBuilder: (BuildContext context, int index) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (BuildContext context, int index) {
+                          final Map<String, dynamic> person = employees[index];
+                          final String email =
+                              person['email']?.toString() ?? '';
+                          final String name = person['name']?.toString() ?? '';
+                          final bool isActive = store.isEmployeeActive(email);
+                          final Color tone = isActive
+                              ? palette.success
+                              : palette.danger;
+
+                          return AppCard(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
                             ),
                             child: Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 20,
-                                  backgroundColor: champagneGold.withValues(alpha: 0.1),
-                                  child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                      style: TextStyle(color: champagneGold, fontWeight: FontWeight.bold)),
+                              children: <Widget>[
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: palette.gold.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(
+                                      AppTokens.radiusSm,
+                                    ),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    name.isNotEmpty
+                                        ? name.substring(0, 1).toUpperCase()
+                                        : '?',
+                                    style: TextStyle(
+                                      color: palette.gold,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 14)),
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: palette.text,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13.5,
+                                        ),
+                                      ),
                                       const SizedBox(height: 2),
-                                      Text(email, style: TextStyle(color: textMuted, fontSize: 12)),
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: (isActive ? Colors.greenAccent : Colors.redAccent).withValues(alpha: 0.12),
-                                          borderRadius: BorderRadius.circular(6),
+                                      Text(
+                                        email,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: palette.muted,
+                                          fontSize: 12,
                                         ),
-                                        child: Text(
-                                          isActive ? 'ACTIVE' : 'DEACTIVATED',
-                                          style: TextStyle(
-                                              color: isActive ? Colors.greenAccent : Colors.redAccent,
-                                              fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.4),
-                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      AppTag(
+                                        label: isActive
+                                            ? 'Active'
+                                            : 'Deactivated',
+                                        color: tone,
+                                        dense: true,
                                       ),
                                     ],
                                   ),
                                 ),
                                 Switch(
                                   value: isActive,
-                                  activeThumbColor: champagneGold,
-                                  onChanged: (_) => _confirmToggle(email, name, isActive),
+                                  activeThumbColor: palette.gold,
+                                  onChanged: (_) =>
+                                      _confirmToggle(email, name, isActive),
                                 ),
                               ],
                             ),

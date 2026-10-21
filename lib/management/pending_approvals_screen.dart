@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/management/budget_setup_screen.dart';
-import 'package:ats_onework/shared/app_snack.dart';
+
+import '../management/budget_setup_screen.dart';
+import '../management/expense_store.dart';
+import '../shared/app_snack.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
 
 /// Manager queue for project-access requests (FastAPI /access-requests,
 /// migration 0002). Each pending request already carries the project the
@@ -26,215 +29,251 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
     });
   }
 
-  void _showApproveDialog(BuildContext context, Map<String, dynamic> requestData, ExpenseStore store) {
-    final employeeName = requestData['name']?.toString() ?? 'Unknown';
-    final employeeEmail = requestData['email']?.toString() ?? '';
-    final projectName = requestData['projectName']?.toString() ?? '';
-    final requestId = requestData['access_request_id']?.toString() ?? '';
+  void _showApproveDialog(
+    BuildContext context,
+    Map<String, dynamic> requestData,
+    ExpenseStore store,
+  ) {
+    final String employeeName = requestData['name']?.toString() ?? 'Unknown';
+    final String employeeEmail = requestData['email']?.toString() ?? '';
+    final String projectName = requestData['projectName']?.toString() ?? '';
+    final String requestId = requestData['access_request_id']?.toString() ?? '';
 
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: store.accentGold.withValues(alpha: 0.2))),
-        title: Text('Grant Project Access', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold, fontSize: 18)),
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Grant project access'),
         content: SizedBox(
           width: 350,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('$employeeName ($employeeEmail) wants to join:', style: TextStyle(color: store.textMuted, fontSize: 13)),
+            children: <Widget>[
+              Text(
+                '$employeeName ($employeeEmail) wants to join:',
+                style: const TextStyle(fontSize: 13),
+              ),
               const SizedBox(height: 8),
-              Text(projectName.isEmpty ? 'Unknown project' : projectName, style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 20),
+              Text(
+                projectName.isEmpty ? 'Unknown project' : projectName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 18),
               SizedBox(
                 width: double.infinity,
                 height: 44,
                 child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: store.accentGold.withValues(alpha: 0.5)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
                   onPressed: () {
                     Navigator.pop(dialogContext);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => BudgetSetupScreen(initialEmployeeEmail: employeeEmail),
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (BuildContext context) => BudgetSetupScreen(
+                          initialEmployeeEmail: employeeEmail,
+                        ),
                       ),
                     );
                   },
-                  icon: Icon(Icons.add_rounded, color: store.accentGold, size: 18),
-                  label: Text('Create New Project Instead', style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Create a new project instead'),
                 ),
               ),
             ],
           ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: store.accentGold, foregroundColor: store.isDarkMode ? store.bg : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-            onPressed: requestId.isEmpty ? null : () async {
-              if (dialogContext.mounted) Navigator.pop(dialogContext);
-              final ok = await store.decideProjectAccess(requestId, true);
-              if (!context.mounted) return;
-              if (ok) {
-                AppSnack.success(context, '$employeeName assigned successfully!');
-              } else {
-                AppSnack.error(context, 'Could not approve the request.');
-              }
-            },
-            child: const Text('Confirm & Grant Access', style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: requestId.isEmpty
+                ? null
+                : () async {
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    final bool ok = await store.decideProjectAccess(
+                      requestId,
+                      true,
+                    );
+                    if (!context.mounted) return;
+                    if (ok) {
+                      AppSnack.success(
+                        context,
+                        '$employeeName assigned successfully.',
+                      );
+                    } else {
+                      AppSnack.error(context, 'Could not approve the request.');
+                    }
+                  },
+            child: const Text('Confirm & grant access'),
           ),
         ],
       ),
     );
   }
 
-  void _handleDeny(BuildContext context, Map<String, dynamic> requestData, ExpenseStore store) {
-    final employeeName = requestData['name']?.toString() ?? 'Unknown';
-    final requestId = requestData['access_request_id']?.toString() ?? '';
+  void _handleDeny(
+    BuildContext context,
+    Map<String, dynamic> requestData,
+    ExpenseStore store,
+  ) {
+    final String employeeName = requestData['name']?.toString() ?? 'Unknown';
+    final String requestId = requestData['access_request_id']?.toString() ?? '';
 
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.3))),
-        title: Text('Deny Access for $employeeName?', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold, fontSize: 17)),
-        content: Text('This will dismiss the request.', style: TextStyle(color: store.textMuted, fontSize: 13)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-            onPressed: requestId.isEmpty ? null : () async {
-              Navigator.pop(dialogContext);
-              final ok = await store.decideProjectAccess(requestId, false);
-              if (!context.mounted) return;
-              if (ok) {
-                AppSnack.error(context, 'Project access request denied.');
-              } else {
-                AppSnack.error(context, 'Could not deny the request.');
-              }
-            },
-            child: const Text('Yes, Deny', style: TextStyle(fontWeight: FontWeight.bold)),
+      builder: (BuildContext dialogContext) {
+        final AppPalette palette = context.palette;
+        return AlertDialog(
+          title: Text('Deny access for $employeeName?'),
+          content: const Text(
+            'This will dismiss the request.',
+            style: TextStyle(fontSize: 13),
           ),
-        ],
-      ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: palette.danger,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: requestId.isEmpty
+                  ? null
+                  : () async {
+                      Navigator.pop(dialogContext);
+                      final bool ok = await store.decideProjectAccess(
+                        requestId,
+                        false,
+                      );
+                      if (!context.mounted) return;
+                      if (ok) {
+                        AppSnack.info(
+                          context,
+                          'Project access request denied.',
+                        );
+                      } else {
+                        AppSnack.error(context, 'Could not deny the request.');
+                      }
+                    },
+              child: const Text('Yes, deny'),
+            ),
+          ],
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
+    final ExpenseStore store = ExpenseStore.instance;
 
     return AnimatedBuilder(
       animation: store,
-      builder: (context, _) {
-        return Scaffold(
-          backgroundColor: store.bg,
-          appBar: AppBar(
-            backgroundColor: store.card,
-            elevation: 0,
-            leading: IconButton(icon: Icon(Icons.arrow_back_rounded, color: store.textFrost), onPressed: () => Navigator.pop(context)),
-            title: Text('Project Access Requests', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold, fontSize: 18)),
-            bottom: PreferredSize(preferredSize: const Size.fromHeight(1), child: Container(color: store.accentGold.withValues(alpha: 0.15), height: 1)),
-          ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 800),
-              padding: const EdgeInsets.all(24.0),
-              // Data path: GET /api/v1/access-requests?status=pending
-              // (store.projectRequests, migration 0002 flow).
-              //
-              // The list is read straight from the store. It used to be
-              // wrapped in a FutureBuilder, which started a new request
-              // on every rebuild — and the fetch notifies listeners, so
-              // the screen refetched itself forever.
-              child: Builder(
-                builder: (context) {
-                  final requests = store.projectRequests;
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
+        // Data path: GET /api/v1/access-requests?status=pending
+        // (store.projectRequests, migration 0002 flow).
+        //
+        // The list is read straight from the store. It used to be
+        // wrapped in a FutureBuilder, which started a new request
+        // on every rebuild — and the fetch notifies listeners, so
+        // the screen refetched itself forever.
+        final List<Map<String, dynamic>> requests = store.projectRequests;
 
-                  if (requests.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.check_circle_outline_rounded, size: 64, color: Colors.greenAccent.withValues(alpha: 0.6)),
-                          const SizedBox(height: 16),
-                          Text('All Caught Up!', style: TextStyle(color: store.textFrost, fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 8),
-                          Text('There are no new employees waiting for project assignment.', style: TextStyle(color: store.textMuted)),
+        return Scaffold(
+          backgroundColor: palette.bg,
+          appBar: AppBar(title: const Text('Project access requests')),
+          body: requests.isEmpty
+              ? Center(
+                  child: EmptyState(
+                    icon: Icons.check_circle_outline_rounded,
+                    title: 'All caught up',
+                    message: 'No one is waiting for a project assignment.',
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+                  itemCount: requests.length,
+                  separatorBuilder: (BuildContext context, int index) =>
+                      const SizedBox(height: 12),
+                  itemBuilder: (BuildContext context, int index) {
+                    final Map<String, dynamic> request = requests[index];
+                    final String name =
+                        request['name']?.toString() ?? 'Unknown';
+                    return AppCard(
+                      child: Row(
+                        children: <Widget>[
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: palette.gold.withValues(alpha: 0.12),
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              store.getInitials(name),
+                              style: TextStyle(
+                                color: palette.gold,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: palette.text,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${request['email'] ?? ''} · wants to join '
+                                  '${request['projectName'] ?? ''}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: palette.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: palette.danger,
+                              side: BorderSide(
+                                color: palette.danger.withValues(alpha: 0.4),
+                              ),
+                            ),
+                            onPressed: () =>
+                                _handleDeny(context, request, store),
+                            child: const Text('Deny'),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: () =>
+                                _showApproveDialog(context, request, store),
+                            child: const Text('Approve'),
+                          ),
                         ],
                       ),
                     );
-                  }
-
-                  return ListView.builder(
-                    itemCount: requests.length,
-                    itemBuilder: (context, index) {
-                      final req = requests[index];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 14),
-                        decoration: BoxDecoration(
-                          color: store.card,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: store.accentGold.withValues(alpha: 0.2)),
-                        ),
-                        child: Material(
-                          color: store.card,
-                          child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                          leading: CircleAvatar(
-                            backgroundColor: store.accentGold.withValues(alpha: 0.1),
-                            child: Text(store.getInitials(req['name']?.toString() ?? 'U'), style: TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
-                          ),
-                          title: Text(req['name']?.toString() ?? 'Unknown', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-                          subtitle: Text(
-                            '${req['email'] ?? ''} • Wants to join: ${req['projectName'] ?? ''}',
-                            style: TextStyle(color: store.textMuted, fontSize: 12),
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: store.accentGold,
-                                  foregroundColor: store.isDarkMode ? Colors.black : Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                onPressed: () => _showApproveDialog(context, req, store),
-                                child: const Text('Approve', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                              ),
-                              const SizedBox(width: 8),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.red.shade900.withValues(alpha: 0.25),
-                                  foregroundColor: Colors.redAccent,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.4)),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                onPressed: () => _handleDeny(context, req, store),
-                                child: const Text('Deny', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                              ),
-                            ],
-                          ),
-                        ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ),
+                  },
+                ),
         );
       },
     );

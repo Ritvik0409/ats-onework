@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../management/expense_store.dart';
 import '../shared/app_snack.dart';
+import '../shared/load_more.dart';
 import '../ui/tokens.dart';
 import '../ui/widgets.dart';
 
@@ -117,11 +118,23 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                         ),
                       )
                     : ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
-                        itemCount: employees.length,
+                        // One extra row for the "load more" footer, so a
+                        // directory longer than one page can be walked
+                        // through.
+                        itemCount:
+                            employees.length + (store.hasMoreUsers ? 1 : 0),
                         separatorBuilder: (BuildContext context, int index) =>
                             const SizedBox(height: 10),
                         itemBuilder: (BuildContext context, int index) {
+                          if (index >= employees.length) {
+                            return LoadMoreFooter(
+                              hasMore: store.hasMoreUsers,
+                              loading: store.usersLoadingMore,
+                              onLoad: store.loadMoreUsers,
+                            );
+                          }
                           final Map<String, dynamic> person = employees[index];
                           final String email =
                               person['email']?.toString() ?? '';

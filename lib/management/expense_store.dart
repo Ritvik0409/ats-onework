@@ -177,12 +177,17 @@ class AppNotification {
   final String time;
   final String type;
 
+  /// When the notification was created, when the backend said so. The
+  /// feed shows "2h ago" for recent items and the date for older ones.
+  final DateTime? createdAt;
+
   AppNotification({
     required this.expenseId,
     required this.title,
     required this.subtitle,
     required this.time,
     required this.type,
+    this.createdAt,
   });
 }
 
@@ -546,6 +551,7 @@ class ExpenseStore extends ChangeNotifier {
             title: map['title']?.toString() ?? '',
             subtitle: map['message']?.toString() ?? '',
             time: createdAt == null ? '' : _timeLabel(createdAt),
+            createdAt: createdAt,
             type: normalizeNotificationType(map['type']?.toString() ?? ''),
           );
         }).toList();
@@ -761,7 +767,6 @@ class ExpenseStore extends ChangeNotifier {
       myExpenses.where((e) => e.status == 'Approved').length;
   int get myRejectedCount =>
       myExpenses.where((e) => e.status == 'Rejected').length;
-  int get myTotalUploads => myExpenses.length;
 
   /// Nullable lookup — a bare `firstWhere` throws on a stale id (row
   /// refetched away), which used to red-screen the details page.
@@ -1262,23 +1267,6 @@ class ExpenseStore extends ChangeNotifier {
     return pct > 1.0 ? 1.0 : pct;
   }
 
-  Map<String, double> get categorySpend {
-    Map<String, double> breakdown = {};
-    for (var e in expenses) {
-      if ((e.status == 'Approved' || e.status == 'Paid') &&
-          _isCurrentMonth(e.date)) {
-        breakdown[e.type] = (breakdown[e.type] ?? 0) + e.amount;
-      }
-    }
-    var sortedKeys = breakdown.keys.toList(growable: false)
-      ..sort((k1, k2) => breakdown[k2]!.compareTo(breakdown[k1]!));
-    Map<String, double> sortedBreakdown = {};
-    for (var k in sortedKeys) {
-      sortedBreakdown[k] = breakdown[k]!;
-    }
-    return sortedBreakdown;
-  }
-
   List<Map<String, dynamic>> get urgentRequests {
     // Only approvers have a review queue, and never their own claims.
     if (!canApproveExpenses) return const <Map<String, dynamic>>[];
@@ -1329,83 +1317,6 @@ class ExpenseStore extends ChangeNotifier {
     }
 
     return urgent;
-  }
-
-  /// Legacy monthly series. Kept for screens not yet on the analytics
-  /// endpoint; the percentage is now relative to the largest month in the
-  /// window instead of the *current* month's budget, which made every
-  /// earlier month look over-budget and capped the bars at 100%.
-  List<Map<String, dynamic>> getChartData(String timeframe) {
-    final now = DateTime.now();
-    int monthsToFetch = 5;
-
-    if (timeframe == 'This Month') {
-      monthsToFetch = 1;
-    } else if (timeframe == 'Last 3 Months') {
-      monthsToFetch = 3;
-    } else if (timeframe == 'Last 6 Months') {
-      monthsToFetch = 6;
-    } else if (timeframe == 'Year to Date') {
-      monthsToFetch = now.month;
-    }
-
-    final List<Map<String, dynamic>> chartData = [];
-    const monthLabels = <String>[
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    final List<double> monthlyTotals = List<double>.filled(monthsToFetch, 0);
-    final List<String> labels = <String>[];
-
-    for (int i = monthsToFetch - 1; i >= 0; i--) {
-      int m = now.month - i;
-      int y = now.year;
-      while (m <= 0) {
-        m += 12;
-        y -= 1;
-      }
-      labels.add(monthLabels[m - 1]);
-
-      double total = 0;
-      for (final ExpenseRecord e in expenses) {
-        if (e.status == 'Approved' || e.status == 'Paid') {
-          final DateTime? d = _parseDate(e.date);
-          if (d != null && d.month == m && d.year == y) {
-            total += e.amount;
-          }
-        }
-      }
-      monthlyTotals[(monthsToFetch - 1) - i] = total;
-    }
-
-    final double maxAmount = monthlyTotals.fold<double>(
-      0,
-      (double best, double value) => value > best ? value : best,
-    );
-
-    for (int i = 0; i < monthsToFetch; i++) {
-      final double amount = monthlyTotals[i];
-      final double pct = maxAmount > 0
-          ? (amount / maxAmount).clamp(0.0, 1.0)
-          : 0.0;
-      chartData.add(<String, dynamic>{
-        'label': labels[i],
-        'percentage': pct,
-        'amount': amount,
-      });
-    }
-    return chartData;
   }
 
   void setCurrentManager({required String email}) {

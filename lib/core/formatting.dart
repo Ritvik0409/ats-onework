@@ -16,7 +16,6 @@ final NumberFormat _compact = NumberFormat('0.#', 'en_IN');
 
 final DateFormat _dayMonth = DateFormat('d MMM');
 final DateFormat _fullDate = DateFormat('d MMM yyyy');
-final DateFormat _monthDay = DateFormat('MMM d');
 
 /// `₹1,24,500` (Indian grouping). Values below ₹1,000 keep no decimals
 /// only when they are whole numbers, so a ₹499.50 expense still reads
@@ -54,12 +53,6 @@ String formatFractionPercent(double fraction, {int decimals = 0}) {
   return '${pct.toStringAsFixed(decimals)}%';
 }
 
-/// A percentage that is already in points (`42` → `42%`).
-String formatPercentPoints(double points, {int decimals = 0}) {
-  final double value = points.isFinite ? points : 0;
-  return '${value.toStringAsFixed(decimals)}%';
-}
-
 String formatSignedPercent(double? points) {
   if (points == null) return '—';
   final String sign = points > 0 ? '+' : '';
@@ -70,10 +63,6 @@ String formatCount(int value) =>
     NumberFormat.decimalPattern('en_IN').format(value);
 
 String formatDate(DateTime date) => _fullDate.format(date);
-
-String formatDayMonth(DateTime date) => _dayMonth.format(date);
-
-String formatShortDay(DateTime date) => _monthDay.format(date);
 
 String formatMonthLabel(DateTime date) => DateFormat('MMM yyyy').format(date);
 

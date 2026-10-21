@@ -92,12 +92,31 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                                     title: _selectedFilter == 'All'
                                         ? 'No claims yet'
                                         : 'Nothing in this filter',
-                                    message: _selectedFilter == 'All'
+                                    message: _store.hasMoreExpenses
+                                        // The list is paged: an empty page
+                                        // does not mean there are no
+                                        // claims, only that they are further
+                                        // down the ledger.
+                                        ? 'More claims are still being '
+                                              'loaded — press "Load more" to '
+                                              'fetch the next page.'
+                                        : _selectedFilter == 'All'
                                         ? 'Submit an expense and it will '
                                               'show up here.'
                                         : 'Try another filter to see the '
                                               'rest of your claims.',
-                                    action: _selectedFilter == 'All'
+                                    action: _store.hasMoreExpenses
+                                        ? FilledButton.icon(
+                                            onPressed: _store.expensesLoadingMore
+                                                ? null
+                                                : _store.loadMoreExpenses,
+                                            icon: const Icon(
+                                              Icons.expand_more_rounded,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Load more'),
+                                          )
+                                        : _selectedFilter == 'All'
                                         ? null
                                         : TextButton(
                                             onPressed: () => setState(

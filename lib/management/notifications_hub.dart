@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../core/formatting.dart';
 import '../ui/tokens.dart';
 import '../ui/widgets.dart';
 import 'expense_store.dart';
+
 /// The single notification feed. The backend endpoint is owner-scoped,
 /// so the same screen serves employees and managers; grouping is done
 /// with filters instead of four PageViews.
@@ -40,8 +42,9 @@ class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
     switch (_filter) {
       case 'Action needed':
         return all
-            .where((AppNotification n) =>
-                n.type == 'info' || n.type == 'resubmit')
+            .where(
+              (AppNotification n) => n.type == 'info' || n.type == 'resubmit',
+            )
             .toList(growable: false);
       case 'Approved':
         return all
@@ -185,7 +188,7 @@ class _NotificationCard extends StatelessWidget {
                 if (item.time.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 8),
                   Text(
-                    item.time,
+                    _when(item),
                     style: TextStyle(
                       color: palette.muted.withValues(alpha: 0.75),
                       fontSize: 11,
@@ -199,6 +202,15 @@ class _NotificationCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// "2h ago" for the last week, the date for anything older.
+  String _when(AppNotification item) {
+    final DateTime? createdAt = item.createdAt;
+    if (createdAt == null) return item.time;
+    final Duration age = DateTime.now().difference(createdAt);
+    if (age.inDays >= 7 || age.isNegative) return item.time;
+    return relativeTime(createdAt);
   }
 }
 

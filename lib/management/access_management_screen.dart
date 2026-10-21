@@ -45,6 +45,11 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
   bool _loading = true;
   String? _error;
 
+  /// The directory is paged: the cursor of the next page of members, and
+  /// whether that page is on its way.
+  String? _membersCursor;
+  bool _membersLoadingMore = false;
+
   @override
   void initState() {
     super.initState();
@@ -113,6 +118,7 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
       _members = members.statusCode == 200
           ? ApiClient.pageItems(members).cast<Map<String, dynamic>>()
           : <Map<String, dynamic>>[];
+      _membersCursor = ApiClient.pageCursor(members);
       setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
@@ -120,6 +126,33 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
         _loading = false;
         _error = 'Could not load the access model.';
       });
+    }
+  }
+
+  /// Loads the next page of the member directory.
+  ///
+  /// The list used to stop at the first hundred people without saying so.
+  Future<void> _loadMoreMembers() async {
+    final String? cursor = _membersCursor;
+    if (cursor == null || _membersLoadingMore) return;
+    setState(() => _membersLoadingMore = true);
+    try {
+      final response = await ApiClient.get(
+        '/users',
+        query: {'limit': '100', 'cursor': cursor},
+      );
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        setState(() {
+          _members = <Map<String, dynamic>>[
+            ..._members,
+            ...ApiClient.pageItems(response).cast<Map<String, dynamic>>(),
+          ];
+          _membersCursor = ApiClient.pageCursor(response);
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _membersLoadingMore = false);
     }
   }
 
@@ -233,6 +266,23 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
               (member) =>
                   _MemberTile(member: member, onTap: () => _openMember(member)),
             ),
+            if (_membersCursor != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Center(
+                  child: OutlinedButton.icon(
+                    onPressed: _membersLoadingMore ? null : _loadMoreMembers,
+                    icon: _membersLoadingMore
+                        ? const SizedBox(
+                            height: 14,
+                            width: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more_rounded, size: 18),
+                    label: const Text('Load more people'),
+                  ),
+                ),
+              ),
           ],
         ],
       ),

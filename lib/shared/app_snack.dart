@@ -42,11 +42,6 @@ class AppSnack {
     );
   }
 
-  /// Escaped-hatch for pre-existing call sites that pass their own tint.
-  static void custom(BuildContext context, String message, Color background) {
-    _show(context, message, background, Colors.white);
-  }
-
   static void _show(
     BuildContext context,
     String message,

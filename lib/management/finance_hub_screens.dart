@@ -136,8 +136,25 @@ class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
                                   EmptyState(
                                     icon: Icons.task_alt_rounded,
                                     title: 'Inbox zero',
-                                    message:
-                                        'Every approved claim has been paid.',
+                                    message: _store.hasMoreExpenses
+                                        ? 'More claims are still being loaded — '
+                                              'press "Load more" to fetch the '
+                                              'next page.'
+                                        : 'Every approved claim has been '
+                                              'paid.',
+                                    action: _store.hasMoreExpenses
+                                        ? FilledButton.icon(
+                                            onPressed:
+                                                _store.expensesLoadingMore
+                                                ? null
+                                                : _store.loadMoreExpenses,
+                                            icon: const Icon(
+                                              Icons.expand_more_rounded,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Load more'),
+                                          )
+                                        : null,
                                   ),
                                 ],
                               )
@@ -307,33 +324,68 @@ class _PaidReimbursementsScreenState extends State<PaidReimbursementsScreen> {
                 child: !_store.expensesLoaded
                     ? const Center(child: CircularProgressIndicator())
                     : paid.isEmpty
-                    ? Center(
-                        child: EmptyState(
-                          icon: Icons.payments_outlined,
-                          title: 'No paid claims yet',
-                          message:
-                              'Reimbursements appear here once they are '
-                              'marked as paid.',
-                        ),
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: <Widget>[
+                          const SizedBox(height: 60),
+                          EmptyState(
+                            icon: Icons.payments_outlined,
+                            title: 'No paid claims yet',
+                            message: _store.hasMoreExpenses
+                                ? 'More claims are still being loaded — '
+                                      'press "Load more" to fetch the next '
+                                      'page.'
+                                : 'Reimbursements appear here once they are '
+                                      'marked as paid.',
+                            action: _store.hasMoreExpenses
+                                ? FilledButton.icon(
+                                    onPressed: _store.expensesLoadingMore
+                                        ? null
+                                        : _store.loadMoreExpenses,
+                                    icon: const Icon(
+                                      Icons.expand_more_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Load more'),
+                                  )
+                                : null,
+                          ),
+                        ],
                       )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
-                        itemCount: paid.length,
-                        separatorBuilder: (BuildContext context, int index) =>
-                            const SizedBox(height: 10),
-                        itemBuilder: (BuildContext context, int index) {
-                          final ExpenseRecord expense = paid[index];
-                          return ExpenseRow(
-                            expense: expense,
-                            showId: true,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (BuildContext context) =>
-                                    ExpenseDetailsScreen(expenseId: expense.id),
+                    : RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
+                          // One extra row for the "load more" footer, so a
+                          // list longer than one page can be walked through.
+                          itemCount:
+                              paid.length + (_store.hasMoreExpenses ? 1 : 0),
+                          separatorBuilder: (BuildContext context, int index) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (BuildContext context, int index) {
+                            if (index >= paid.length) {
+                              return LoadMoreFooter(
+                                hasMore: _store.hasMoreExpenses,
+                                loading: _store.expensesLoadingMore,
+                                onLoad: _store.loadMoreExpenses,
+                              );
+                            }
+                            final ExpenseRecord expense = paid[index];
+                            return ExpenseRow(
+                              expense: expense,
+                              showId: true,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (BuildContext context) =>
+                                      ExpenseDetailsScreen(
+                                        expenseId: expense.id,
+                                      ),
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
               ),
             ],

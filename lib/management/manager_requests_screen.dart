@@ -97,45 +97,78 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
               const SizedBox(height: 14),
               Expanded(
                 child: filtered.isEmpty
-                    ? Center(
-                        child: EmptyState(
-                          icon: Icons.search_off_rounded,
-                          title: _store.expensesLoaded
-                              ? 'No matching claims'
-                              : 'Loading claims…',
-                          message: _store.expensesLoaded
-                              ? 'Try another filter or clear the search.'
-                              : 'Fetching the review queue.',
+                    // A scrollable empty state: the queue is paged, so an
+                    // empty page can still be followed by more claims —
+                    // and pull-to-refresh has to work here too.
+                    ? RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: <Widget>[
+                            const SizedBox(height: 60),
+                            EmptyState(
+                              icon: Icons.search_off_rounded,
+                              title: _store.expensesLoaded
+                                  ? 'No matching claims'
+                                  : 'Loading claims…',
+                              message: _store.hasMoreExpenses
+                                  ? 'More claims are still being loaded — '
+                                        'press "Load more" to fetch the next '
+                                        'page.'
+                                  : _store.expensesLoaded
+                                  ? 'Try another filter or clear the search.'
+                                  : 'Fetching the review queue.',
+                              action: _store.hasMoreExpenses
+                                  ? FilledButton.icon(
+                                      onPressed: _store.expensesLoadingMore
+                                          ? null
+                                          : _store.loadMoreExpenses,
+                                      icon: const Icon(
+                                        Icons.expand_more_rounded,
+                                        size: 18,
+                                      ),
+                                      label: const Text('Load more'),
+                                    )
+                                  : null,
+                            ),
+                          ],
                         ),
                       )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
-                        // One extra row for the "load more" footer, so a
-                        // list longer than one page can be walked through.
-                        itemCount:
-                            filtered.length + (_store.hasMoreExpenses ? 1 : 0),
-                        separatorBuilder: (BuildContext context, int index) =>
-                            const SizedBox(height: 10),
-                        itemBuilder: (BuildContext context, int index) {
-                          if (index >= filtered.length) {
-                            return LoadMoreFooter(
-                              hasMore: _store.hasMoreExpenses,
-                              loading: _store.expensesLoadingMore,
-                              onLoad: _store.loadMoreExpenses,
-                            );
-                          }
-                          final ExpenseRecord expense = filtered[index];
-                          return ExpenseRow(
-                            expense: expense,
-                            showId: true,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (BuildContext context) =>
-                                    ExpenseDetailsScreen(expenseId: expense.id),
+                    : RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
+                          // One extra row for the "load more" footer, so a
+                          // list longer than one page can be walked through.
+                          itemCount:
+                              filtered.length +
+                              (_store.hasMoreExpenses ? 1 : 0),
+                          separatorBuilder: (BuildContext context, int index) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (BuildContext context, int index) {
+                            if (index >= filtered.length) {
+                              return LoadMoreFooter(
+                                hasMore: _store.hasMoreExpenses,
+                                loading: _store.expensesLoadingMore,
+                                onLoad: _store.loadMoreExpenses,
+                              );
+                            }
+                            final ExpenseRecord expense = filtered[index];
+                            return ExpenseRow(
+                              expense: expense,
+                              showId: true,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (BuildContext context) =>
+                                      ExpenseDetailsScreen(
+                                        expenseId: expense.id,
+                                      ),
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
               ),
             ],

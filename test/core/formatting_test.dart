@@ -32,7 +32,7 @@ void main() {
 
     test('guards non-finite input', () {
       expect(formatFractionPercent(double.nan), '0%');
-      expect(formatPercentPoints(double.infinity), '0%');
+      expect(formatFractionPercent(double.infinity), '0%');
     });
 
     test('formatSignedPercent keeps the sign', () {

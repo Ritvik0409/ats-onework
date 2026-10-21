@@ -1126,6 +1126,74 @@ class AppFieldLabel extends StatelessWidget {
   }
 }
 
+/// A month chip that opens a date picker and can be cleared.
+///
+/// The report screens each had their own copy of this chip — including
+/// its own colour scheme override for the picker.
+class AppMonthFilter extends StatelessWidget {
+  const AppMonthFilter({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.clearLabel = 'All time',
+  });
+
+  /// The selected month, or null for "no month filter".
+  final DateTime? value;
+  final ValueChanged<DateTime?> onChanged;
+  final String clearLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+    final DateTime? month = value;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: () async {
+        final DateTime now = DateTime.now();
+        final DateTime? picked = await showDatePicker(
+          context: context,
+          initialDate: month ?? now,
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2030),
+        );
+        if (picked != null) onChanged(picked);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        decoration: BoxDecoration(
+          color: palette.surfaceAlt,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: palette.gold.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.calendar_month_rounded, size: 16, color: palette.gold),
+            const SizedBox(width: 8),
+            Text(
+              month == null ? clearLabel : formatMonthLabel(month),
+              style: TextStyle(
+                color: palette.text,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (month != null) ...<Widget>[
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => onChanged(null),
+                child: Icon(Icons.close_rounded, size: 18, color: palette.gold),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Filter chips for the list screens. One implementation so every list
 /// filters the same way — the old copies each styled their own chips.
 class AppFilterBar extends StatelessWidget {

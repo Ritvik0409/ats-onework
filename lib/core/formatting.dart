@@ -77,6 +77,11 @@ String formatShortDay(DateTime date) => _monthDay.format(date);
 
 String formatMonthLabel(DateTime date) => DateFormat('MMM yyyy').format(date);
 
+/// The same month written out — "August 2026". The report screens
+/// search on this, so typing the full month name finds the row.
+String formatMonthLabelLong(DateTime date) =>
+    DateFormat('MMMM yyyy').format(date);
+
 String formatDateRange(DateTime from, DateTime to) {
   if (from.year == to.year && from.month == to.month) {
     return '${_dayMonth.format(from)} – ${_fullDate.format(to)}';

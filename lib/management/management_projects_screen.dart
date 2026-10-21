@@ -1181,9 +1181,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                           shrinkWrap: false,
                           itemCount: filteredEmployees.length,
                           separatorBuilder: (context, index) => Divider(
-                            color: store.isDarkMode
-                                ? const Color(0xFF262633)
-                                : Colors.grey.shade200,
+                            color: store.border,
                             height: 1,
                           ),
                           itemBuilder: (context, index) {

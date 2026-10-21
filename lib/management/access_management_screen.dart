@@ -15,6 +15,8 @@ import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
 import 'package:ats_onework/shared/app_snack.dart';
 import 'package:ats_onework/shared/json_utils.dart';
+import 'package:ats_onework/ui/tokens.dart';
+import 'package:ats_onework/ui/widgets.dart';
 
 /// The access management screen.
 class AccessManagementScreen extends StatefulWidget {
@@ -43,13 +45,19 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
   bool _loading = true;
   String? _error;
 
+  /// The directory is paged: the cursor of the next page of members, and
+  /// whether that page is on its way.
+  String? _membersCursor;
+  bool _membersLoadingMore = false;
+
   @override
   void initState() {
     super.initState();
     _load();
   }
 
-  int? get _activeOrganizationId => _organizationId ?? _store.currentOrganizationId;
+  int? get _activeOrganizationId =>
+      _organizationId ?? _store.currentOrganizationId;
 
   Future<void> _load() async {
     setState(() {
@@ -71,25 +79,29 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
       if (_store.isSuperUser) {
         final orgs = await ApiClient.get('/system/organizations');
         if (orgs.statusCode == 200) {
-          _organizations = ApiClient.pageItems(orgs)
-              .cast<Map<String, dynamic>>();
+          _organizations = ApiClient.pageItems(
+            orgs,
+          ).cast<Map<String, dynamic>>();
         }
         final catalogue = await ApiClient.get('/system/catalog');
         if (catalogue.statusCode == 200) {
-          _catalogue = ApiClient.pageItems(catalogue)
-              .cast<Map<String, dynamic>>();
+          _catalogue = ApiClient.pageItems(
+            catalogue,
+          ).cast<Map<String, dynamic>>();
         }
         final superusers = await ApiClient.get('/system/users/superusers');
         if (superusers.statusCode == 200) {
-          _superusers = ApiClient.pageItems(superusers)
-              .cast<Map<String, dynamic>>();
+          _superusers = ApiClient.pageItems(
+            superusers,
+          ).cast<Map<String, dynamic>>();
         }
         _superusersLoaded = true;
       }
 
       final roles = await ApiClient.get('/organizations/$orgId/access/roles');
-      final permissions =
-          await ApiClient.get('/organizations/$orgId/access/permissions');
+      final permissions = await ApiClient.get(
+        '/organizations/$orgId/access/permissions',
+      );
       final members = await ApiClient.get('/users', query: {'limit': '100'});
 
       if (roles.statusCode != 200) {
@@ -100,11 +112,13 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
         return;
       }
       _roles = ApiClient.pageItems(roles).cast<Map<String, dynamic>>();
-      _permissions =
-          ApiClient.pageItems(permissions).cast<Map<String, dynamic>>();
+      _permissions = ApiClient.pageItems(
+        permissions,
+      ).cast<Map<String, dynamic>>();
       _members = members.statusCode == 200
           ? ApiClient.pageItems(members).cast<Map<String, dynamic>>()
           : <Map<String, dynamic>>[];
+      _membersCursor = ApiClient.pageCursor(members);
       setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
@@ -112,6 +126,33 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
         _loading = false;
         _error = 'Could not load the access model.';
       });
+    }
+  }
+
+  /// Loads the next page of the member directory.
+  ///
+  /// The list used to stop at the first hundred people without saying so.
+  Future<void> _loadMoreMembers() async {
+    final String? cursor = _membersCursor;
+    if (cursor == null || _membersLoadingMore) return;
+    setState(() => _membersLoadingMore = true);
+    try {
+      final response = await ApiClient.get(
+        '/users',
+        query: {'limit': '100', 'cursor': cursor},
+      );
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        setState(() {
+          _members = <Map<String, dynamic>>[
+            ..._members,
+            ...ApiClient.pageItems(response).cast<Map<String, dynamic>>(),
+          ];
+          _membersCursor = ApiClient.pageCursor(response);
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _membersLoadingMore = false);
     }
   }
 
@@ -159,30 +200,29 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
         body: _loading
             ? Center(child: CircularProgressIndicator(color: gold))
             : _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(_error!, style: TextStyle(color: muted)),
-                    ),
-                  )
-                : TabBarView(
-                    children: [
-                      _organizationTab(card, gold, frost, muted),
-                      if (isSuper) _catalogueTab(card, gold, frost, muted),
-                      if (isSuper) _administratorsTab(card, gold, frost, muted),
-                    ],
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: InlineError(
+                    message: _error!,
+                    title: 'Could not load the access model',
+                    onRetry: _load,
                   ),
+                ),
+              )
+            : TabBarView(
+                children: [
+                  _organizationTab(card, gold, frost, muted),
+                  if (isSuper) _catalogueTab(card, gold, frost, muted),
+                  if (isSuper) _administratorsTab(card, gold, frost, muted),
+                ],
+              ),
       ),
     );
   }
 
   /// The organization's own roles, grants and people.
-  Widget _organizationTab(
-    Color card,
-    Color gold,
-    Color frost,
-    Color muted,
-  ) {
+  Widget _organizationTab(Color card, Color gold, Color frost, Color muted) {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -190,20 +230,22 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           if (_organizations.isNotEmpty) ...[
-            Text('Organization',
-                style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+            const SectionHeader(title: 'Organization'),
             DropdownButtonFormField<int>(
               initialValue: _activeOrganizationId,
               isExpanded: true,
               dropdownColor: card,
               style: TextStyle(color: frost),
               items: _organizations
-                  .map((org) => DropdownMenuItem<int>(
-                        value: (org['organization_id'] as num?)?.toInt(),
-                        child: Text(org['name']?.toString() ?? '',
-                            style: TextStyle(color: frost)),
-                      ))
+                  .map(
+                    (org) => DropdownMenuItem<int>(
+                      value: (org['organization_id'] as num?)?.toInt(),
+                      child: Text(
+                        org['name']?.toString() ?? '',
+                        style: TextStyle(color: frost),
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) {
                 if (value == null) return;
@@ -213,22 +255,34 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
             ),
             const SizedBox(height: 24),
           ],
-          Text('Roles',
-              style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          ..._roles.map((role) => _RoleTile(
-                role: role,
-                onTap: () => _openRole(role),
-              )),
+          const SectionHeader(title: 'Roles'),
+          ..._roles.map(
+            (role) => _RoleTile(role: role, onTap: () => _openRole(role)),
+          ),
           const SizedBox(height: 24),
           if (_members.isNotEmpty) ...[
-            Text('People',
-                style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            ..._members.map((member) => _MemberTile(
-                  member: member,
-                  onTap: () => _openMember(member),
-                )),
+            const SectionHeader(title: 'People'),
+            ..._members.map(
+              (member) =>
+                  _MemberTile(member: member, onTap: () => _openMember(member)),
+            ),
+            if (_membersCursor != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Center(
+                  child: OutlinedButton.icon(
+                    onPressed: _membersLoadingMore ? null : _loadMoreMembers,
+                    icon: _membersLoadingMore
+                        ? const SizedBox(
+                            height: 14,
+                            width: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more_rounded, size: 18),
+                    label: const Text('Load more people'),
+                  ),
+                ),
+              ),
           ],
         ],
       ),
@@ -238,14 +292,17 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
   /// The platform's standard capabilities and roles — the catalogue an
   /// organization is built from.
   Widget _catalogueTab(Color card, Color gold, Color frost, Color muted) {
-    final capabilities =
-        _catalogue.where((entry) => entry['kind'] == 'permission').toList();
+    final capabilities = _catalogue
+        .where((entry) => entry['kind'] == 'permission')
+        .toList();
     final roles = _catalogue.where((entry) => entry['kind'] == 'role').toList();
 
     if (_catalogue.isEmpty) {
       return Center(
-        child: Text('The catalogue could not be read.',
-            style: TextStyle(color: muted)),
+        child: Text(
+          'The catalogue could not be read.',
+          style: TextStyle(color: muted),
+        ),
       );
     }
 
@@ -263,21 +320,29 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
             style: TextStyle(color: muted, fontSize: 12),
           ),
           const SizedBox(height: 16),
-          Text('Standard roles',
-              style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+          Text(
+            'Standard roles',
+            style: TextStyle(color: gold, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
-          ...roles.map((role) => _CatalogueTile(
-                entry: role,
-                onTap: () => _openCatalogEntry(role),
-              )),
+          ...roles.map(
+            (role) => _CatalogueTile(
+              entry: role,
+              onTap: () => _openCatalogEntry(role),
+            ),
+          ),
           const SizedBox(height: 24),
-          Text('Standard capabilities',
-              style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+          Text(
+            'Standard capabilities',
+            style: TextStyle(color: gold, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
-          ...capabilities.map((capability) => _CatalogueTile(
-                entry: capability,
-                onTap: () => _openCatalogEntry(capability),
-              )),
+          ...capabilities.map(
+            (capability) => _CatalogueTile(
+              entry: capability,
+              onTap: () => _openCatalogEntry(capability),
+            ),
+          ),
         ],
       ),
     );
@@ -287,8 +352,10 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
   Widget _administratorsTab(Color card, Color gold, Color frost, Color muted) {
     if (_superusersLoaded != true) {
       return Center(
-        child: Text('The administrators could not be read.',
-            style: TextStyle(color: muted)),
+        child: Text(
+          'The administrators could not be read.',
+          style: TextStyle(color: muted),
+        ),
       );
     }
     return RefreshIndicator(
@@ -305,13 +372,17 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
             style: TextStyle(color: muted, fontSize: 12),
           ),
           const SizedBox(height: 16),
-          Text('Super administrators',
-              style: TextStyle(color: gold, fontWeight: FontWeight.bold)),
+          Text(
+            'Super administrators',
+            style: TextStyle(color: gold, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
-          ..._superusers.map((admin) => _SuperuserTile(
-                admin: admin,
-                onToggle: () => _toggleSuperuser(admin),
-              )),
+          ..._superusers.map(
+            (admin) => _SuperuserTile(
+              admin: admin,
+              onToggle: () => _toggleSuperuser(admin),
+            ),
+          ),
         ],
       ),
     );
@@ -333,7 +404,9 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
     try {
       final response = await ApiClient.get('/system/users/superusers');
       if (response.statusCode == 200) {
-        _superusers = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
+        _superusers = ApiClient.pageItems(
+          response,
+        ).cast<Map<String, dynamic>>();
       }
     } catch (_) {
       // The tab shows what it has.
@@ -370,7 +443,10 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
       );
       await _loadSuperusers();
     } else {
-      AppSnack.error(context, 'Could not change the super administrator rights.');
+      AppSnack.error(
+        context,
+        'Could not change the super administrator rights.',
+      );
     }
   }
 
@@ -417,29 +493,24 @@ class _CatalogueTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
-    final grants = stringList(entry['grants']);
-    final isRole = entry['kind'] == 'role';
-    return Card(
-      color: store.card,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: store.border),
+    final AppPalette palette = context.palette;
+    final List<String> grants = stringList(entry['grants']);
+    final bool isRole = entry['kind'] == 'role';
+    return AppListTile(
+      title: entry['name']?.toString() ?? '',
+      subtitle: isRole
+          ? (grants.isEmpty
+                ? 'Grants nothing'
+                : 'Grants ${grants.length} capabilit'
+                      '${grants.length == 1 ? 'y' : 'ies'}')
+          : (entry['description']?.toString() ?? ''),
+      leading: Icon(
+        isRole ? Icons.badge_outlined : Icons.vpn_key_outlined,
+        color: palette.gold,
+        size: 20,
       ),
-      child: ListTile(
-        onTap: onTap,
-        title: Text(entry['name']?.toString() ?? '',
-            style: TextStyle(color: store.textFrost)),
-        subtitle: Text(
-          isRole
-              ? (grants.isEmpty
-                  ? 'Grants nothing'
-                  : 'Grants ${grants.length} capabilit${grants.length == 1 ? 'y' : 'ies'}')
-              : (entry['description']?.toString() ?? ''),
-          style: TextStyle(color: store.textMuted),
-        ),
-        trailing: Icon(Icons.chevron_right_rounded, color: store.accentGold),
-      ),
+      trailing: Icon(Icons.chevron_right_rounded, color: palette.muted),
+      onTap: onTap,
     );
   }
 }
@@ -452,23 +523,15 @@ class _SuperuserTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
-    return Card(
-      color: store.card,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: store.border),
-      ),
-      child: ListTile(
-        title: Text(admin['name']?.toString() ?? '',
-            style: TextStyle(color: store.textFrost)),
-        subtitle: Text(admin['email']?.toString() ?? '',
-            style: TextStyle(color: store.textMuted)),
-        trailing: Switch(
-          value: admin['is_superuser'] == true,
-          activeThumbColor: store.accentGold,
-          onChanged: (_) => onToggle(),
-        ),
+    final AppPalette palette = context.palette;
+    return AppListTile(
+      title: admin['name']?.toString() ?? '',
+      subtitle: admin['email']?.toString() ?? '',
+      leading: Icon(Icons.shield_outlined, color: palette.gold, size: 20),
+      trailing: Switch(
+        value: admin['is_superuser'] == true,
+        activeThumbColor: palette.gold,
+        onChanged: (_) => onToggle(),
       ),
     );
   }
@@ -487,8 +550,9 @@ class _CatalogEntrySheet extends StatefulWidget {
 
 class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
   final ExpenseStore _store = ExpenseStore.instance;
-  late final TextEditingController _description =
-      TextEditingController(text: widget.entry['description']?.toString() ?? '');
+  late final TextEditingController _description = TextEditingController(
+    text: widget.entry['description']?.toString() ?? '',
+  );
   bool _saving = false;
 
   @override
@@ -516,7 +580,10 @@ class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
               child: Text(
                 widget.entry['name']?.toString() ?? '',
                 style: TextStyle(
-                    color: frost, fontSize: 18, fontWeight: FontWeight.bold),
+                  color: frost,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             Expanded(
@@ -557,7 +624,9 @@ class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.black),
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
                           )
                         : const Text('Save'),
                   ),
@@ -604,26 +673,16 @@ class _RoleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
-    final grants = stringList(role['permissions']);
-    return Card(
-      color: store.card,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: store.border),
-      ),
-      child: ListTile(
-        onTap: onTap,
-        title: Text(role['name']?.toString() ?? '',
-            style: TextStyle(color: store.textFrost)),
-        subtitle: Text(
-          grants.isEmpty
-              ? 'Grants nothing'
-              : '${grants.length} capabilit${grants.length == 1 ? 'y' : 'ies'}',
-          style: TextStyle(color: store.textMuted),
-        ),
-        trailing: Icon(Icons.chevron_right_rounded, color: store.accentGold),
-      ),
+    final AppPalette palette = context.palette;
+    final List<String> grants = stringList(role['permissions']);
+    return AppListTile(
+      title: role['name']?.toString() ?? '',
+      subtitle: grants.isEmpty
+          ? 'Grants nothing'
+          : '${grants.length} capabilit${grants.length == 1 ? 'y' : 'ies'}',
+      leading: Icon(Icons.badge_outlined, color: palette.gold, size: 20),
+      trailing: Icon(Icons.chevron_right_rounded, color: palette.muted),
+      onTap: onTap,
     );
   }
 }
@@ -636,21 +695,17 @@ class _MemberTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
-    return Card(
-      color: store.card,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: store.border),
+    final AppPalette palette = context.palette;
+    return AppListTile(
+      title: member['name']?.toString() ?? '',
+      subtitle: member['email']?.toString() ?? '',
+      leading: Icon(
+        Icons.person_outline_rounded,
+        color: palette.gold,
+        size: 20,
       ),
-      child: ListTile(
-        onTap: onTap,
-        title: Text(member['name']?.toString() ?? '',
-            style: TextStyle(color: store.textFrost)),
-        subtitle: Text(member['email']?.toString() ?? '',
-            style: TextStyle(color: store.textMuted)),
-        trailing: Icon(Icons.chevron_right_rounded, color: store.accentGold),
-      ),
+      trailing: Icon(Icons.chevron_right_rounded, color: palette.muted),
+      onTap: onTap,
     );
   }
 }
@@ -747,7 +802,9 @@ class _RoleGrantsScreenState extends State<_RoleGrantsScreen> {
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.black),
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
                         )
                       : const Text('Save'),
                 ),
@@ -861,7 +918,10 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
               child: Text(
                 widget.member['name']?.toString() ?? 'Access',
                 style: TextStyle(
-                    color: frost, fontSize: 18, fontWeight: FontWeight.bold),
+                  color: frost,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             Expanded(
@@ -871,17 +931,23 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
                       controller: controller,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       children: [
-                        Text('Roles',
-                            style: TextStyle(
-                                color: gold, fontWeight: FontWeight.bold)),
+                        Text(
+                          'Roles',
+                          style: TextStyle(
+                            color: gold,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         ...widget.roles.map((role) {
                           final id = (role['role_id'] as num?)?.toInt() ?? 0;
                           return CheckboxListTile(
                             value: _roleIds.contains(id),
                             activeColor: gold,
                             checkColor: Colors.black,
-                            title: Text(role['name']?.toString() ?? '',
-                                style: TextStyle(color: frost)),
+                            title: Text(
+                              role['name']?.toString() ?? '',
+                              style: TextStyle(color: frost),
+                            ),
                             onChanged: (value) {
                               setState(() {
                                 if (value == true) {
@@ -894,11 +960,17 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
                           );
                         }),
                         const SizedBox(height: 16),
-                        Text('Extra capabilities',
-                            style: TextStyle(
-                                color: gold, fontWeight: FontWeight.bold)),
-                        Text('Granted to this person on top of their roles.',
-                            style: TextStyle(color: muted, fontSize: 12)),
+                        Text(
+                          'Extra capabilities',
+                          style: TextStyle(
+                            color: gold,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Granted to this person on top of their roles.',
+                          style: TextStyle(color: muted, fontSize: 12),
+                        ),
                         ...widget.permissions.map((permission) {
                           final name = permission['api_name']?.toString() ?? '';
                           return CheckboxListTile(
@@ -937,7 +1009,9 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.black),
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
                           )
                         : const Text('Save'),
                   ),
@@ -955,14 +1029,12 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
     try {
       final orgId = widget.organizationId;
       final base = '/organizations/$orgId/access/members/${widget.employeeId}';
-      final roles = await ApiClient.put(
-        '$base/roles',
-        {'role_ids': _roleIds.toList()},
-      );
-      final direct = await ApiClient.put(
-        '$base/permissions',
-        {'permissions': _direct.toList()},
-      );
+      final roles = await ApiClient.put('$base/roles', {
+        'role_ids': _roleIds.toList(),
+      });
+      final direct = await ApiClient.put('$base/permissions', {
+        'permissions': _direct.toList(),
+      });
       if (!mounted) return;
       if (roles.statusCode == 200 && direct.statusCode == 200) {
         AppSnack.success(context, 'Access updated.');

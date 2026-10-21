@@ -10,7 +10,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' show Response;
 
-import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/shared/api_client.dart';
 import 'package:ats_onework/shared/app_snack.dart';
 
@@ -18,24 +17,17 @@ import 'package:ats_onework/shared/app_snack.dart';
 ///
 /// Returns true when the password was changed.
 Future<bool> showChangePasswordDialog(BuildContext context) async {
-  final store = ExpenseStore.instance;
   final currentController = TextEditingController();
   final newController = TextEditingController();
   final confirmController = TextEditingController();
 
   final submitted = await showDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      backgroundColor: store.card,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-      ),
-      title: Text('Change Password',
-          style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
+    builder: (BuildContext dialogContext) => AlertDialog(
+      title: const Text('Change password'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
-        children: [
+        children: <Widget>[
           TextField(
             controller: currentController,
             obscureText: true,
@@ -52,22 +44,18 @@ Future<bool> showChangePasswordDialog(BuildContext context) async {
           TextField(
             controller: confirmController,
             obscureText: true,
-            decoration: const InputDecoration(labelText: 'Confirm new password'),
+            decoration: const InputDecoration(
+              labelText: 'Confirm new password',
+            ),
           ),
         ],
       ),
-      actions: [
+      actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.pop(dialogContext, false),
-          child: Text('Cancel',
-              style:
-                  TextStyle(color: store.accentGold, fontWeight: FontWeight.bold)),
+          child: const Text('Cancel'),
         ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: store.accentGold,
-            foregroundColor: Colors.black,
-          ),
+        FilledButton(
           onPressed: () => Navigator.pop(dialogContext, true),
           child: const Text('Change'),
         ),
@@ -102,7 +90,9 @@ Future<bool> showChangePasswordDialog(BuildContext context) async {
     if (!context.mounted) return false;
     if (response.statusCode == 204) {
       AppSnack.success(
-          context, 'Password changed. Your other sessions have ended.');
+        context,
+        'Password changed. Your other sessions have ended.',
+      );
       return true;
     }
     AppSnack.error(context, _passwordError(response));

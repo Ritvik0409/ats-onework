@@ -1,12 +1,19 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/shared/app_snack.dart';
-import 'package:intl/intl.dart';
 
-import 'download_stub.dart' if (dart.library.html) 'download_web.dart' as downloader;
+import '../core/formatting.dart';
+import '../core/status.dart';
+import '../management/expense_store.dart';
+import '../shared/app_snack.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+import 'download_stub.dart'
+    if (dart.library.html) 'download_web.dart'
+    as downloader;
 
+/// The reimbursement report: what was paid, to whom, and when.
 class ManagerReportsScreen extends StatefulWidget {
   const ManagerReportsScreen({super.key});
 
@@ -15,361 +22,283 @@ class ManagerReportsScreen extends StatefulWidget {
 }
 
 class _ManagerReportsScreenState extends State<ManagerReportsScreen> {
+  static const List<String> _statuses = <String>[
+    'All',
+    'Pending',
+    'Approved',
+    'Paid',
+    'Rejected',
+  ];
+
   final ExpenseStore _store = ExpenseStore.instance;
-  final String _selectedEmployee = 'All Employees';
-  final String _selectedPeriod = 'Till Date';
   String _searchQuery = '';
   String _selectedStatus = 'All';
   DateTime? _selectedDate;
 
-  /// The month a date string belongs to, as "MMM yyyy".
-  ///
-  /// The API sends an ISO date ("2026-10-20"), so the previous
-  /// space-splitting never matched and every month filter returned an
-  /// empty report.
-  String _getMonthYear(String dateStr) {
-    final parsed = _store.parseBackendDate(dateStr);
-    if (parsed == null) return '';
-    return '${_monthNames[parsed.month - 1]} ${parsed.year}';
-  }
-
-  static const List<String> _monthNames = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
-
   List<ExpenseRecord> get _filteredExpenses {
-    final query = _searchQuery.toLowerCase();
-
-    return _store.expenses.where((e) {
-      final matchesStatus = _selectedStatus == 'All' || e.status == _selectedStatus;
-
-      final matchesSearch = query.isEmpty ||
-          e.name.toLowerCase().contains(query) ||
-          e.id.toLowerCase().contains(query) ||
-          e.type.toLowerCase().contains(query);
-          
-      bool matchesDate = true;
-      if (_selectedDate != null) {
-        final pickedMonthStr = '${_monthNames[_selectedDate!.month - 1]} ${_selectedDate!.year}';
-        matchesDate = _getMonthYear(e.date) == pickedMonthStr;
-      }
-
-      return matchesStatus && matchesSearch && matchesDate;
-    }).toList();
+    return _store.expenses
+        .where((ExpenseRecord e) {
+          final String query = _searchQuery.trim().toLowerCase();
+          final bool matchesSearch =
+              query.isEmpty ||
+              e.name.toLowerCase().contains(query) ||
+              e.id.toLowerCase().contains(query) ||
+              e.type.toLowerCase().contains(query);
+          if (!matchesSearch) return false;
+          if (_selectedStatus != 'All' && e.status != _selectedStatus) {
+            return false;
+          }
+          if (_selectedDate != null) {
+            final DateTime? date = parseLooseDate(e.date);
+            if (date == null ||
+                date.month != _selectedDate!.month ||
+                date.year != _selectedDate!.year) {
+              return false;
+            }
+          }
+          return true;
+        })
+        .toList(growable: false);
   }
 
-  double get _totalAmount => _filteredExpenses.fold(0.0, (sum, e) => sum + e.amount);
+  double get _totalAmount => _filteredExpenses.fold<double>(
+    0,
+    (double sum, ExpenseRecord e) => sum + e.amount,
+  );
 
-  String _escapeCsv(String field) {
+  void _downloadCsv() {
+    final List<ExpenseRecord> rows = _filteredExpenses;
+    if (rows.isEmpty) {
+      AppSnack.error(context, 'No matching reimbursements to export.');
+      return;
+    }
+    final StringBuffer csv = StringBuffer(
+      'Tracking ID,Employee Name,Email,Expense Type,Amount,Date,Status\n',
+    );
+    for (final ExpenseRecord e in rows) {
+      csv.writeln(
+        <String>[
+          _escapeCsv(e.id),
+          _escapeCsv(e.name),
+          _escapeCsv(e.email),
+          _escapeCsv(e.type),
+          e.amount.toStringAsFixed(2),
+          _escapeCsv(e.date),
+          _escapeCsv(e.status),
+        ].join(','),
+      );
+    }
+    final int timestamp = DateTime.now().millisecondsSinceEpoch;
+    if (!kIsWeb) {
+      AppSnack.info(context, 'CSV export is available in the web build only.');
+      return;
+    }
+    downloader.downloadFile(
+      utf8.encode(csv.toString()),
+      'reimbursement_report_$timestamp.csv',
+    );
+    AppSnack.success(context, 'Report downloaded.');
+  }
+
+  static String _escapeCsv(String field) {
     if (field.contains(',') || field.contains('"') || field.contains('\n')) {
       return '"${field.replaceAll('"', '""')}"';
     }
     return field;
   }
 
-  void _downloadCsv() {
-    final rows = _filteredExpenses;
-    if (rows.isEmpty) {
-      _showSnack('No approved reimbursements match this filter.', Colors.redAccent);
-      return;
-    }
-
-    final buffer = StringBuffer();
-    buffer.writeln('Tracking ID,Employee Name,Email,Expense Type,Amount,Date,Status');
-    for (final e in rows) {
-      buffer.writeln([
-        _escapeCsv(e.id),
-        _escapeCsv(e.name),
-        _escapeCsv(e.email),
-        _escapeCsv(e.type),
-        e.amount.toStringAsFixed(2),
-        _escapeCsv(e.date),
-        _escapeCsv(e.status),
-      ].join(','));
-    }
-
-    final fileName = 'reimbursement_report_${_selectedEmployee.replaceAll(' ', '_')}_${_selectedPeriod.replaceAll(' ', '_')}.csv';
-    final bytes = utf8.encode(buffer.toString());
-
-    if (kIsWeb) {
-      downloader.downloadFile(bytes, fileName);
-      _showSnack('Report downloaded', Colors.greenAccent.shade400);
-    } else {
-      _showSnack('CSV export is currently supported on the web build only.', _store.accentGold);
-    }
-  }
-
-  void _showSnack(String message, Color color) =>
-      AppSnack.custom(context, message, color);
-
-  // --- FIX: Dynamic Colors for Badges ---
-  Color _getStatusColor(String status, Color defaultGold) {
-    if (status == 'Paid') return Colors.greenAccent.shade400;
-    if (status == 'Approved') return Colors.orangeAccent;
-    if (status == 'Rejected') return Colors.redAccent.shade400;
-    return defaultGold;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 600;
-    final double bottomSafeArea = MediaQuery.of(context).padding.bottom; 
-    final double extraBottomPadding = isMobile && bottomSafeArea > 0 ? bottomSafeArea + 16 : 0.0;
-
     return AnimatedBuilder(
       animation: _store,
-      builder: (context, _) {
-        final rows = _filteredExpenses;
-        final obsidianBlack = _store.bg;
-        final darkCharcoal = _store.card;
-        final champagneGold = _store.accentGold;
-        final textFrost = _store.textFrost;
-        final textMuted = _store.textMuted;
-        
-        final List<BoxShadow> cardShadows = _store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 4)),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 12), spreadRadius: -4),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
-              ];
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
+        final List<ExpenseRecord> rows = _filteredExpenses;
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
-          appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            elevation: 0,
-            iconTheme: IconThemeData(color: textFrost),
-            title: Text('Reimbursement Reports', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 18)),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
-            ),
-          ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 700),
-              padding: EdgeInsets.fromLTRB(20.0, 20.0, 20.0, 20.0 + extraBottomPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    onChanged: (value) => setState(() => _searchQuery = value),
-                    style: TextStyle(color: textFrost, fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Search by employee name, ID or type...',
-                      hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.7)),
-                      prefixIcon: Icon(Icons.search_rounded, color: champagneGold),
-                      filled: true,
-                      fillColor: darkCharcoal,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.15)),
+          backgroundColor: palette.bg,
+          appBar: AppBar(title: const Text('Reimbursement reports')),
+          body: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    AppSearchField(
+                      hint: 'Search by employee, id or type…',
+                      onChanged: (String value) =>
+                          setState(() => _searchQuery = value),
+                    ),
+                    const SizedBox(height: 12),
+                    AppFilterBar(
+                      options: _statuses,
+                      value: _selectedStatus,
+                      onChanged: (String status) =>
+                          setState(() => _selectedStatus = status),
+                    ),
+                    const SizedBox(height: 12),
+                    AppMonthFilter(
+                      value: _selectedDate,
+                      onChanged: (DateTime? date) =>
+                          setState(() => _selectedDate = date),
+                    ),
+                    const SizedBox(height: 14),
+                    AppCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold, width: 1.5),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    // --- FIX: Added "Paid" to filter choices ---
-                    child: Row(
-                      children: ['All', 'Pending', 'Approved', 'Paid', 'Rejected'].map((status) {
-                        final isSelected = _selectedStatus == status;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8.0),
-                          child: ChoiceChip(
-                            label: Text(status),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              if (selected) setState(() => _selectedStatus = status);
-                            },
-                            labelStyle: TextStyle(
-                              color: isSelected ? (_store.isDarkMode ? obsidianBlack : Colors.white) : textFrost,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                            selectedColor: champagneGold,
-                            backgroundColor: darkCharcoal,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                              side: BorderSide(
-                                color: isSelected ? champagneGold : champagneGold.withValues(alpha: 0.15),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () async {
-                        final DateTime? picked = await showDatePicker(
-                          context: context,
-                          initialDate: _selectedDate ?? DateTime.now(),
-                          firstDate: DateTime(2020), 
-                          lastDate: DateTime(2030),
-                          builder: (context, child) {
-                            return Theme(
-                              data: Theme.of(context).copyWith(
-                                colorScheme: _store.isDarkMode 
-                                  ? ColorScheme.dark(primary: champagneGold, onPrimary: obsidianBlack, surface: darkCharcoal, onSurface: textFrost)
-                                  : ColorScheme.light(primary: champagneGold, onPrimary: Colors.white, surface: darkCharcoal, onSurface: textFrost), dialogTheme: DialogThemeData(backgroundColor: darkCharcoal),
-                              ),
-                              child: child!,
-                            );
-                          },
-                        );
-
-                        if (picked != null && mounted) {
-                          setState(() => _selectedDate = picked);
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: darkCharcoal,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: champagneGold.withValues(alpha: 0.3)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.calendar_month_rounded, size: 16, color: champagneGold),
-                            const SizedBox(width: 8),
-                            Text(
-                              _selectedDate == null
-                                  ? 'All Time'
-                                  : '${_monthNames[_selectedDate!.month - 1]} ${_selectedDate!.year}',
-                              style: TextStyle(color: textFrost, fontSize: 13, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(width: 4),
-                            if (_selectedDate == null)
-                              Icon(Icons.arrow_drop_down_rounded, color: champagneGold)
-                            else
-                              GestureDetector(
-                                onTap: () => setState(() => _selectedDate = null), 
-                                child: Icon(Icons.close_rounded, size: 18, color: champagneGold),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: darkCharcoal,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: _store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
-                      boxShadow: cardShadows,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Total reimbursed', style: TextStyle(color: textMuted, fontSize: 12)),
-                            const SizedBox(height: 4),
-                            Text(NumberFormat.currency(locale: 'en_IN', symbol: '₹').format(_totalAmount), style: TextStyle(color: textFrost, fontSize: 20, fontWeight: FontWeight.w900)),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text('Records', style: TextStyle(color: textMuted, fontSize: 12)),
-                            const SizedBox(height: 4),
-                            Text('${rows.length}', style: TextStyle(color: champagneGold, fontSize: 20, fontWeight: FontWeight.w900)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Expanded(
-                    child: rows.isEmpty
-                        ? Center(child: Text('No matching reimbursements found.', style: TextStyle(color: textMuted)))
-                        : ListView.builder(
-                            itemCount: rows.length,
-                            itemBuilder: (context, index) {
-                              final e = rows[index];
-                              final statusColor = _getStatusColor(e.status, champagneGold); // --- FIX: Fetch correct color ---
-                              
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 10),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: _store.isDarkMode ? champagneGold.withValues(alpha: 0.08) : Colors.grey.withValues(alpha: 0.2)),
-                                  boxShadow: cardShadows,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: <Widget>[
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                'Total reimbursed',
+                                style: TextStyle(
+                                  color: palette.muted,
+                                  fontSize: 12,
                                 ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(e.name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 13)),
-                                          const SizedBox(height: 2),
-                                          Text('${e.type} • ${e.date}', style: TextStyle(color: textMuted, fontSize: 11)),
-                                        ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                formatMoney(_totalAmount),
+                                style: TextStyle(
+                                  color: palette.text,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: <Widget>[
+                              Text(
+                                'Records',
+                                style: TextStyle(
+                                  color: palette.muted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                formatCount(rows.length),
+                                style: TextStyle(
+                                  color: palette.gold,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: rows.isEmpty
+                    ? Center(
+                        child: EmptyState(
+                          icon: Icons.receipt_long_rounded,
+                          title: 'No matching reimbursements',
+                          message:
+                              'Try another filter, another month, or clear '
+                              'the search.',
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+                        itemCount: rows.length,
+                        separatorBuilder: (BuildContext context, int index) =>
+                            const SizedBox(height: 8),
+                        itemBuilder: (BuildContext context, int index) {
+                          final ExpenseRecord expense = rows[index];
+                          final Color tone = statusColor(
+                            expense.status,
+                            palette,
+                          );
+                          return AppCard(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              children: <Widget>[
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        expense.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: palette.text,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '${expense.type} · ${expense.date}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: palette.muted,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: <Widget>[
+                                    Text(
+                                      formatMoney(expense.amount),
+                                      style: TextStyle(
+                                        color: palette.text,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 14,
                                       ),
                                     ),
-                                    // --- FIX: Dynamic Badges Added to UI ---
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text(e.amountFormatted, style: TextStyle(color: textFrost, fontWeight: FontWeight.w900, fontSize: 14)),
-                                        const SizedBox(height: 4),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: statusColor.withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
-                                          ),
-                                          child: Text(e.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
-                                        ),
-                                      ],
+                                    const SizedBox(height: 4),
+                                    StatusBadge(
+                                      status: expense.status,
+                                      color: tone,
+                                      label: statusLabel(expense.status),
                                     ),
                                   ],
                                 ),
-                              );
-                            },
-                          ),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      onPressed: _downloadCsv,
-                      icon: Icon(Icons.download_rounded, color: _store.isDarkMode ? obsidianBlack : Colors.white),
-                      label: Text('Download CSV Report', style: TextStyle(fontWeight: FontWeight.bold, color: _store.isDarkMode ? obsidianBlack : Colors.white)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: champagneGold,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ],
+                            ),
+                          );
+                        },
                       ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 20),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: FilledButton.icon(
+                    onPressed: _downloadCsv,
+                    icon: const Icon(Icons.download_rounded),
+                    label: const Text(
+                      'Download CSV report',
+                      style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         );
       },

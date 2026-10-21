@@ -1,30 +1,45 @@
 import 'package:flutter/material.dart';
 
+import '../ui/tokens.dart';
+
 /// Consistent snackbar feedback for the whole app.
 ///
 /// Replaces the per-screen `_showSnack` copies that had drifted into
 /// random colors (gold for errors, redAccent for successes). One place
-/// owns the styling: success = green, failure = redAccent, neutral =
-/// the app's champagne gold.
+/// owns the styling: success = green, failure = red, neutral = the
+/// app's gold. The colors come from the theme so a snackbar reads the
+/// same in the light theme.
 class AppSnack {
   AppSnack._();
 
   static void success(BuildContext context, String message) {
-    _show(context, message, Colors.green.shade600, Colors.white);
+    final AppPalette palette = context.palette;
+    _show(
+      context,
+      message,
+      palette.success,
+      palette.isDark ? AppTokens.darkBg : Colors.white,
+    );
   }
 
   static void error(BuildContext context, String message) {
-    _show(context, message, Colors.redAccent, Colors.white);
+    final AppPalette palette = context.palette;
+    _show(
+      context,
+      message,
+      palette.danger,
+      palette.isDark ? AppTokens.darkBg : Colors.white,
+    );
   }
 
   static void info(BuildContext context, String message) {
-    _show(context, message, const Color(0xFFD4AF37), Colors.black);
-  }
-
-  /// Escaped-hatch for pre-existing call sites that pass their own tint —
-  /// uses black text like the legacy per-screen copies did.
-  static void custom(BuildContext context, String message, Color background) {
-    _show(context, message, background, Colors.black);
+    final AppPalette palette = context.palette;
+    _show(
+      context,
+      message,
+      palette.gold,
+      palette.isDark ? AppTokens.darkBg : Colors.white,
+    );
   }
 
   static void _show(

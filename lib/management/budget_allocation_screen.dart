@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/management/budget_reports_screen.dart';
 
+import '../core/formatting.dart';
+import '../management/budget_reports_screen.dart';
+import '../management/expense_store.dart';
+import '../shared/app_snack.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+
+/// Sets the monthly budget limit the organization may spend.
 class BudgetAllocationScreen extends StatefulWidget {
   const BudgetAllocationScreen({super.key});
 
@@ -11,71 +17,81 @@ class BudgetAllocationScreen extends StatefulWidget {
 }
 
 class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
-  final store = ExpenseStore.instance;
-  final _amountController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
+  final ExpenseStore store = ExpenseStore.instance;
+  final TextEditingController _amountController = TextEditingController();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   late DateTime _currentMonth;
   late DateTime _nextMonth;
   double? _currentMonthBudget;
   double? _nextMonthBudget;
-  
+
   bool _loading = true;
   bool _saving = false;
   bool _isEditingCurrentMonth = true;
 
-  static const List<String> _monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+  static const List<String> _monthNames = <String>[
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
-  final List<double> _quickSelectAmounts = [10000, 50000, 100000];
+  final List<double> _quickSelectAmounts = <double>[10000, 50000, 100000];
 
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
+    final DateTime now = DateTime.now();
     _currentMonth = DateTime(now.year, now.month);
     _nextMonth = DateTime(now.year, now.month + 1);
     _loadBudgets();
   }
 
-  String _formatWithCommas(double amount) {
-    return amount.toStringAsFixed(0).replaceAll(RegExp(r'\B(?=(\d{3})+(?!\d))'), ',');
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadBudgets() async {
+    if (!mounted) return;
     setState(() => _loading = true);
-    
+
     try {
-      final current = await store.getBudgetForMonth(_currentMonth);
-      final next = await store.getBudgetForMonth(_nextMonth);
-      
+      final double? current = await store.getBudgetForMonth(_currentMonth);
+      final double? next = await store.getBudgetForMonth(_nextMonth);
       if (!mounted) return;
-      
       setState(() {
         _currentMonthBudget = current;
         _nextMonthBudget = next;
         _loading = false;
         _updateTextFieldForSelectedMonth();
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
-      
       setState(() => _loading = false);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not load budgets from the backend. ($e)', style: const TextStyle(fontWeight: FontWeight.w600)),
-          backgroundColor: Colors.redAccent
-        ),
-      );
+      AppSnack.error(context, 'Could not load the budgets from the backend.');
     }
   }
-  
+
   void _updateTextFieldForSelectedMonth() {
-    final targetBudget = _isEditingCurrentMonth ? _currentMonthBudget : _nextMonthBudget;
-    _amountController.text = targetBudget != null ? _formatWithCommas(targetBudget) : '';
+    final double? target = _isEditingCurrentMonth
+        ? _currentMonthBudget
+        : _nextMonthBudget;
+    // The field carries the number only — the currency symbol is the
+    // field's prefix.
+    _amountController.text = target == null
+        ? ''
+        : formatMoney(target).replaceAll('₹', '').trim();
   }
 
   void _switchMonthToggle(bool toCurrent) {
@@ -86,381 +102,320 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
     });
   }
 
-  // --- UPDATED: Removes auto-save. Now it only updates the text field. ---
+  /// The quick amounts only fill the field — nothing is saved until the
+  /// allocation is authorised.
   void _applyQuickSelect(double amountToAdd) {
-    final currentText = _amountController.text.replaceAll(',', '').trim();
-    double currentAmount = 0.0;
-    
-    if (currentText.isNotEmpty) {
-      currentAmount = double.tryParse(currentText) ?? 0.0;
-    }
-    
-    final newAmount = currentAmount + amountToAdd;
-    
+    final String currentText = _amountController.text
+        .replaceAll(',', '')
+        .replaceAll('₹', '')
+        .trim();
+    final double currentAmount = double.tryParse(currentText) ?? 0;
     setState(() {
-      _amountController.text = _formatWithCommas(newAmount);
+      _amountController.text = formatMoney(
+        currentAmount + amountToAdd,
+      ).replaceAll('₹', '').trim();
     });
   }
 
   bool get _isNearMonthEnd {
-    final now = DateTime.now();
-    final lastDay = DateTime(now.year, now.month + 1, 0).day;
+    final DateTime now = DateTime.now();
+    final int lastDay = DateTime(now.year, now.month + 1, 0).day;
     return now.day >= lastDay - 2;
   }
 
   Future<void> _handleSave() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _saving = true);
-    
+
     try {
-      final cleanText = _amountController.text.replaceAll(',', '').trim();
-      final amount = double.parse(cleanText);
-      final targetMonth = _isEditingCurrentMonth ? _currentMonth : _nextMonth;
-      
-      final error = await store.setBudgetForMonth(targetMonth, amount);
-      
+      final String cleanText = _amountController.text
+          .replaceAll(',', '')
+          .replaceAll('₹', '')
+          .trim();
+      final double amount = double.parse(cleanText);
+      final DateTime targetMonth = _isEditingCurrentMonth
+          ? _currentMonth
+          : _nextMonth;
+
+      final String? error = await store.setBudgetForMonth(targetMonth, amount);
+
       if (!mounted) return;
       setState(() => _saving = false);
-      
+
       if (error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error, style: const TextStyle(fontWeight: FontWeight.w600)), backgroundColor: Colors.redAccent),
-        );
+        AppSnack.error(context, error);
         return;
       }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle_rounded, color: store.isDarkMode ? store.bg : Colors.white),
-              const SizedBox(width: 12),
-              Text('₹${_formatWithCommas(amount)} allocated for ${_monthNames[targetMonth.month - 1]}', 
-                   style: TextStyle(fontWeight: FontWeight.bold, color: store.isDarkMode ? store.bg : Colors.white)),
-            ],
-          ),
-          backgroundColor: store.accentGold,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
+
+      AppSnack.success(
+        context,
+        '${formatMoney(amount)} allocated for '
+        '${_monthNames[targetMonth.month - 1]}',
       );
-      _loadBudgets();
-      
-    } catch (e) {
+      await _loadBudgets();
+    } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save budget: $e', style: const TextStyle(fontWeight: FontWeight.w600)), backgroundColor: Colors.redAccent),
-      );
+      AppSnack.error(context, 'Failed to save the budget.');
     }
   }
 
   @override
-  void dispose() {
-    _amountController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final targetMonth = _isEditingCurrentMonth ? _currentMonth : _nextMonth;
-    final selectedMonthName = _monthNames[targetMonth.month - 1];
-    final selectedMonthYear = targetMonth.year.toString();
-    final selectedBudget = _isEditingCurrentMonth ? _currentMonthBudget : _nextMonthBudget;
-
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 600;
-    final double bottomSafeArea = MediaQuery.of(context).padding.bottom; 
-    final double extraBottomPadding = isMobile && bottomSafeArea > 0 ? bottomSafeArea + 16 : 0.0;
+    final DateTime targetMonth = _isEditingCurrentMonth
+        ? _currentMonth
+        : _nextMonth;
+    final String selectedMonthName = _monthNames[targetMonth.month - 1];
+    final double? selectedBudget = _isEditingCurrentMonth
+        ? _currentMonthBudget
+        : _nextMonthBudget;
 
     return AnimatedBuilder(
       animation: store,
-      builder: (context, _) {
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final champagneGold = store.accentGold;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
-        
-        final List<BoxShadow> cardShadows = store.isDarkMode
-            ? <BoxShadow>[BoxShadow(color: champagneGold.withValues(alpha: 0.03), blurRadius: 24, offset: const Offset(0, 8))]
-            : [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 4)),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 12), spreadRadius: -4),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
-              ];
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
+          backgroundColor: palette.bg,
           appBar: AppBar(
-            backgroundColor: obsidianBlack,
-            elevation: 0,
-            centerTitle: true,
-            iconTheme: IconThemeData(color: textFrost),
-            title: Text('Budget Allocation', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: darkCharcoal, height: 1), 
-            ),
+            title: const Text('Budget allocation'),
+            actions: <Widget>[
+              IconButton(
+                tooltip: 'Reports',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (BuildContext context) =>
+                        const BudgetReportsScreen(),
+                  ),
+                ),
+                icon: const Icon(Icons.bar_chart_rounded),
+              ),
+            ],
           ),
           body: _loading
-              ? Center(child: CircularProgressIndicator(color: champagneGold))
+              ? const Center(child: CircularProgressIndicator())
               : Column(
-                  children: [
+                  children: <Widget>[
                     Expanded(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (_isNearMonthEnd && _nextMonthBudget == null)
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 24),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: champagneGold.withValues(alpha: 0.05),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: champagneGold.withValues(alpha: 0.3), width: 1),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.info_outline_rounded, color: champagneGold, size: 20),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        "Pending Action: Set the ${_monthNames[_nextMonth.month - 1]} budget before month-end.",
-                                        style: TextStyle(color: textFrost, fontSize: 13, height: 1.4),
+                        padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 640),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                if (_isNearMonthEnd && _nextMonthBudget == null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 18),
+                                    child: AppCard(
+                                      borderColor: palette.gold.withValues(
+                                        alpha: 0.35,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                            SizedBox(
-                              height: 48,
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    flex: 45,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: darkCharcoal,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: _buildTab('${_monthNames[_currentMonth.month - 1]} (Current)', _isEditingCurrentMonth, () => _switchMonthToggle(true), champagneGold, textMuted),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    flex: 45,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: darkCharcoal,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: _buildTab('${_monthNames[_nextMonth.month - 1]} (Upcoming)', !_isEditingCurrentMonth, () => _switchMonthToggle(false), champagneGold, textMuted),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    flex: 10,
-                                    child: InkWell(
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(builder: (context) => const BudgetReportsScreen()),
-                                        );
-                                      },
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: Container(
-                                        alignment: Alignment.center,
-                                        decoration: BoxDecoration(
-                                          color: darkCharcoal,
-                                          borderRadius: BorderRadius.circular(10),
-                                          border: Border.all(color: champagneGold.withValues(alpha: 0.3), width: 1.2),
-                                        ),
-                                        child: Tooltip(
-                                          message: 'Reports',
-                                          child: Icon(Icons.download_rounded, color: champagneGold, size: 20),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            
-                            const SizedBox(height: 32),
-
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(28),
-                              decoration: BoxDecoration(
-                                color: darkCharcoal,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.2), width: 1),
-                                boxShadow: cardShadows,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        'Authorized Limit',
-                                        style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.5),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: selectedBudget != null ? Colors.green.withValues(alpha: 0.1) : Colors.orange.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(20),
-                                        ),
-                                        child: Text(
-                                          selectedBudget != null ? 'ACTIVE' : 'PENDING',
-                                          style: TextStyle(
-                                            color: selectedBudget != null ? Colors.greenAccent : Colors.orangeAccent, 
-                                            fontSize: 10, 
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 1.0,
+                                      child: Row(
+                                        children: <Widget>[
+                                          Icon(
+                                            Icons.info_outline_rounded,
+                                            color: palette.gold,
+                                            size: 20,
                                           ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              'Pending action: set the '
+                                              '${_monthNames[_nextMonth.month - 1]} '
+                                              'budget before month-end.',
+                                              style: TextStyle(
+                                                color: palette.text,
+                                                fontSize: 13,
+                                                height: 1.4,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+
+                                AppFilterBar(
+                                  options: <String>[
+                                    '${_monthNames[_currentMonth.month - 1]} '
+                                        '(current)',
+                                    '${_monthNames[_nextMonth.month - 1]} '
+                                        '(upcoming)',
+                                  ],
+                                  value: _isEditingCurrentMonth
+                                      ? '${_monthNames[_currentMonth.month - 1]} '
+                                            '(current)'
+                                      : '${_monthNames[_nextMonth.month - 1]} '
+                                            '(upcoming)',
+                                  onChanged: (String value) =>
+                                      _switchMonthToggle(
+                                        value.startsWith(
+                                          _monthNames[_currentMonth.month - 1],
+                                        ),
+                                      ),
+                                ),
+                                const SizedBox(height: 18),
+
+                                AppCard(
+                                  padding: const EdgeInsets.all(22),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: <Widget>[
+                                          Text(
+                                            'Authorised limit',
+                                            style: TextStyle(
+                                              color: palette.muted,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          AppTag(
+                                            label: selectedBudget != null
+                                                ? 'Active'
+                                                : 'Pending',
+                                            color: selectedBudget != null
+                                                ? palette.success
+                                                : palette.warning,
+                                            dense: true,
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        selectedBudget != null
+                                            ? formatMoney(selectedBudget)
+                                            : 'Not configured',
+                                        style: TextStyle(
+                                          color: selectedBudget != null
+                                              ? palette.text
+                                              : palette.muted,
+                                          fontSize: 32,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Divider(height: 1, color: palette.border),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: <Widget>[
+                                          Icon(
+                                            Icons.calendar_today_rounded,
+                                            color: palette.muted,
+                                            size: 14,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Fiscal period: '
+                                            '$selectedMonthName '
+                                            '${targetMonth.year}',
+                                            style: TextStyle(
+                                              color: palette.muted,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                const SizedBox(height: 26),
+                                const SectionHeader(title: 'Modify allocation'),
+                                const SizedBox(height: 12),
+                                Form(
+                                  key: _formKey,
+                                  child: TextFormField(
+                                    controller: _amountController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: <TextInputFormatter>[
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'[0-9.,]'),
+                                      ),
+                                    ],
+                                    style: TextStyle(
+                                      color: palette.text,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    decoration: const InputDecoration(
+                                      prefixText: '₹ ',
+                                      hintText: '0',
+                                    ),
+                                    validator: (String? value) {
+                                      if (value == null ||
+                                          value.trim().isEmpty) {
+                                        return 'Allocation amount is required';
+                                      }
+                                      final double? parsed = double.tryParse(
+                                        value
+                                            .replaceAll(',', '')
+                                            .replaceAll('₹', '')
+                                            .trim(),
+                                      );
+                                      if (parsed == null) {
+                                        return 'Invalid numerical format';
+                                      }
+                                      if (parsed <= 0) {
+                                        return 'Allocation must exceed zero';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                AppGrid(
+                                  minItemWidth: 110,
+                                  children: _quickSelectAmounts
+                                      .map(
+                                        (double amount) => ActionTile(
+                                          icon: Icons.add_rounded,
+                                          label:
+                                              '+${(amount / 1000).toStringAsFixed(0)}k',
+                                          accent: palette.info,
+                                          onTap: () =>
+                                              _applyQuickSelect(amount),
                                         ),
                                       )
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    selectedBudget != null ? '₹${_formatWithCommas(selectedBudget)}' : 'Not Configured',
-                                    style: TextStyle(
-                                      color: selectedBudget != null ? textFrost : textMuted, 
-                                      fontSize: 36, 
-                                      fontWeight: FontWeight.w300,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  Container(height: 1, color: store.isDarkMode ? obsidianBlack : Colors.grey.shade200),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Icon(Icons.calendar_today_rounded, color: textMuted, size: 14),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Fiscal Period: $selectedMonthName $selectedMonthYear',
-                                        style: TextStyle(color: textMuted, fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(height: 40),
-                            
-                            Text('Modify Allocation', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
-                            const SizedBox(height: 16),
-                            
-                            Form(
-                              key: _formKey,
-                              child: TextFormField(
-                                controller: _amountController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                inputFormatters: [_CurrencyFormatter()],
-                                style: TextStyle(color: textFrost, fontSize: 20, fontWeight: FontWeight.w500),
-                                decoration: InputDecoration(
-                                  prefixIcon: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                    child: Text('₹', style: TextStyle(color: textMuted, fontSize: 22, fontWeight: FontWeight.w400)),
-                                  ),
-                                  prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-                                  hintText: '0',
-                                  hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.3), fontSize: 20),
-                                  filled: true,
-                                  fillColor: darkCharcoal,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide(color: store.isDarkMode ? obsidianBlack : Colors.grey.shade300, width: 2),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide(color: champagneGold, width: 2),
-                                  ),
-                                  errorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: const BorderSide(color: Colors.redAccent, width: 1),
-                                  ),
+                                      .toList(growable: false),
                                 ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) return 'Allocation amount is required';
-                                  final cleanValue = value.replaceAll(',', '').trim();
-                                  final parsed = double.tryParse(cleanValue);
-                                  if (parsed == null) return 'Invalid numerical format';
-                                  if (parsed <= 0) return 'Allocation must exceed zero';
-                                  return null;
-                                },
-                              ),
+                              ],
                             ),
-                            
-                            const SizedBox(height: 16),
-
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: _quickSelectAmounts.map((amount) {
-                                return Expanded(
-                                  child: Padding(
-                                    padding: EdgeInsets.only(right: amount == _quickSelectAmounts.last ? 0 : 8.0),
-                                    child: InkWell(
-                                      onTap: () => _applyQuickSelect(amount),
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        decoration: BoxDecoration(
-                                          color: darkCharcoal,
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: store.isDarkMode ? darkCharcoal : Colors.grey.shade300),
-                                        ),
-                                        alignment: Alignment.center,
-                                        child: Text(
-                                          '+${(amount / 1000).toStringAsFixed(0)}k',
-                                          style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.w600),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
-                    
-                    Container(
-                      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + extraBottomPadding),
-                      decoration: BoxDecoration(
-                        color: darkCharcoal,
-                        border: Border(top: BorderSide(color: store.isDarkMode ? obsidianBlack : Colors.grey.shade300, width: 2)),
-                      ),
-                      child: SafeArea(
-                        child: SizedBox(
-                          width: double.infinity,
-                          height: 54,
-                          child: ElevatedButton(
-                            onPressed: _saving ? null : _handleSave,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: champagneGold,
-                              foregroundColor: store.isDarkMode ? obsidianBlack : Colors.white,
-                              disabledBackgroundColor: champagneGold.withValues(alpha: 0.3),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            child: _saving
-                                ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: store.isDarkMode ? obsidianBlack : Colors.white, strokeWidth: 2.5))
-                                : const Text('Authorize Budget', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, letterSpacing: 0.5)),
-                          ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: FilledButton(
+                          onPressed: _saving ? null : _handleSave,
+                          child: _saving
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Authorise budget',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                  ),
+                                ),
                         ),
                       ),
                     ),
@@ -468,45 +423,6 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
                 ),
         );
       },
-    );
-  }
-
-  Widget _buildTab(String title, bool isSelected, VoidCallback onTap, Color champagneGold, Color textMuted) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Colors.transparent, 
-          borderRadius: BorderRadius.circular(8),
-          border: isSelected 
-              ? Border.all(color: champagneGold, width: 1.2) 
-              : Border.all(color: Colors.transparent, width: 1.2),
-        ),
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isSelected ? champagneGold : textMuted,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CurrencyFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-    if (newValue.text.isEmpty) return newValue;
-    String cleanText = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
-    if (cleanText.isEmpty) return newValue;
-    String formatted = cleanText.replaceAll(RegExp(r'\B(?=(\d{3})+(?!\d))'), ',');
-    return TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }

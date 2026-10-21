@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/expense_details.dart';
-import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/management/manager_reports.dart';
-import 'package:ats_onework/shared/load_more.dart';
 
+import '../management/expense_details.dart';
+import '../management/expense_store.dart';
+import '../management/manager_reports.dart';
+import '../shared/load_more.dart';
+import '../ui/expense_row.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+
+/// The review queue: every claim the approver may see, searchable and
+/// filterable, with the high-value ones flagged.
 class ManagerRequestsScreen extends StatefulWidget {
   const ManagerRequestsScreen({super.key});
 
@@ -12,291 +18,160 @@ class ManagerRequestsScreen extends StatefulWidget {
 }
 
 class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
+  static const List<String> _filters = <String>[
+    'All',
+    'Pending',
+    'Approved',
+    'Paid',
+    'Rejected',
+  ];
+
+  final ExpenseStore _store = ExpenseStore.instance;
   String _searchQuery = '';
   String _selectedFilter = 'All';
-  final ExpenseStore _store = ExpenseStore.instance;
 
   @override
   Widget build(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 600;
-
     return AnimatedBuilder(
       animation: _store,
-      builder: (context, _) {
-        final obsidianBlack = _store.bg;
-        final darkCharcoal = _store.card;
-        final champagneGold = _store.accentGold;
-        final textFrost = _store.textFrost;
-        final textMuted = _store.textMuted;
-        
-        final List<BoxShadow> cardShadows = _store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 4)),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 12), spreadRadius: -4),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
-              ];
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
 
-        final filteredExpenses = _store.expenses.where((expense) {
-          // SHOW ALL EXPENSES INCLUDING OWN UPLOADS
-          final matchesSearch = expense.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              expense.id.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              expense.type.toLowerCase().contains(_searchQuery.toLowerCase());
+        final List<ExpenseRecord> filtered = _store.expenses
+            .where((ExpenseRecord expense) {
+              final String query = _searchQuery.trim().toLowerCase();
+              final bool matchesSearch =
+                  query.isEmpty ||
+                  expense.name.toLowerCase().contains(query) ||
+                  expense.id.toLowerCase().contains(query) ||
+                  expense.type.toLowerCase().contains(query) ||
+                  (expense.projectName ?? '').toLowerCase().contains(query);
 
-          if (_selectedFilter == 'All') return matchesSearch;
-          if (_selectedFilter == 'Pending') return matchesSearch && expense.status == 'Pending Verification';
-          if (_selectedFilter == 'Approved') return matchesSearch && expense.status == 'Approved';
-          if (_selectedFilter == 'Paid') return matchesSearch && expense.status == 'Paid';
-          if (_selectedFilter == 'Rejected') return matchesSearch && expense.status == 'Rejected';
-          return matchesSearch;
-        }).toList();
+              if (!matchesSearch) return false;
+              if (_selectedFilter == 'All') return true;
+              if (_selectedFilter == 'Pending') {
+                return expense.status == 'Pending Verification';
+              }
+              return expense.status == _selectedFilter;
+            })
+            .toList(growable: false);
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
+          backgroundColor: palette.bg,
           appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            elevation: 0,
-            title: Text('All Requests', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold, fontSize: 20)),
-            actions: [
-              if (isMobile)
-                Padding(
-                  padding: const EdgeInsets.only(right: 16.0, top: 8.0, bottom: 8.0),
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.download_rounded, size: 16),
-                    label: const Text('Reports', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: champagneGold,
-                      side: BorderSide(color: champagneGold.withValues(alpha: 0.5)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const ManagerReportsScreen()));
-                    },
+            title: const Text('All requests'),
+            actions: <Widget>[
+              IconButton(
+                tooltip: 'Reports',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (BuildContext context) =>
+                        const ManagerReportsScreen(),
                   ),
                 ),
+                icon: const Icon(Icons.bar_chart_rounded),
+              ),
             ],
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
-            ),
           ),
-          body: Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 1000),
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    onChanged: (value) => setState(() => _searchQuery = value),
-                    style: TextStyle(color: textFrost),
-                    decoration: InputDecoration(
-                      hintText: 'Search by employee name, ID or type...',
-                      hintStyle: TextStyle(color: textMuted, fontSize: 14),
-                      prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 22),
-                      filled: true,
-                      fillColor: darkCharcoal,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold.withValues(alpha: 0.1)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: champagneGold, width: 1.5),
-                      ),
+          body: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
+                child: Column(
+                  children: <Widget>[
+                    AppSearchField(
+                      hint: 'Search by employee, id, type or project…',
+                      onChanged: (String value) =>
+                          setState(() => _searchQuery = value),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: ['All', 'Pending', 'Approved', 'Paid', 'Rejected'].map((category) {
-                              final isSelected = _selectedFilter == category;
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8.0),
-                                child: ChoiceChip(
-                                  label: Text(category),
-                                  selected: isSelected,
-                                  onSelected: (selected) {
-                                    if (selected) setState(() => _selectedFilter = category);
-                                  },
-                                  labelStyle: TextStyle(
-                                    color: isSelected ? (_store.isDarkMode ? obsidianBlack : Colors.white) : textFrost,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                  selectedColor: champagneGold,
-                                  backgroundColor: darkCharcoal,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(20),
-                                    side: BorderSide(color: isSelected ? champagneGold : champagneGold.withValues(alpha: 0.15)),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
+                    const SizedBox(height: 12),
+                    AppFilterBar(
+                      options: _filters,
+                      value: _selectedFilter,
+                      onChanged: (String filter) =>
+                          setState(() => _selectedFilter = filter),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: filtered.isEmpty
+                    // A scrollable empty state: the queue is paged, so an
+                    // empty page can still be followed by more claims —
+                    // and pull-to-refresh has to work here too.
+                    ? RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: <Widget>[
+                            const SizedBox(height: 60),
+                            EmptyState(
+                              icon: Icons.search_off_rounded,
+                              title: _store.expensesLoaded
+                                  ? 'No matching claims'
+                                  : 'Loading claims…',
+                              message: _store.hasMoreExpenses
+                                  ? 'More claims are still being loaded — '
+                                        'press "Load more" to fetch the next '
+                                        'page.'
+                                  : _store.expensesLoaded
+                                  ? 'Try another filter or clear the search.'
+                                  : 'Fetching the review queue.',
+                              action: _store.hasMoreExpenses
+                                  ? FilledButton.icon(
+                                      onPressed: _store.expensesLoadingMore
+                                          ? null
+                                          : _store.loadMoreExpenses,
+                                      icon: const Icon(
+                                        Icons.expand_more_rounded,
+                                        size: 18,
+                                      ),
+                                      label: const Text('Load more'),
+                                    )
+                                  : null,
+                            ),
+                          ],
                         ),
-                      ),
-                      if (!isMobile) ...[
-                        const SizedBox(width: 12),
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.download_rounded, size: 16),
-                          label: const Text('Reports', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: champagneGold,
-                            side: BorderSide(color: champagneGold.withValues(alpha: 0.5)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          ),
-                          onPressed: () {
-                            Navigator.push(context, MaterialPageRoute(builder: (context) => const ManagerReportsScreen()));
+                      )
+                    : RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
+                          // One extra row for the "load more" footer, so a
+                          // list longer than one page can be walked through.
+                          itemCount:
+                              filtered.length +
+                              (_store.hasMoreExpenses ? 1 : 0),
+                          separatorBuilder: (BuildContext context, int index) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (BuildContext context, int index) {
+                            if (index >= filtered.length) {
+                              return LoadMoreFooter(
+                                hasMore: _store.hasMoreExpenses,
+                                loading: _store.expensesLoadingMore,
+                                onLoad: _store.loadMoreExpenses,
+                              );
+                            }
+                            final ExpenseRecord expense = filtered[index];
+                            return ExpenseRow(
+                              expense: expense,
+                              showId: true,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (BuildContext context) =>
+                                      ExpenseDetailsScreen(
+                                        expenseId: expense.id,
+                                      ),
+                                ),
+                              ),
+                            );
                           },
                         ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  Expanded(
-                    child: filteredExpenses.isEmpty
-                        ? Center(child: Text('No matching expense logs found.', style: TextStyle(color: textMuted)))
-                        : ListView.builder(
-                            // One extra row for the "load more" footer,
-                            // so a list longer than one page can be
-                            // walked through.
-                            itemCount: filteredExpenses.length +
-                                (_store.hasMoreExpenses ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (index >= filteredExpenses.length) {
-                                return LoadMoreFooter(
-                                  hasMore: _store.hasMoreExpenses,
-                                  loading: _store.expensesLoadingMore,
-                                  onLoad: _store.loadMoreExpenses,
-                                );
-                              }
-                              final expense = filteredExpenses[index];
-
-                              Color statusColor = champagneGold;
-                              if (expense.status == 'Approved') statusColor = Colors.orangeAccent;
-                              if (expense.status == 'Paid') statusColor = Colors.greenAccent.shade400;
-                              if (expense.status == 'Rejected') statusColor = Colors.redAccent.shade400;
-
-                              final isHighValue = expense.amount > 30000;
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 14),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: isHighValue ? Colors.redAccent.shade700.withValues(alpha: 0.6) : champagneGold.withValues(alpha: 0.1), 
-                                    width: isHighValue ? 1.5 : 1
-                                  ),
-                                  boxShadow: isHighValue 
-                                    ? [BoxShadow(color: Colors.redAccent.withValues(alpha: 0.05), blurRadius: 10, spreadRadius: 1), ...cardShadows]
-                                    : cardShadows,
-                                ),
-                                child: Material(
-                                  color: darkCharcoal,
-                                  child: ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                  leading: CircleAvatar(
-                                    radius: 24,
-                                    backgroundColor: isHighValue ? Colors.redAccent.withValues(alpha: 0.1) : champagneGold.withValues(alpha: 0.1),
-                                    child: Text(
-                                      expense.name.isNotEmpty ? expense.name.substring(0, 1) : 'E',
-                                      style: TextStyle(
-                                        color: isHighValue ? Colors.redAccent : champagneGold, 
-                                        fontWeight: FontWeight.bold, 
-                                        fontSize: 18
-                                      ),
-                                    ),
-                                  ),
-                                  title: Wrap(
-                                    crossAxisAlignment: WrapCrossAlignment.center,
-                                    children: [
-                                      Text(expense.name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                                      const SizedBox(width: 8),
-                                      Text('(${expense.id})', style: TextStyle(color: textMuted)),
-                                      
-                                      if (expense.projectName != null && expense.projectName!.isNotEmpty) ...[
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: champagneGold.withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: champagneGold.withValues(alpha: 0.5)),
-                                          ),
-                                          child: Text(
-                                            expense.projectName!,
-                                            style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold),
-                                          ),
-                                        ),
-                                      ]
-                                    ],
-                                  ),
-                                  subtitle: Padding(
-                                    padding: const EdgeInsets.only(top: 6.0),
-                                    child: Text('${expense.type} Expense • ${expense.date}', style: TextStyle(color: textMuted, fontSize: 13)),
-                                  ),
-                                  trailing: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          if (isHighValue) 
-                                            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 16),
-                                          if (isHighValue) 
-                                            const SizedBox(width: 4),
-                                          Text(
-                                            expense.amountFormatted, 
-                                            style: TextStyle(
-                                              color: isHighValue ? Colors.redAccent.shade100 : textFrost, 
-                                              fontWeight: FontWeight.w900, 
-                                              fontSize: 15
-                                            )
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: statusColor.withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
-                                        ),
-                                      child: Text(expense.status == 'Approved' ? 'Approved • Payment Pending' : expense.status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ],
-                                  ),
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => ExpenseDetailsScreen(expenseId: expense.id)),
-                                    );
-                                  },
-                                ),
-                                  ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
+                      ),
               ),
-            ),
+            ],
           ),
         );
       },

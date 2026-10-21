@@ -1,251 +1,270 @@
 import 'package:flutter/material.dart';
-import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/shared/app_snack.dart';
 
+import '../management/expense_store.dart';
+import '../shared/app_snack.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+
+/// Creates a project budget and assigns people to it.
 class BudgetSetupScreen extends StatefulWidget {
-  final String? initialEmployeeEmail;
   const BudgetSetupScreen({super.key, this.initialEmployeeEmail});
+
+  /// Pre-selects a person — the access-request queue sends the employee
+  /// who asked for access straight into this form.
+  final String? initialEmployeeEmail;
 
   @override
   State<BudgetSetupScreen> createState() => _BudgetSetupScreenState();
 }
 
 class _BudgetSetupScreenState extends State<BudgetSetupScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _budgetController = TextEditingController();
-  final Set<String> _selectedEmails = {};
-  
-  String _searchQuery = ''; 
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _budgetController = TextEditingController();
+  final List<String> _selectedEmails = <String>[];
+  String _searchQuery = '';
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialEmployeeEmail != null) {
-      _selectedEmails.add(widget.initialEmployeeEmail!);
-    }
+    final String? email = widget.initialEmployeeEmail;
+    if (email != null && email.isNotEmpty) _selectedEmails.add(email);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _budgetController.dispose();
+    super.dispose();
   }
 
   Future<void> _handleSave() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_selectedEmails.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select at least one employee.'), backgroundColor: Colors.redAccent));
+      AppSnack.error(context, 'Select at least one employee.');
       return;
     }
-
     setState(() => _isSaving = true);
-    final store = ExpenseStore.instance;
-
-    final error = await store.createProject(
+    final String? error = await ExpenseStore.instance.createProject(
       _nameController.text.trim(),
       double.tryParse(_budgetController.text.trim()) ?? 0,
       _selectedEmails.toList(),
     );
-
     // The screen can be popped while the request is in flight, so the
     // state update has to be guarded before it happens, not after.
     if (!mounted) return;
     setState(() => _isSaving = false);
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
+      AppSnack.error(context, error);
       return;
     }
-    Navigator.pop(context);
-    AppSnack.success(context, 'Project created!');
+    Navigator.of(context).pop();
+    AppSnack.success(context, 'Project created.');
   }
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
+    final ExpenseStore store = ExpenseStore.instance;
 
     return AnimatedBuilder(
       animation: store,
-      builder: (context, _) {
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final champagneGold = store.accentGold;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
-
-        final List<BoxShadow> cardShadows = store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 4)),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 12), spreadRadius: -4),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
-              ];
-
-        final allEmployees = store.allEmployees;
-        final filteredEmployees = allEmployees.where((emp) {
-          final q = _searchQuery.toLowerCase();
-          return emp['name']!.toLowerCase().contains(q) || emp['email']!.toLowerCase().contains(q);
-        }).toList();
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
+        final List<Map<String, dynamic>> allEmployees = store.allEmployees;
+        final String query = _searchQuery.trim().toLowerCase();
+        final List<Map<String, dynamic>> filtered = allEmployees
+            .where((Map<String, dynamic> employee) {
+              if (query.isEmpty) return true;
+              return (employee['name']?.toString() ?? '')
+                      .toLowerCase()
+                      .contains(query) ||
+                  (employee['email']?.toString() ?? '').toLowerCase().contains(
+                    query,
+                  );
+            })
+            .toList(growable: false);
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
-          appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            title: Text('Create Project Budget', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-            iconTheme: IconThemeData(color: textFrost),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
-            ),
-          ),
+          backgroundColor: palette.bg,
+          appBar: AppBar(title: const Text('Create project budget')),
           body: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
             child: Center(
-              child: Container(
+              child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 600),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Project Name', style: TextStyle(color: textMuted, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _nameController,
-                        style: TextStyle(color: textFrost),
-                        decoration: InputDecoration(
-                          filled: true, fillColor: darkCharcoal,
-                          hintText: 'e.g. Project Alpha', 
-                          hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300)),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const AppFieldLabel('Project name'),
+                        TextFormField(
+                          controller: _nameController,
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. Project Alpha',
+                          ),
+                          validator: (String? value) =>
+                              (value == null || value.trim().isEmpty)
+                              ? 'Required'
+                              : null,
                         ),
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 20),
-                      Text('Allocated Budget (₹)', style: TextStyle(color: textMuted, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _budgetController,
-                        keyboardType: TextInputType.number,
-                        style: TextStyle(color: textFrost),
-                        decoration: InputDecoration(
-                          filled: true, fillColor: darkCharcoal,
-                          hintText: '0.00',
-                          hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300)),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
+                        const SizedBox(height: 18),
+                        const AppFieldLabel('Allocated budget (₹)'),
+                        TextFormField(
+                          controller: _budgetController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(hintText: '0.00'),
+                          validator: (String? value) {
+                            final double? amount = double.tryParse(
+                              (value ?? '').trim(),
+                            );
+                            if (amount == null || amount <= 0) {
+                              return 'Must be greater than 0';
+                            }
+                            return null;
+                          },
                         ),
-                        validator: (v) {
-                          final amt = double.tryParse(v ?? '');
-                          if (amt == null || amt <= 0) return 'Must be greater than 0';
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 32),
-                      
-                      Text('Assign Employees', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 24),
+                        const SectionHeader(title: 'Assign employees'),
+                        const SizedBox(height: 10),
+                        if (_selectedEmails.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: _selectedEmails
+                                  .map((String email) {
+                                    final String name =
+                                        allEmployees.firstWhere(
+                                              (Map<String, dynamic> e) =>
+                                                  e['email'] == email,
+                                              orElse: () => <String, dynamic>{
+                                                'name': email,
+                                              },
+                                            )['name']
+                                            as String;
+                                    return InputChip(
+                                      label: Text(name),
+                                      onDeleted: () => setState(
+                                        () => _selectedEmails.remove(email),
+                                      ),
+                                    );
+                                  })
+                                  .toList(growable: false),
+                            ),
+                          ),
+                        AppSearchField(
+                          hint: 'Search by name or email…',
+                          onChanged: (String value) =>
+                              setState(() => _searchQuery = value),
+                        ),
+                        const SizedBox(height: 12),
+                        AppCard(
+                          padding: EdgeInsets.zero,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 300),
+                            child: filtered.isEmpty
+                                ? Padding(
+                                    padding: const EdgeInsets.all(20),
+                                    child: Center(
+                                      child: Text(
+                                        'No employees match your search.',
+                                        style: TextStyle(color: palette.muted),
+                                      ),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    shrinkWrap: true,
+                                    itemCount: filtered.length,
+                                    separatorBuilder:
+                                        (BuildContext context, int index) =>
+                                            Divider(
+                                              height: 1,
+                                              color: palette.border,
+                                            ),
+                                    itemBuilder:
+                                        (BuildContext context, int index) {
+                                          final Map<String, dynamic> employee =
+                                              filtered[index];
+                                          final String email =
+                                              employee['email']?.toString() ??
+                                              '';
+                                          final bool isSelected =
+                                              _selectedEmails.contains(email);
 
-                      if (_selectedEmails.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16.0),
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _selectedEmails.map((email) {
-                              final empName = allEmployees.firstWhere((e) => e['email'] == email, orElse: () => {'name': email})['name']!;
-                              return Chip(
-                                label: Text(empName, style: TextStyle(color: store.isDarkMode ? obsidianBlack : Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                                backgroundColor: champagneGold,
-                                deleteIcon: Icon(Icons.close_rounded, size: 16, color: store.isDarkMode ? obsidianBlack : Colors.white),
-                                onDeleted: () {
-                                  setState(() => _selectedEmails.remove(email));
-                                },
-                              );
-                            }).toList(),
+                                          return CheckboxListTile(
+                                            value: isSelected,
+                                            activeColor: palette.gold,
+                                            checkColor: palette.isDark
+                                                ? AppTokens.darkBg
+                                                : Colors.white,
+                                            title: Text(
+                                              employee['name']?.toString() ??
+                                                  '',
+                                              style: TextStyle(
+                                                color: palette.text,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              email,
+                                              style: TextStyle(
+                                                color: palette.muted,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            onChanged: (bool? value) {
+                                              setState(() {
+                                                if (value == true) {
+                                                  _selectedEmails.add(email);
+                                                } else {
+                                                  _selectedEmails.remove(email);
+                                                }
+                                              });
+                                            },
+                                          );
+                                        },
+                                  ),
                           ),
                         ),
-
-                      TextField(
-                        onChanged: (val) => setState(() => _searchQuery = val),
-                        style: TextStyle(color: textFrost, fontSize: 14),
-                        decoration: InputDecoration(
-                          hintText: 'Search by name or email...',
-                          hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5)),
-                          prefixIcon: Icon(Icons.search_rounded, color: champagneGold, size: 20),
-                          filled: true,
-                          fillColor: darkCharcoal,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300)),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      Container(
-                        decoration: BoxDecoration(
-                          color: darkCharcoal,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.3)),
-                          boxShadow: cardShadows,
-                        ),
-                        constraints: const BoxConstraints(maxHeight: 300), 
-                        child: filteredEmployees.isEmpty
-                            ? Padding(
-                                padding: const EdgeInsets.all(20.0),
-                                child: Center(child: Text('No employees match your search.', style: TextStyle(color: textMuted))),
-                              )
-                            : ListView.separated(
-                                shrinkWrap: true,
-                                itemCount: filteredEmployees.length,
-                                separatorBuilder: (_, _) => Divider(color: store.isDarkMode ? Colors.white.withValues(alpha: 0.05) : Colors.grey.shade200, height: 1),
-                                itemBuilder: (context, index) {
-                                  final emp = filteredEmployees[index];
-                                  final email = emp['email']!;
-                                  final isSelected = _selectedEmails.contains(email);
-
-                                  return CheckboxListTile(
-                                    value: isSelected,
-                                    activeColor: champagneGold,
-                                    checkColor: store.isDarkMode ? obsidianBlack : Colors.white,
-                                    title: Text(emp['name']!, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                                    subtitle: Text(email, style: TextStyle(color: textMuted, fontSize: 12)),
-                                    onChanged: (val) {
-                                      setState(() {
-                                        if (val == true) {
-                                          _selectedEmails.add(email);
-                                        } else {
-                                          _selectedEmails.remove(email);
-                                        }
-                                      });
-                                    },
-                                  );
-                                },
-                              ),
-                      ),
-                      const SizedBox(height: 32),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton(
-                          onPressed: _isSaving ? null : _handleSave,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: champagneGold, 
-                            foregroundColor: store.isDarkMode ? obsidianBlack : Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        const SizedBox(height: 26),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: FilledButton(
+                            onPressed: _isSaving ? null : _handleSave,
+                            child: _isSaving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Create project budget',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                    ),
+                                  ),
                           ),
-                          child: _isSaving
-                              ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: store.isDarkMode ? obsidianBlack : Colors.white))
-                              : const Text('Create Project Budget', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
         );
-      }
+      },
     );
   }
 }

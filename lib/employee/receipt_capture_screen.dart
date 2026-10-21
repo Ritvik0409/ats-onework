@@ -1,23 +1,22 @@
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+
 /// Real camera/gallery receipt capture screen using image_picker.
 class ReceiptCaptureScreen extends StatefulWidget {
-  final bool useGallery;
   const ReceiptCaptureScreen({super.key, this.useGallery = false});
+
+  final bool useGallery;
 
   @override
   State<ReceiptCaptureScreen> createState() => _ReceiptCaptureScreenState();
 }
 
 class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
-  static const Color obsidianBlack = Color(0xFF0D0D11);
-  static const Color darkCharcoal = Color(0xFF16161F);
-  static const Color champagneGold = Color(0xFFE2B93B);
-  static const Color textFrost = Color(0xFFF3F4F6);
-
-
   final ImagePicker _picker = ImagePicker();
   Uint8List? _previewBytes;
   bool _isLoading = false;
@@ -49,19 +48,19 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
         setState(() => _isLoading = false);
         return;
       }
-      final bytes = await picked.readAsBytes();
+      final Uint8List bytes = await picked.readAsBytes();
       if (!mounted) return;
       setState(() {
         _previewBytes = bytes;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
         _errorMessage = widget.useGallery
-            ? 'Could not access gallery. Please check app permissions.'
-            : 'Could not access camera. Please check app permissions.';
+            ? 'Could not access the gallery. Please check app permissions.'
+            : 'Could not access the camera. Please check app permissions.';
       });
     }
   }
@@ -77,66 +76,55 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final AppPalette palette = context.palette;
+
     return Scaffold(
-      backgroundColor: obsidianBlack,
+      backgroundColor: palette.bg,
       appBar: AppBar(
-        backgroundColor: darkCharcoal,
-        elevation: 0,
-        title: Text(
-          widget.useGallery ? 'Choose from Gallery' : 'Scan Receipt',
-          style: const TextStyle(color: textFrost, fontWeight: FontWeight.bold),
-        ),
+        title: Text(widget.useGallery ? 'Choose from gallery' : 'Scan receipt'),
       ),
       body: Column(
-        children: [
+        children: <Widget>[
           Expanded(
             child: Center(
-              child: Container(
-                margin: const EdgeInsets.all(24),
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: darkCharcoal,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: champagneGold.withValues(alpha: 0.4), width: 2),
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: AppCard(
+                  padding: EdgeInsets.zero,
+                  child: _buildContent(palette),
                 ),
-                child: _buildContent(),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
             child: Row(
-              children: [
+              children: <Widget>[
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _isLoading ? null : _pickImage,
                     icon: Icon(
-                      widget.useGallery ? Icons.photo_library_rounded : Icons.camera_alt_rounded,
+                      widget.useGallery
+                          ? Icons.photo_library_rounded
+                          : Icons.camera_alt_rounded,
                       size: 18,
-                      color: champagneGold,
                     ),
                     label: Text(
-                      _previewBytes == null ? 'Open ${widget.useGallery ? 'Gallery' : 'Camera'}' : 'Retake',
-                      style: const TextStyle(color: champagneGold, fontWeight: FontWeight.bold),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: champagneGold.withValues(alpha: 0.4)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      _previewBytes == null
+                          ? 'Open ${widget.useGallery ? 'gallery' : 'camera'}'
+                          : 'Retake',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: ElevatedButton.icon(
+                  child: FilledButton.icon(
                     onPressed: _previewBytes == null ? null : _confirmAndReturn,
-                    icon: const Icon(Icons.check_rounded, color: obsidianBlack),
-                    label: const Text('Use This Receipt', style: TextStyle(fontWeight: FontWeight.bold, color: obsidianBlack)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: champagneGold,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    icon: const Icon(Icons.check_rounded),
+                    label: const Text(
+                      'Use this receipt',
+                      style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
                 ),
@@ -148,45 +136,48 @@ class _ReceiptCaptureScreenState extends State<ReceiptCaptureScreen> {
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(AppPalette palette) {
     if (_isLoading) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 60),
-        child: Center(child: CircularProgressIndicator(color: champagneGold)),
+        child: Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_errorMessage != null) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline_rounded, size: 56, color: Colors.redAccent),
-            const SizedBox(height: 16),
-            Text(_errorMessage!, style: const TextStyle(color: textFrost, fontSize: 14), textAlign: TextAlign.center),
-          ],
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+        child: EmptyState(
+          icon: Icons.error_outline_rounded,
+          title: 'Capture failed',
+          message: _errorMessage!,
         ),
       );
     }
 
     if (_previewBytes != null) {
       return ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
         child: Image.memory(_previewBytes!, fit: BoxFit.contain, height: 400),
       );
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 20),
+      padding: const EdgeInsets.symmetric(vertical: 50, horizontal: 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.receipt_long_rounded, size: 64, color: champagneGold),
-          const SizedBox(height: 16),
+        children: <Widget>[
+          Icon(Icons.receipt_long_rounded, size: 56, color: palette.gold),
+          const SizedBox(height: 14),
           Text(
-            widget.useGallery ? 'Select a receipt image' : 'Point your camera at the receipt',
-            style: const TextStyle(color: textFrost, fontSize: 15, fontWeight: FontWeight.w600),
+            widget.useGallery
+                ? 'Select a receipt image'
+                : 'Point your camera at the receipt',
+            style: TextStyle(
+              color: palette.text,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
             textAlign: TextAlign.center,
           ),
         ],

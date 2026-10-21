@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:ats_onework/shared/api_client.dart';
+import 'package:ats_onework/core/formatting.dart';
+import 'package:ats_onework/ui/tokens.dart';
 
 /// Tolerant double parse — backend money fields (pydantic ``Decimal``) can
 /// arrive as either a JSON number or a string depending on serialization.
@@ -17,9 +19,11 @@ class ProjectRecord {
   final String id;
   final String name;
   final double budget;
+
   /// Budget row the project references — needed for PATCH budget editing.
   final String? budgetId;
   final int memberCount;
+
   /// Ids of the employees assigned to the project. The backend sends
   /// these as ``assigned_employee_ids``; without them a client cannot
   /// tell which projects the signed-in employee can act in.
@@ -41,7 +45,8 @@ class ProjectRecord {
     return ProjectRecord(
       id: (json['project_id'] ?? json['id'])?.toString() ?? '',
       name: json['name']?.toString() ?? 'Unnamed Project',
-      budget: parseBackendDouble(json['budget'] ?? json['budget_amount']) ?? 0.0,
+      budget:
+          parseBackendDouble(json['budget'] ?? json['budget_amount']) ?? 0.0,
       budgetId: json['budget_id']?.toString(),
       memberCount: int.tryParse(json['member_count']?.toString() ?? '0') ?? 0,
       assignedEmails: assigned is List
@@ -57,6 +62,7 @@ class ExpenseRecord {
   final String id;
   final String name;
   final String email;
+
   /// Employee id of the submitter — the stable key for "my expenses".
   /// The email is not: the backend exposes it, but matching on the id
   /// is what the API itself scopes by.
@@ -67,8 +73,10 @@ class ExpenseRecord {
   final String description;
   String status;
   String? rejectionReason;
+
   /// The manager's question while a request sits in 'Info Requested'.
   String? infoMessage;
+
   /// The employee's answer to that question.
   String? infoResponse;
   final String? receiptBase64;
@@ -121,14 +129,17 @@ class ExpenseRecord {
     final typeName = json['expense_type_name']?.toString();
     final typeId = json['expense_type_id']?.toString();
     return ExpenseRecord(
-      firestoreDocId:
-          (json['expense_id'] ?? json['id'])?.toString() ?? '',
-      id: (json['expense_id'] ?? json['employeeId'] ?? json['id'])?.toString() ??
+      firestoreDocId: (json['expense_id'] ?? json['id'])?.toString() ?? '',
+      id:
+          (json['expense_id'] ?? json['employeeId'] ?? json['id'])
+              ?.toString() ??
           'EMP-UNKNOWN',
-      name: (json['employee_name'] ?? json['employeeName'] ?? json['name'])
+      name:
+          (json['employee_name'] ?? json['employeeName'] ?? json['name'])
               ?.toString() ??
           'Unknown Employee',
-      email: (json['employee_email'] ?? json['email'])?.toString() ??
+      email:
+          (json['employee_email'] ?? json['email'])?.toString() ??
           'employee@company.com',
       employeeId: (json['employee_id'] ?? json['employeeId'])?.toString() ?? '',
       type: (typeName != null && typeName.isNotEmpty)
@@ -138,13 +149,18 @@ class ExpenseRecord {
       // emits Decimal as text. A bare `as num?` cast threw a TypeError
       // on the first row and the whole expense list stayed empty.
       amount: parseBackendDouble(json['amount']) ?? 0.0,
-      date: json['date']?.toString() ?? json['expense_date']?.toString() ?? 'Unknown Date',
+      date:
+          json['date']?.toString() ??
+          json['expense_date']?.toString() ??
+          'Unknown Date',
       description: json['description']?.toString() ?? 'No description provided',
       status: status,
-      rejectionReason: (json['rejectionReason'] ?? json['rejection_reason'])?.toString(),
+      rejectionReason: (json['rejectionReason'] ?? json['rejection_reason'])
+          ?.toString(),
       infoMessage: (json['infoMessage'] ?? json['info_message'])?.toString(),
       infoResponse: json['info_response']?.toString(),
-      receiptBase64: json['receiptBase64']?.toString() ??
+      receiptBase64:
+          json['receiptBase64']?.toString() ??
           json['receiptUrl']?.toString() ??
           receipt,
       processedBy: json['processedBy']?.toString(),
@@ -156,10 +172,14 @@ class ExpenseRecord {
 
 class AppNotification {
   final String expenseId;
-  final String title; 
+  final String title;
   final String subtitle;
   final String time;
-  final String type; 
+  final String type;
+
+  /// When the notification was created, when the backend said so. The
+  /// feed shows "2h ago" for recent items and the date for older ones.
+  final DateTime? createdAt;
 
   AppNotification({
     required this.expenseId,
@@ -167,6 +187,7 @@ class AppNotification {
     required this.subtitle,
     required this.time,
     required this.type,
+    this.createdAt,
   });
 }
 
@@ -179,9 +200,15 @@ String normalizeNotificationType(String backendType) {
   if (backendType.startsWith('expense.resubmit')) return 'resubmit';
   if (backendType.contains('.paid')) return 'paid';
   if (backendType.startsWith('project.member.added')) return 'project-added';
-  if (backendType.startsWith('project.member.removed')) return 'project-removed';
-  if (backendType.startsWith('project_access.approved')) return 'project-approved';
-  if (backendType.startsWith('project_access.rejected')) return 'project-rejected';
+  if (backendType.startsWith('project.member.removed')) {
+    return 'project-removed';
+  }
+  if (backendType.startsWith('project_access.approved')) {
+    return 'project-approved';
+  }
+  if (backendType.startsWith('project_access.rejected')) {
+    return 'project-rejected';
+  }
   return 'other';
 }
 
@@ -251,23 +278,61 @@ class ExpenseStore extends ChangeNotifier {
 
   static final ExpenseStore instance = ExpenseStore._internal();
 
-  bool isDarkMode = true; 
+  bool isDarkMode = true;
 
-  Color get bg => isDarkMode ? const Color(0xFF0D0D11) : const Color(0xFFF8F9FA);
-  Color get card => isDarkMode ? const Color(0xFF16161F) : const Color(0xFFFFFFFF);
-  Color get textFrost => isDarkMode ? const Color(0xFFF3F4F6) : const Color(0xFF1F2937);
-  Color get textMuted => isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
-  Color get accentGold => const Color(0xFFD4AF37);
-  Color get border => isDarkMode ? const Color(0xFFE2B93B).withValues(alpha: 0.15) : const Color(0xFFE5E7EB);
- 
+  // Palette aliases kept for the screens that still read colours from the
+  // store. New code uses `context.palette`; both resolve to AppTokens, so
+  // there is one source of truth and the light theme is never a different
+  // gold.
+  Color get bg => isDarkMode ? AppTokens.darkBg : AppTokens.lightBg;
+  Color get card => isDarkMode ? AppTokens.darkSurface : AppTokens.lightSurface;
+  Color get textFrost => isDarkMode ? AppTokens.darkText : AppTokens.lightText;
+  Color get textMuted =>
+      isDarkMode ? AppTokens.darkMuted : AppTokens.lightMuted;
+  Color get accentGold => isDarkMode ? AppTokens.gold : AppTokens.goldDeep;
+  Color get border => isDarkMode ? AppTokens.darkBorder : AppTokens.lightBorder;
+
   Future<void> _loadThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
-    final activeEmail = currentUserRole == 'employee' ? currentEmployeeEmail : currentManagerEmail;
-    
-    final key = activeEmail.isNotEmpty ? 'theme_${activeEmail}_$currentUserRole' : 'isDarkMode_$currentUserRole';
-    
+    final activeEmail = currentUserRole == 'employee'
+        ? currentEmployeeEmail
+        : currentManagerEmail;
+
+    final key = activeEmail.isNotEmpty
+        ? 'theme_${activeEmail}_$currentUserRole'
+        : 'isDarkMode_$currentUserRole';
+
     isDarkMode = prefs.getBool(key) ?? true;
+    lastSeenNotificationCount =
+        prefs.getInt(_notificationSeenKey(activeEmail)) ?? 0;
     notifyListeners();
+  }
+
+  /// How many notifications had been seen when the feed was last opened.
+  int lastSeenNotificationCount = 0;
+
+  int get unreadNotificationCount {
+    final int unread = notifications.length - lastSeenNotificationCount;
+    return unread > 0 ? unread : 0;
+  }
+
+  String _notificationSeenKey(String activeEmail) =>
+      'notifications_seen_${activeEmail.isEmpty ? currentUserRole : activeEmail}';
+
+  /// Called when the notification hub opens. Persisted per user so the
+  /// badge does not reappear on every launch.
+  Future<void> markNotificationsSeen() async {
+    if (notifications.isEmpty) return;
+    lastSeenNotificationCount = notifications.length;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    final activeEmail = currentUserRole == 'employee'
+        ? currentEmployeeEmail
+        : currentManagerEmail;
+    await prefs.setInt(
+      _notificationSeenKey(activeEmail),
+      lastSeenNotificationCount,
+    );
   }
 
   /// Public re-read of the persisted theme for the active user/role —
@@ -295,7 +360,9 @@ class ExpenseStore extends ChangeNotifier {
     try {
       final orgId = await _orgId();
       if (orgId == null) return;
-      final response = await ApiClient.get('/organizations/$orgId/expense-types');
+      final response = await ApiClient.get(
+        '/organizations/$orgId/expense-types',
+      );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body) as List<dynamic>;
         customExpenseTypes = data
@@ -373,11 +440,11 @@ class ExpenseStore extends ChangeNotifier {
 
   /// The member directory's row shape.
   static Map<String, String> _userRow(Map<String, dynamic> u) => {
-        'id': (u['employee_id'] ?? u['employeeId'] ?? u['id'] ?? '').toString(),
-        'name': (u['name'] ?? 'Unknown').toString(),
-        'email': (u['email'] ?? '').toString(),
-        'account_status': (u['account_status'] ?? 'active').toString(),
-      };
+    'id': (u['employee_id'] ?? u['employeeId'] ?? u['id'] ?? '').toString(),
+    'name': (u['name'] ?? 'Unknown').toString(),
+    'email': (u['email'] ?? '').toString(),
+    'account_status': (u['account_status'] ?? 'active').toString(),
+  };
 
   /// Admin action: toggle a user's account_status via PATCH /users/{id}.
   /// Returns true when the backend confirmed the change (list refreshed).
@@ -400,11 +467,15 @@ class ExpenseStore extends ChangeNotifier {
   Future<void> toggleTheme() async {
     isDarkMode = !isDarkMode;
     final prefs = await SharedPreferences.getInstance();
-    
-    final activeEmail = currentUserRole == 'employee' ? currentEmployeeEmail : currentManagerEmail;
-    
-    final key = activeEmail.isNotEmpty ? 'theme_${activeEmail}_$currentUserRole' : 'isDarkMode_$currentUserRole';
-    
+
+    final activeEmail = currentUserRole == 'employee'
+        ? currentEmployeeEmail
+        : currentManagerEmail;
+
+    final key = activeEmail.isNotEmpty
+        ? 'theme_${activeEmail}_$currentUserRole'
+        : 'isDarkMode_$currentUserRole';
+
     await prefs.setBool(key, isDarkMode);
     notifyListeners();
   }
@@ -423,6 +494,9 @@ class ExpenseStore extends ChangeNotifier {
     usersList = [];
     projectRequests = [];
     notifications = [];
+    // The seen-count belongs to the person who just signed out — the next
+    // user must not inherit their badge.
+    lastSeenNotificationCount = 0;
     employeeActiveStatus.clear();
     currentUserRoles = <String>[];
     grantedPermissions = <String>{};
@@ -450,7 +524,8 @@ class ExpenseStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<Map<String, dynamic>> projectRequests = []; 
+  List<Map<String, dynamic>> projectRequests = [];
+
   /// Backend notification feed (§49 #36 — owner-scoped). Refreshed from
   /// GET /notifications; local inserts remain as optimistic cache entries
   /// until the next refresh reconciles them.
@@ -460,17 +535,23 @@ class ExpenseStore extends ChangeNotifier {
   /// (GET /notifications — already scoped to the token's employee).
   Future<void> fetchNotificationsFromBackend() async {
     try {
-      final response = await ApiClient.get('/notifications', query: {'limit': '50'});
+      final response = await ApiClient.get(
+        '/notifications',
+        query: {'limit': '50'},
+      );
       if (response.statusCode == 200) {
         final items = ApiClient.pageItems(response);
         notifications = items.map((raw) {
           final map = raw as Map<String, dynamic>;
-          final createdAt = DateTime.tryParse(map['created_at']?.toString() ?? '');
+          final createdAt = DateTime.tryParse(
+            map['created_at']?.toString() ?? '',
+          );
           return AppNotification(
             expenseId: map['reference_id']?.toString() ?? '',
             title: map['title']?.toString() ?? '',
             subtitle: map['message']?.toString() ?? '',
             time: createdAt == null ? '' : _timeLabel(createdAt),
+            createdAt: createdAt,
             type: normalizeNotificationType(map['type']?.toString() ?? ''),
           );
         }).toList();
@@ -488,7 +569,20 @@ class ExpenseStore extends ChangeNotifier {
     if (d.day == now.day && d.month == now.month && d.year == now.year) {
       return 'Today, $hr:${d.minute.toString().padLeft(2, '0')} $ampm';
     }
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return '${d.day} ${months[d.month - 1]}, $hr:${d.minute.toString().padLeft(2, '0')} $ampm';
   }
 
@@ -631,6 +725,7 @@ class ExpenseStore extends ChangeNotifier {
   final Map<String, bool> employeeActiveStatus = {};
 
   double currentMonthBudget = 0.0;
+
   /// Computed from the backend: approved + reimbursed spend this month.
   double currentMonthSpent = 0.0;
 
@@ -639,12 +734,16 @@ class ExpenseStore extends ChangeNotifier {
       final myId = currentUserId.trim();
       final myEmail = currentEmployeeEmail.trim().toLowerCase();
       if (myId.isEmpty) return const <ProjectRecord>[];
-      return projects.where((p) =>
-        p.isActive &&
-        p.assignedEmails.any(
-          (id) => id.trim() == myId || id.trim().toLowerCase() == myEmail,
-        )
-      ).toList();
+      return projects
+          .where(
+            (p) =>
+                p.isActive &&
+                p.assignedEmails.any(
+                  (id) =>
+                      id.trim() == myId || id.trim().toLowerCase() == myEmail,
+                ),
+          )
+          .toList();
     }
     return projects;
   }
@@ -662,10 +761,12 @@ class ExpenseStore extends ChangeNotifier {
     }).toList();
   }
 
-  int get myPendingCount => myExpenses.where((e) => e.status == 'Pending Verification').length;
-  int get myApprovedCount => myExpenses.where((e) => e.status == 'Approved').length;
-  int get myRejectedCount => myExpenses.where((e) => e.status == 'Rejected').length;
-  int get myTotalUploads => myExpenses.length;
+  int get myPendingCount =>
+      myExpenses.where((e) => e.status == 'Pending Verification').length;
+  int get myApprovedCount =>
+      myExpenses.where((e) => e.status == 'Approved').length;
+  int get myRejectedCount =>
+      myExpenses.where((e) => e.status == 'Rejected').length;
 
   /// Nullable lookup — a bare `firstWhere` throws on a stale id (row
   /// refetched away), which used to red-screen the details page.
@@ -683,39 +784,11 @@ class ExpenseStore extends ChangeNotifier {
     return status == 'Approved' || status == 'Rejected' || status == 'Paid';
   }
 
-  DateTime? _parseDate(String dateStr) {
-    try {
-      if (dateStr.contains(RegExp(r'[a-zA-Z]'))) {
-        final parts = dateStr.trim().split(RegExp(r'\s+'));
-        if (parts.length >= 3) {
-          int d = int.parse(parts[0]);
-          String mStr = parts[1].toLowerCase().substring(0, 3);
-          int y = int.parse(parts[2]);
-          const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-          int m = months.indexOf(mStr) + 1;
-          if (m > 0) return DateTime(y, m, d);
-        }
-      }
-      if (dateStr.contains('-')) {
-        final parts = dateStr.split('-');
-        if (parts.length >= 3) {
-          if (parts[0].length == 4) return DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-          if (parts[2].length == 4) return DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
-        }
-      } else if (dateStr.contains('/')) {
-        final parts = dateStr.split('/');
-        if (parts.length >= 3) {
-          if (parts[2].length == 4) {
-            int m = int.parse(parts[0]);
-            int d = int.parse(parts[1]);
-            if (m > 12) { m = int.parse(parts[1]); d = int.parse(parts[0]); }
-            return DateTime(int.parse(parts[2]), m, d);
-          }
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
+  /// Single tolerant date parser. ISO dates *and* ISO datetimes
+  /// ("2026-10-20T09:15:00") are handled by `parseLooseDate`; the old
+  /// splitter parsed `2026-10-20T09:15:00` as day `20T09:15:00` and
+  /// dropped the row.
+  DateTime? _parseDate(String dateStr) => parseLooseDate(dateStr);
 
   /// Public single date parser — dashboards previously kept three
   /// divergent private copies ("5 Jan 2026" legacy vs ISO "2026-01-05").
@@ -739,7 +812,9 @@ class ExpenseStore extends ChangeNotifier {
         query: {'month': _monthKey(DateTime.now()), 'limit': '100'},
       );
       if (response.statusCode == 200) {
-        final items = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
+        final items = ApiClient.pageItems(
+          response,
+        ).cast<Map<String, dynamic>>();
         // The month endpoint returns every budget period overlapping the
         // month (the yearly seed allocation plus any monthly rows).
         // Taking items.first displayed whichever row was created last —
@@ -785,7 +860,10 @@ class ExpenseStore extends ChangeNotifier {
 
   Future<void> fetchProjectRequestsFromBackend() async {
     try {
-      final response = await ApiClient.get('/access-requests', query: {'status': 'pending', 'limit': '100'});
+      final response = await ApiClient.get(
+        '/access-requests',
+        query: {'status': 'pending', 'limit': '100'},
+      );
       if (response.statusCode == 200) {
         final requestsJson = ApiClient.pageItems(response);
         projectRequests = requestsJson.map((raw) {
@@ -811,7 +889,10 @@ class ExpenseStore extends ChangeNotifier {
   /// caller decides what to tell the user (false = request failed).
   Future<bool> submitProjectAccessRequest(String projectId) async {
     try {
-      final response = await ApiClient.post('/projects/$projectId/access-requests', {});
+      final response = await ApiClient.post(
+        '/projects/$projectId/access-requests',
+        {},
+      );
       if (response.statusCode == 200 || response.statusCode == 201) {
         await fetchProjectRequestsFromBackend();
         return true;
@@ -862,14 +943,16 @@ class ExpenseStore extends ChangeNotifier {
     projectMembersLoading = true;
     notifyListeners();
     try {
-      final response = await ApiClient.get('/projects/$projectId/members', query: {'limit': '100'});
+      final response = await ApiClient.get(
+        '/projects/$projectId/members',
+        query: {'limit': '100'},
+      );
       if (response.statusCode == 200) {
         final items = ApiClient.pageItems(response);
-        projectMembersByProject[projectId] =
-            items.map((raw) {
-              final map = raw as Map<String, dynamic>;
-              return ProjectMemberRecord.fromJson(map);
-            }).toList();
+        projectMembersByProject[projectId] = items.map((raw) {
+          final map = raw as Map<String, dynamic>;
+          return ProjectMemberRecord.fromJson(map);
+        }).toList();
         notifyListeners();
       } else {
         debugPrint('fetchProjectMembers failed: ${response.statusCode}');
@@ -897,11 +980,15 @@ class ExpenseStore extends ChangeNotifier {
     try {
       final orgId = await _orgId();
       if (orgId == null) return false;
-      final response = await ApiClient.patch('/organizations/$orgId/budgets/$budgetId', {
-        'amount': newBudget,
-      });
+      final response = await ApiClient.patch(
+        '/organizations/$orgId/budgets/$budgetId',
+        {'amount': newBudget},
+      );
       if (response.statusCode == 200) {
-        await Future.wait([fetchProjectsFromBackend(), fetchBudgetFromBackend()]);
+        await Future.wait([
+          fetchProjectsFromBackend(),
+          fetchBudgetFromBackend(),
+        ]);
         return true;
       }
       debugPrint('updateProjectBudget failed: ${response.statusCode}');
@@ -913,12 +1000,17 @@ class ExpenseStore extends ChangeNotifier {
 
   /// POST /projects/{id}/members for each selected employee (§49 24b).
   /// Returns true only when every add was accepted by the backend.
-  Future<bool> addMembersToProject(String projectId, List<String> newEmployeeIds) async {
+  Future<bool> addMembersToProject(
+    String projectId,
+    List<String> newEmployeeIds,
+  ) async {
     var allOk = true;
     for (final rawId in newEmployeeIds) {
       final employeeId = int.tryParse(rawId);
       if (employeeId == null) {
-        debugPrint('addMembersToProject: "$rawId" is not a numeric employee id.');
+        debugPrint(
+          'addMembersToProject: "$rawId" is not a numeric employee id.',
+        );
         allOk = false;
         continue;
       }
@@ -927,7 +1019,9 @@ class ExpenseStore extends ChangeNotifier {
           'employee_id': employeeId,
         });
         if (response.statusCode != 200 && response.statusCode != 201) {
-          debugPrint('addMembersToProject($employeeId) failed: ${response.statusCode}');
+          debugPrint(
+            'addMembersToProject($employeeId) failed: ${response.statusCode}',
+          );
           allOk = false;
         }
       } catch (e) {
@@ -940,9 +1034,14 @@ class ExpenseStore extends ChangeNotifier {
   }
 
   /// DELETE /projects/{id}/members/{employeeId} (§49 24c).
-  Future<bool> removeMemberFromProject(String projectId, String employeeId) async {
+  Future<bool> removeMemberFromProject(
+    String projectId,
+    String employeeId,
+  ) async {
     try {
-      final response = await ApiClient.delete('/projects/$projectId/members/$employeeId');
+      final response = await ApiClient.delete(
+        '/projects/$projectId/members/$employeeId',
+      );
       if (response.statusCode == 204 || response.statusCode == 200) {
         await fetchProjectsFromBackend();
         return true;
@@ -957,7 +1056,11 @@ class ExpenseStore extends ChangeNotifier {
   /// Approve or reject a project-access request (GET queue rows carry
   /// `access_request_id`). Approval inserts the employee into the
   /// request's project via project_members. Returns true on success.
-  Future<bool> decideProjectAccess(String requestId, bool approve, {String? comment}) async {
+  Future<bool> decideProjectAccess(
+    String requestId,
+    bool approve, {
+    String? comment,
+  }) async {
     try {
       final response = await ApiClient.post(
         '/access-requests/$requestId/${approve ? 'approve' : 'reject'}',
@@ -976,7 +1079,10 @@ class ExpenseStore extends ChangeNotifier {
 
   /// PATCH /projects/{id} is_active. Returns true when the backend
   /// confirmed (list is refreshed); false leaves the UI unchanged.
-  Future<bool> toggleProjectActiveStatus(String projectId, bool makeActive) async {
+  Future<bool> toggleProjectActiveStatus(
+    String projectId,
+    bool makeActive,
+  ) async {
     try {
       final response = await ApiClient.patch('/projects/$projectId', {
         'is_active': makeActive,
@@ -1006,14 +1112,22 @@ class ExpenseStore extends ChangeNotifier {
 
   double getProjectBurnAmount(String projectName) {
     return expenses
-        .where((e) => e.projectName == projectName && (e.status == 'Approved' || e.status == 'Paid'))
+        .where(
+          (e) =>
+              e.projectName == projectName &&
+              (e.status == 'Approved' || e.status == 'Paid'),
+        )
         .fold(0.0, (totalAmount, e) => totalAmount + e.amount);
   }
 
   /// Creates the project (referencing a budget for the current month)
   /// and adds the selected employees to it. Returns null on success or an
   /// error message.
-  Future<String?> createProject(String name, double budget, List<String> employeeIds) async {
+  Future<String?> createProject(
+    String name,
+    double budget,
+    List<String> employeeIds,
+  ) async {
     final orgId = await _orgId();
     if (orgId == null) return 'You are not signed in to an organization.';
     try {
@@ -1026,23 +1140,27 @@ class ExpenseStore extends ChangeNotifier {
 
       if (budgetId == null) {
         final now = DateTime.now();
-        final start =
-            DateTime(now.year, now.month, 1).toIso8601String().split('T').first;
-        final end = DateTime(now.year, now.month + 1, 1)
-            .subtract(const Duration(days: 1))
-            .toIso8601String()
-            .split('T')
-            .first;
-        final budgetRes = await ApiClient.post('/organizations/$orgId/budgets', {
-          'amount': budget,
-          'start_date': start,
-          'end_date': end,
-        });
+        final start = DateTime(
+          now.year,
+          now.month,
+          1,
+        ).toIso8601String().split('T').first;
+        final end = DateTime(
+          now.year,
+          now.month + 1,
+          1,
+        ).subtract(const Duration(days: 1)).toIso8601String().split('T').first;
+        final budgetRes = await ApiClient.post(
+          '/organizations/$orgId/budgets',
+          {'amount': budget, 'start_date': start, 'end_date': end},
+        );
         if (budgetRes.statusCode != 200 && budgetRes.statusCode != 201) {
           debugPrint('createProject budget failed: ${budgetRes.statusCode}');
           return 'Could not create the monthly budget (${budgetRes.statusCode}).';
         }
-        budgetId = (json.decode(budgetRes.body) as Map<String, dynamic>)['budget_id'] as int?;
+        budgetId =
+            (json.decode(budgetRes.body) as Map<String, dynamic>)['budget_id']
+                as int?;
       }
 
       final response = await ApiClient.post('/organizations/$orgId/projects', {
@@ -1054,7 +1172,8 @@ class ExpenseStore extends ChangeNotifier {
         return 'Could not create the project (${response.statusCode}).';
       }
       final projectId =
-          (json.decode(response.body) as Map<String, dynamic>)['project_id'] as int?;
+          (json.decode(response.body) as Map<String, dynamic>)['project_id']
+              as int?;
 
       // The selected employees were silently dropped before, so every
       // project came out empty and nobody could work in it.
@@ -1066,7 +1185,9 @@ class ExpenseStore extends ChangeNotifier {
             'employee_id': employeeId,
           });
           if (added.statusCode != 200 && added.statusCode != 201) {
-            debugPrint('createProject member $employeeId failed: ${added.statusCode}');
+            debugPrint(
+              'createProject member $employeeId failed: ${added.statusCode}',
+            );
           }
         }
       }
@@ -1098,25 +1219,42 @@ class ExpenseStore extends ChangeNotifier {
     }
   }
 
-  bool _canViewExpense(ExpenseRecord e) {
-    final uploaderEmail = e.email.trim().toLowerCase();
-    final myEmployeeEmail = currentEmployeeEmail.trim().toLowerCase();
-    final myManagerEmail = currentManagerEmail.trim().toLowerCase();
-    
-    if (uploaderEmail == myEmployeeEmail || uploaderEmail == myManagerEmail) {
-      return false; 
-    }
-    return true; 
+  /// True when the signed-in user submitted the expense themselves.
+  bool _isOwnExpense(ExpenseRecord e) {
+    final String uploaderEmail = e.email.trim().toLowerCase();
+    if (uploaderEmail.isEmpty) return false;
+    return uploaderEmail == currentEmployeeEmail.trim().toLowerCase() ||
+        uploaderEmail == currentManagerEmail.trim().toLowerCase() ||
+        (currentUserId.isNotEmpty && e.employeeId == currentUserId);
   }
 
-  int get pendingCount => expenses.where((e) => e.status == 'Pending Verification' && _isCurrentMonth(e.date) && _canViewExpense(e)).length;
-  int get approvedCount => expenses.where((e) => e.status == 'Approved' && _isCurrentMonth(e.date) && _canViewExpense(e)).length;
-  int get rejectedCount => expenses.where((e) => e.status == 'Rejected' && _isCurrentMonth(e.date) && _canViewExpense(e)).length;
+  /// Review queue visibility: you never review your own request. KPI
+  /// counts intentionally do *not* use this filter — the dashboard used
+  /// to hide the manager's own claims from the totals while "All
+  /// requests" showed them, so the two screens disagreed.
+  bool _isReviewable(ExpenseRecord e) => !_isOwnExpense(e);
+
+  /// Public view of [_isOwnExpense] — the claim detail screen needs it
+  /// to lock the approval buttons on your own submissions.
+  bool isOwnExpense(ExpenseRecord e) => _isOwnExpense(e);
+
+  int get pendingCount => expenses
+      .where(
+        (e) => e.status == 'Pending Verification' && _isCurrentMonth(e.date),
+      )
+      .length;
+  int get approvedCount => expenses
+      .where((e) => e.status == 'Approved' && _isCurrentMonth(e.date))
+      .length;
+  int get rejectedCount => expenses
+      .where((e) => e.status == 'Rejected' && _isCurrentMonth(e.date))
+      .length;
 
   double get currentMonthBurnAmount {
     double total = 0;
     for (var e in expenses) {
-      if ((e.status == 'Approved' || e.status == 'Paid') && _isCurrentMonth(e.date)) {
+      if ((e.status == 'Approved' || e.status == 'Paid') &&
+          _isCurrentMonth(e.date)) {
         total += e.amount;
       }
     }
@@ -1129,23 +1267,13 @@ class ExpenseStore extends ChangeNotifier {
     return pct > 1.0 ? 1.0 : pct;
   }
 
-  Map<String, double> get categorySpend {
-    Map<String, double> breakdown = {};
-    for (var e in expenses) {
-      if ((e.status == 'Approved' || e.status == 'Paid') && _isCurrentMonth(e.date)) {
-        breakdown[e.type] = (breakdown[e.type] ?? 0) + e.amount;
-      }
-    }
-    var sortedKeys = breakdown.keys.toList(growable: false)..sort((k1, k2) => breakdown[k2]!.compareTo(breakdown[k1]!));
-    Map<String, double> sortedBreakdown = {};
-    for (var k in sortedKeys) {
-      sortedBreakdown[k] = breakdown[k]!;
-    }
-    return sortedBreakdown;
-  }
-
   List<Map<String, dynamic>> get urgentRequests {
-    final pending = expenses.where((e) => e.status == 'Pending Verification' && _canViewExpense(e)).toList();
+    // Only approvers have a review queue, and never their own claims.
+    if (!canApproveExpenses) return const <Map<String, dynamic>>[];
+    final pending = expenses
+        .where((e) => e.status == 'Pending Verification' && _isReviewable(e))
+        .toList();
+
     List<Map<String, dynamic>> urgent = [];
     final now = DateTime.now();
 
@@ -1163,7 +1291,11 @@ class ExpenseStore extends ChangeNotifier {
     }
 
     if (stale != null) {
-      urgent.add({'expense': stale, 'reason': 'SLA Breach: $maxDays Days Old', 'isSla': true});
+      urgent.add({
+        'expense': stale,
+        'reason': 'SLA Breach: $maxDays Days Old',
+        'isSla': true,
+      });
     }
 
     ExpenseRecord? high;
@@ -1177,86 +1309,35 @@ class ExpenseStore extends ChangeNotifier {
     }
 
     if (high != null) {
-      urgent.add({'expense': high, 'reason': 'High Value Request', 'isSla': false});
+      urgent.add({
+        'expense': high,
+        'reason': 'High Value Request',
+        'isSla': false,
+      });
     }
 
     return urgent;
   }
 
-  List<Map<String, dynamic>> getChartData(String timeframe) {
-    final now = DateTime.now();
-    int monthsToFetch = 5; 
-
-   if (timeframe == 'This Month') {
-      monthsToFetch = 1;
-    } else if (timeframe == 'Last 3 Months') {
-      monthsToFetch = 3;
-    } else if (timeframe == 'Last 6 Months') {
-      monthsToFetch = 6;
-    } else if (timeframe == 'Year to Date') {
-      monthsToFetch = now.month;
-    }
-
-    final List<Map<String, dynamic>> chartData = [];
-    const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-    double maxAmount = currentMonthBudget > 0 ? currentMonthBudget : 1.0; 
-    
-    List<double> monthlyTotals = List.filled(monthsToFetch, 0.0);
-    List<String> labels = [];
-
-    for (int i = monthsToFetch - 1; i >= 0; i--) {
-      int m = now.month - i;
-      int y = now.year;
-      while (m <= 0) {
-        m += 12;
-        y -= 1;
-      }
-      labels.add(monthLabels[m - 1]);
-
-      double total = 0;
-      for (var e in expenses) {
-        if (e.status == 'Approved' || e.status == 'Paid') {
-          final d = _parseDate(e.date);
-          if (d != null && d.month == m && d.year == y) {
-            total += e.amount;
-          }
-        }
-      }
-      monthlyTotals[(monthsToFetch - 1) - i] = total;
-    }
-
-    for (int i = 0; i < monthsToFetch; i++) {
-      double pct = monthlyTotals[i] / maxAmount;
-      if (pct > 1.0) pct = 1.0; 
-      
-      chartData.add({
-        'label': labels[i],
-        'percentage': pct,
-      });
-    }
-    return chartData;
-  }
-
   void setCurrentManager({required String email}) {
     currentManagerEmail = email;
     currentManagerName = _deriveName(email, fallback: 'Manager');
-    currentEmployeeEmail = email; 
-    currentEmployeeName = currentManagerName; 
-    
-    _loadThemePreference(); 
+    currentEmployeeEmail = email;
+    currentEmployeeName = currentManagerName;
+
+    _loadThemePreference();
     notifyListeners();
   }
 
   void setManagerName(String name) {
     currentManagerName = name;
-    currentEmployeeName = name; 
+    currentEmployeeName = name;
     notifyListeners();
   }
 
   void setCurrentEmployee({required String email}) {
     currentEmployeeEmail = email;
-    currentEmployeeName = _deriveName(email, fallback: 'Employee');   
+    currentEmployeeName = _deriveName(email, fallback: 'Employee');
     _loadThemePreference();
     notifyListeners();
   }
@@ -1269,7 +1350,9 @@ class ExpenseStore extends ChangeNotifier {
   String _deriveName(String email, {required String fallback}) {
     final localPart = email.split('@').first;
     final parts = localPart.split(RegExp(r'[._]+')).where((p) => p.isNotEmpty);
-    final name = parts.map((p) => p[0].toUpperCase() + p.substring(1)).join(' ');
+    final name = parts
+        .map((p) => p[0].toUpperCase() + p.substring(1))
+        .join(' ');
     return name.trim().isEmpty ? fallback : name;
   }
 
@@ -1282,8 +1365,9 @@ class ExpenseStore extends ChangeNotifier {
       // reverted on the next sign-in.
       final employeeId = int.tryParse(currentUserId.trim());
       if (employeeId != null) {
-        final response =
-            await ApiClient.patch('/users/$employeeId', {'name': trimmed});
+        final response = await ApiClient.patch('/users/$employeeId', {
+          'name': trimmed,
+        });
         if (response.statusCode != 200) {
           debugPrint('Name update rejected: ${response.statusCode}');
           return;
@@ -1385,7 +1469,8 @@ class ExpenseStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _monthKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
+  String _monthKey(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
   /// Sum of the amounts of every budget period overlapping [month] —
   /// "money the organization made available that month", which is what
@@ -1404,7 +1489,9 @@ class ExpenseStore extends ChangeNotifier {
         );
         if (response.statusCode == 200) {
           double total = 0.0;
-          for (final item in ApiClient.pageItems(response).cast<Map<String, dynamic>>()) {
+          for (final item in ApiClient.pageItems(
+            response,
+          ).cast<Map<String, dynamic>>()) {
             total += parseBackendDouble(item['amount']) ?? 0.0;
           }
           return total;
@@ -1430,9 +1517,14 @@ class ExpenseStore extends ChangeNotifier {
           query: {'month': _monthKey(month), 'limit': '100'},
         );
         if (response.statusCode == 200) {
-          final monthStart =
-              DateTime(month.year, month.month, 1).toIso8601String().split('T').first;
-          final items = ApiClient.pageItems(response).cast<Map<String, dynamic>>();
+          final monthStart = DateTime(
+            month.year,
+            month.month,
+            1,
+          ).toIso8601String().split('T').first;
+          final items = ApiClient.pageItems(
+            response,
+          ).cast<Map<String, dynamic>>();
           double total = 0.0;
           var found = false;
           for (final item in items) {
@@ -1456,12 +1548,16 @@ class ExpenseStore extends ChangeNotifier {
     try {
       final orgId = await _orgId();
       if (orgId == null) return 'Not signed in to an organization.';
-      final start = DateTime(month.year, month.month, 1).toIso8601String().split('T').first;
-      final end = DateTime(month.year, month.month + 1, 1)
-          .subtract(const Duration(days: 1))
-          .toIso8601String()
-          .split('T')
-          .first;
+      final start = DateTime(
+        month.year,
+        month.month,
+        1,
+      ).toIso8601String().split('T').first;
+      final end = DateTime(
+        month.year,
+        month.month + 1,
+        1,
+      ).subtract(const Duration(days: 1)).toIso8601String().split('T').first;
       // Editing an existing allocation updates that row. POSTing a new
       // one stacked a duplicate monthly row on every save, and the
       // dashboard's summed totals drifted upward each time.
@@ -1472,7 +1568,9 @@ class ExpenseStore extends ChangeNotifier {
           query: {'month': _monthKey(month), 'limit': '100'},
         );
         if (existing.statusCode == 200) {
-          for (final item in ApiClient.pageItems(existing).cast<Map<String, dynamic>>()) {
+          for (final item in ApiClient.pageItems(
+            existing,
+          ).cast<Map<String, dynamic>>()) {
             if ((item['start_date']?.toString() ?? '') == start) {
               existingId = (item['budget_id'] as num?)?.toInt();
               break;
@@ -1483,10 +1581,9 @@ class ExpenseStore extends ChangeNotifier {
         // Listing failed — fall through to the POST, worst case a row duplicates.
       }
       final response = existingId != null
-          ? await ApiClient.patch(
-              '/organizations/$orgId/budgets/$existingId',
-              {'amount': amount},
-            )
+          ? await ApiClient.patch('/organizations/$orgId/budgets/$existingId', {
+              'amount': amount,
+            })
           : await ApiClient.post('/organizations/$orgId/budgets', {
               'amount': amount,
               'start_date': start,
@@ -1583,7 +1680,9 @@ class ExpenseStore extends ChangeNotifier {
           }
         }
       } else if (response.statusCode == 409) {
-        debugPrint('setEmployeeActive: already in that status (409 treated as success).');
+        debugPrint(
+          'setEmployeeActive: already in that status (409 treated as success).',
+        );
       } else {
         rollback();
         debugPrint('setEmployeeActive failed: ${response.statusCode}');
@@ -1610,7 +1709,13 @@ class ExpenseStore extends ChangeNotifier {
     if (projectId != null && projectId.isNotEmpty) {
       final targetProject = projects.firstWhere(
         (p) => p.id == projectId,
-        orElse: () => ProjectRecord(id: '', name: '', budget: 0, assignedEmails: [], isActive: true)
+        orElse: () => ProjectRecord(
+          id: '',
+          name: '',
+          budget: 0,
+          assignedEmails: [],
+          isActive: true,
+        ),
       );
       if (!targetProject.isActive) {
         return 'Cannot submit expenses to a deactivated project.';
@@ -1634,21 +1739,30 @@ class ExpenseStore extends ChangeNotifier {
       int? resolvedProjectId;
       if (projectId != null && projectId.isNotEmpty) {
         final match = projects.where((p) => p.id == projectId).toList();
-        if (match.isEmpty) return 'Selected project is not synced from the backend.';
+        if (match.isEmpty) {
+          return 'Selected project is not synced from the backend.';
+        }
         resolvedProjectId = int.tryParse(match.first.id);
-        if (resolvedProjectId == null) return 'Selected project has an invalid backend ID.';
+        if (resolvedProjectId == null) {
+          return 'Selected project has an invalid backend ID.';
+        }
       } else {
         // General expenses still need a project in v1 — pick the first active one.
         final active = projects.where((p) => p.isActive).toList();
-        if (active.isEmpty) return 'No synced project available — ask an admin to create one.';
+        if (active.isEmpty) {
+          return 'No synced project available — ask an admin to create one.';
+        }
         resolvedProjectId = int.tryParse(active.first.id);
-        if (resolvedProjectId == null) return 'Synced project has an invalid backend ID.';
+        if (resolvedProjectId == null) {
+          return 'Synced project has an invalid backend ID.';
+        }
       }
       final expenseTypeId = await _resolveExpenseTypeId(orgId, type);
       if (expenseTypeId == null) {
         return 'Expense type "$type" is not synced from the backend.';
       }
-      if (receiptBytes != null && receiptBytes.lengthInBytes > 5 * 1024 * 1024) {
+      if (receiptBytes != null &&
+          receiptBytes.lengthInBytes > 5 * 1024 * 1024) {
         return 'Receipt image is too large. Max 5MB.';
       }
       final expenseDate =
@@ -1664,9 +1778,19 @@ class ExpenseStore extends ChangeNotifier {
       };
       final files = <http.MultipartFile>[];
       if (receiptBytes != null) {
-        files.add(http.MultipartFile.fromBytes('files', receiptBytes, filename: 'receipt.jpg'));
+        files.add(
+          http.MultipartFile.fromBytes(
+            'files',
+            receiptBytes,
+            filename: 'receipt.jpg',
+          ),
+        );
       }
-      final streamed = await ApiClient.postMultipart('/expenses', fields: fields, files: files);
+      final streamed = await ApiClient.postMultipart(
+        '/expenses',
+        fields: fields,
+        files: files,
+      );
       final response = await http.Response.fromStream(streamed);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -1705,12 +1829,15 @@ class ExpenseStore extends ChangeNotifier {
   /// Look up the backend expense-type ID by name (refreshes the cache first).
   Future<int?> _resolveExpenseTypeId(int orgId, String name) async {
     try {
-      final response = await ApiClient.get('/organizations/$orgId/expense-types');
+      final response = await ApiClient.get(
+        '/organizations/$orgId/expense-types',
+      );
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body) as List<dynamic>;
         for (final item in data) {
           final m = item as Map<String, dynamic>;
-          if ((m['name']?.toString().toLowerCase() ?? '') == name.trim().toLowerCase()) {
+          if ((m['name']?.toString().toLowerCase() ?? '') ==
+              name.trim().toLowerCase()) {
             return (m['expense_type_id'] as num?)?.toInt();
           }
         }
@@ -1726,7 +1853,9 @@ class ExpenseStore extends ChangeNotifier {
   Future<bool> approve(String id) async {
     final expense = byIdOrNull(id);
     if (expense == null || isLocked(id)) return false;
-    final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
+    final expenseId = int.tryParse(
+      expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id,
+    );
     if (expenseId == null) {
       debugPrint('approve: invalid backend expense id for $id');
       return false;
@@ -1738,7 +1867,12 @@ class ExpenseStore extends ChangeNotifier {
       final response = await ApiClient.post('/expenses/$expenseId/approve', {});
       if (response.statusCode == 200) {
         await fetchExpensesFromBackend();
-        _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} has been approved.', 'approved');
+        _addNotification(
+          expense.id,
+          expense.name,
+          'Expense request of ${expense.amountFormatted} has been approved.',
+          'approved',
+        );
         return true;
       }
       expense.status = prevStatus;
@@ -1757,7 +1891,9 @@ class ExpenseStore extends ChangeNotifier {
   Future<bool> reject(String id, {required String reason}) async {
     final expense = byIdOrNull(id);
     if (expense == null || isLocked(id)) return false;
-    final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
+    final expenseId = int.tryParse(
+      expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id,
+    );
     if (expenseId == null) {
       debugPrint('reject: invalid backend expense id for $id');
       return false;
@@ -1772,7 +1908,12 @@ class ExpenseStore extends ChangeNotifier {
       });
       if (response.statusCode == 200) {
         await fetchExpensesFromBackend();
-        _addNotification(expense.id, expense.name, 'Expense request of ${expense.amountFormatted} was rejected.', 'rejected');
+        _addNotification(
+          expense.id,
+          expense.name,
+          'Expense request of ${expense.amountFormatted} was rejected.',
+          'rejected',
+        );
         return true;
       }
       expense.status = prevStatus;
@@ -1799,12 +1940,18 @@ class ExpenseStore extends ChangeNotifier {
       return false;
     }
     try {
-      final response = await ApiClient.post('/expenses/$expenseId/request-info', {
-        'comments': message,
-      });
+      final response = await ApiClient.post(
+        '/expenses/$expenseId/request-info',
+        {'comments': message},
+      );
       if (response.statusCode == 200) {
         await fetchExpensesFromBackend();
-        _addNotification(expense.id, expense.name, 'Additional details requested for ${expense.amountFormatted}.', 'info');
+        _addNotification(
+          expense.id,
+          expense.name,
+          'Additional details requested for ${expense.amountFormatted}.',
+          'info',
+        );
         return true;
       }
       debugPrint('requestMoreInfo failed: ${response.statusCode}');
@@ -1831,7 +1978,9 @@ class ExpenseStore extends ChangeNotifier {
       final answer = response?.trim();
       final apiResponse = await ApiClient.post(
         '/expenses/$expenseId/resubmit',
-        answer == null || answer.isEmpty ? <String, dynamic>{} : {'response': answer},
+        answer == null || answer.isEmpty
+            ? <String, dynamic>{}
+            : {'response': answer},
       );
       if (apiResponse.statusCode == 200) {
         await fetchExpensesFromBackend();
@@ -1844,32 +1993,43 @@ class ExpenseStore extends ChangeNotifier {
     return false;
   }
 
-  Future<String?> markPaid(String id, String transactionId, {Uint8List? receiptBytes}) async {
+  Future<String?> markPaid(
+    String id,
+    String transactionId, {
+    Uint8List? receiptBytes,
+  }) async {
     final cleanTxId = transactionId.trim();
     if (cleanTxId.isEmpty) {
       return 'Transaction ID is compulsory to mark an expense as paid.';
     }
     final expense = byIdOrNull(id);
     if (expense == null) return 'Record no longer available.';
-    final expenseId = int.tryParse(expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id);
+    final expenseId = int.tryParse(
+      expense.firestoreDocId.isNotEmpty ? expense.firestoreDocId : id,
+    );
     if (expenseId == null) return 'Invalid backend expense id.';
     try {
       // 1. Create reimbursement (expense must be approved first).
-      var create = await ApiClient.post('/expenses/$expenseId/reimbursement', {});
+      var create = await ApiClient.post(
+        '/expenses/$expenseId/reimbursement',
+        {},
+      );
       if (create.statusCode != 200 && create.statusCode != 201) {
         return 'Server error creating reimbursement: ${create.statusCode}';
       }
       final reimbursementId =
-          (json.decode(create.body) as Map<String, dynamic>)['reimbursement_id'];
+          (json.decode(create.body)
+              as Map<String, dynamic>)['reimbursement_id'];
       // 2. pending -> processing -> paid (paid requires payment_reference).
-      var step = await ApiClient.post('/reimbursements/$reimbursementId/transition', {
-        'target_status': 'processing',
-      });
+      var step = await ApiClient.post(
+        '/reimbursements/$reimbursementId/transition',
+        {'target_status': 'processing'},
+      );
       if (step.statusCode != 200) return 'Server error: ${step.statusCode}';
-      step = await ApiClient.post('/reimbursements/$reimbursementId/transition', {
-        'target_status': 'paid',
-        'payment_reference': cleanTxId,
-      });
+      step = await ApiClient.post(
+        '/reimbursements/$reimbursementId/transition',
+        {'target_status': 'paid', 'payment_reference': cleanTxId},
+      );
       if (step.statusCode != 200) return 'Server error: ${step.statusCode}';
       // 3. The payment receipt. It used to be read into memory and then
       //    dropped, while the UI claimed it had been attached.
@@ -1885,7 +2045,9 @@ class ExpenseStore extends ChangeNotifier {
           ],
         );
         if (receipt.statusCode != 200) {
-          debugPrint('markPaid: payment receipt upload failed (${receipt.statusCode})');
+          debugPrint(
+            'markPaid: payment receipt upload failed (${receipt.statusCode})',
+          );
         }
       }
       await fetchExpensesFromBackend();
@@ -1901,19 +2063,28 @@ class ExpenseStore extends ChangeNotifier {
     }
   }
 
-  void _addNotification(String expenseId, String title, String subtitle, String type) {
+  void _addNotification(
+    String expenseId,
+    String title,
+    String subtitle,
+    String type,
+  ) {
     final now = DateTime.now();
     final ampm = now.hour >= 12 ? 'PM' : 'AM';
     int hr = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
-    final timeString = 'Today, $hr:${now.minute.toString().padLeft(2, '0')} $ampm';
+    final timeString =
+        'Today, $hr:${now.minute.toString().padLeft(2, '0')} $ampm';
 
-    notifications.insert(0, AppNotification(
-      expenseId: expenseId,
-      title: title,
-      subtitle: subtitle,
-      time: timeString,
-      type: type,
-    ));
+    notifications.insert(
+      0,
+      AppNotification(
+        expenseId: expenseId,
+        title: title,
+        subtitle: subtitle,
+        time: timeString,
+        type: type,
+      ),
+    );
     notifyListeners();
   }
 }

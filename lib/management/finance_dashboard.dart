@@ -1,10 +1,19 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/management/expense_details.dart';
-import 'package:ats_onework/shared/app_snack.dart';
 
+import '../core/formatting.dart';
+import '../core/status.dart';
+import '../data/analytics_controller.dart';
+import '../data/analytics_repository.dart';
+import '../shared/app_snack.dart';
+import '../ui/charts.dart';
+import '../ui/mark_paid_dialog.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+import 'expense_details.dart';
+import 'expense_store.dart';
+
+/// Finance dashboard: the payout pipeline, the queue of approved claims
+/// waiting to be paid, and the controls to complete a payment.
 class FinanceDashboard extends StatefulWidget {
   const FinanceDashboard({super.key});
 
@@ -13,476 +22,421 @@ class FinanceDashboard extends StatefulWidget {
 }
 
 class _FinanceDashboardState extends State<FinanceDashboard> {
-  String _graphTimeframe = 'This Month';
+  final ExpenseStore _store = ExpenseStore.instance;
+  late final AnalyticsController _analytics;
 
-  Color _getStatusColor(String status) {
-    if (status == 'Paid') return Colors.greenAccent;
-    if (status == 'Approved') return Colors.orangeAccent;
-    if (status == 'Rejected') return Colors.redAccent;
-    return Colors.grey;
+  @override
+  void initState() {
+    super.initState();
+    _analytics = AnalyticsController(personal: false);
+    _analytics.load();
   }
 
-  void _showMarkPaidDialog(BuildContext context, ExpenseRecord expense, ExpenseStore store) {
-    final txController = TextEditingController();
-    Uint8List? paymentReceiptBytes;
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: store.card,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-          ),
-          title: Text('Mark Expense as Paid', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Transaction ID is compulsory.', style: TextStyle(color: store.textMuted, fontSize: 13)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: txController,
-                style: TextStyle(color: store.textFrost),
-                decoration: InputDecoration(
-                  labelText: 'Transaction ID *',
-                  labelStyle: TextStyle(color: store.textMuted),
-                  enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold.withValues(alpha: 0.3))),
-                  focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: store.accentGold)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        final picker = ImagePicker();
-                        final image = await picker.pickImage(source: ImageSource.gallery);
-                        if (image == null) return;
-                        final bytes = await image.readAsBytes();
-                        // The dialog can be dismissed while the gallery
-                        // picker is open.
-                        if (!dialogContext.mounted) return;
-                        setDialogState(() => paymentReceiptBytes = bytes);
-                      },
-                      icon: Icon(Icons.receipt_long_rounded, color: store.accentGold, size: 18),
-                      label: Text(paymentReceiptBytes == null ? 'Attach Receipt (Opt.)' : 'Receipt Attached', style: TextStyle(color: store.accentGold)),
-                      style: OutlinedButton.styleFrom(side: BorderSide(color: store.accentGold.withValues(alpha: 0.3))),
-                    ),
-                  ),
-                  if (paymentReceiptBytes != null) ...[
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                      onPressed: () => setDialogState(() => paymentReceiptBytes = null),
-                    ),
-                  ]
-                ],
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel', style: TextStyle(color: store.textMuted))),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: store.accentGold),
-              onPressed: () async {
-                if (txController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transaction ID is compulsory.'), backgroundColor: Colors.redAccent));
-                  return;
-                }
-                // Capture the messenger before the async gap — using
-                // context after `markPaid` may hit a disposed widget.
-                final messenger = ScaffoldMessenger.of(context);
-                final error = await store.markPaid(
-                  expense.id,
-                  txController.text.trim(),
-                  receiptBytes: paymentReceiptBytes,
-                );
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                if (error != null) {
-                  messenger.showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
-                } else {
-                  messenger.showSnackBar(SnackBar(content: const Text('Expense marked as Paid!'), backgroundColor: store.accentGold));
-                }
-              },
-              child: const Text('Confirm Payment', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      ),
-    );
+  @override
+  void dispose() {
+    _analytics.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
+    return AnimatedBuilder(
+      animation: Listenable.merge(<Listenable>[_store, _analytics]),
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
+        final AnalyticsOverview? data = _analytics.overview;
+        final bool firstLoad = !_analytics.loaded && _analytics.loading;
 
-    return Scaffold(
-      backgroundColor: store.bg,
-      body: SafeArea(
-        child: AnimatedBuilder(
-          animation: store,
-          builder: (context, _) {
-            final darkCharcoal = store.card;
-            final champagneGold = store.accentGold;
-            final textFrost = store.textFrost;
-            final textMuted = store.textMuted;
-            
-            final List<BoxShadow> cardShadows = store.isDarkMode
-                ? <BoxShadow>[]
-                : [
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 16, offset: const Offset(0, 6)),
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 4, offset: const Offset(0, 1)),
-                  ];
-
-            final approvedExpenses = store.expenses.where((e) => e.status == 'Approved').toList();
-            final paidExpenses = store.expenses.where((e) => e.status == 'Paid').toList();
-
-            final totalPendingAmount = approvedExpenses.fold(0.0, (sum, item) => sum + item.amount);
-            final totalPaidAmount = paidExpenses.fold(0.0, (sum, item) => sum + item.amount);
-            final chartData = store.getChartData(_graphTimeframe);
-
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
-              child: Center(
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 800),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 28,
-                            backgroundColor: darkCharcoal,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(color: champagneGold.withValues(alpha: 0.3), width: 1.5),
-                                boxShadow: cardShadows,
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                store.getInitials(store.currentManagerName), 
-                                style: TextStyle(color: champagneGold, fontSize: 18, fontWeight: FontWeight.bold)
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Welcome, ${store.currentUserName}', 
-                                style: TextStyle(color: textFrost, fontSize: 22, fontWeight: FontWeight.bold)
-                              ),
-                              const SizedBox(height: 4),
-                              Text('FINANCE & PAYOUTS', style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                            ],
-                          )
-                        ],
-                      ),
-                      const SizedBox(height: 32),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildWideKpiCard(
-                              title: 'Pending Payments',
-                              count: approvedExpenses.length.toString(),
-                              amount: '₹${totalPendingAmount.toStringAsFixed(0)}',
-                              icon: Icons.hourglass_top_rounded,
-                              iconColor: Colors.orangeAccent,
-                              store: store,
-                              cardShadows: cardShadows,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildWideKpiCard(
-                              title: 'Total Disbursed',
-                              count: paidExpenses.length.toString(),
-                              amount: '₹${totalPaidAmount.toStringAsFixed(0)}',
-                              icon: Icons.verified_rounded,
-                              iconColor: Colors.greenAccent,
-                              store: store,
-                              cardShadows: cardShadows,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 40),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('To Pay / Approved Requests', style: TextStyle(color: textFrost, fontSize: 18, fontWeight: FontWeight.bold)),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.orangeAccent.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text('${approvedExpenses.length} Items', style: const TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 12)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      if (approvedExpenses.isEmpty)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(32),
-                          decoration: BoxDecoration(
-                            color: darkCharcoal,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
-                            boxShadow: cardShadows,
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(Icons.check_circle_outline_rounded, size: 48, color: textMuted),
-                              const SizedBox(height: 16),
-                              Text('Inbox Zero!', style: TextStyle(color: textFrost, fontSize: 18, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 4),
-                              Text('All approved requests have been paid.', style: TextStyle(color: textMuted)),
-                            ],
-                          ),
-                        )
-                      else
-                        ...approvedExpenses.map((expense) {
-                          final statusColor = _getStatusColor(expense.status);
-                          
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            decoration: BoxDecoration(
-                              color: darkCharcoal,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2), width: 1),
-                              boxShadow: cardShadows,
-                            ),
-                            child: Material(
-                              color: darkCharcoal,
-                              child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                              leading: CircleAvatar(
-                                radius: 24,
-                                backgroundColor: statusColor.withValues(alpha: 0.1),
-                                child: Text(
-                                  expense.name.substring(0, 1),
-                                  style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 18),
-                                ),
-                              ),
-                              title: Wrap(
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  Text(expense.name, style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-                                  const SizedBox(width: 8),
-                                  Text('(${expense.id})', style: TextStyle(color: textMuted)),
-                                ],
-                              ),
-                              subtitle: Padding(
-                                padding: const EdgeInsets.only(top: 6.0),
-                                child: Text('${expense.type} Expense • ${expense.date}', style: TextStyle(color: textMuted, fontSize: 13)),
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Text(expense.amountFormatted, style: TextStyle(color: textFrost, fontWeight: FontWeight.w900, fontSize: 15)),
-                                      const SizedBox(height: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: statusColor.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
-                                        ),
-                                      child: Text(
-  expense.status == 'Approved' ? 'Approved • Payment Pending' : expense.status,
-  style: TextStyle(color: _getStatusColor(expense.status), fontSize: 11, fontWeight: FontWeight.bold),
-),  
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(width: 12),
-                                  ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: champagneGold,
-                                      foregroundColor: store.isDarkMode ? store.bg : Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    ),
-                                    onPressed: () => _showMarkPaidDialog(context, expense, store),
-                                    child: const Text('Mark Paid', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  ),
-                                ],
-                              ),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (context) => ExpenseDetailsScreen(expenseId: expense.id)),
-                                );
-                              },
-                            ),
-                            ),
-                          );
-                        }),
-                      const SizedBox(height: 40),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Budget Burn Overview', style: TextStyle(color: textFrost, fontSize: 16, fontWeight: FontWeight.bold)),
-                          Row(
-                            children: [
-                              TextButton.icon(
-                                // No CSV/export endpoint yet (§49) — say
-                                // so instead of a dead button.
-                                onPressed: () => AppSnack.info(context, 'CSV export is not available yet.'),
-                                icon: Icon(Icons.file_upload_outlined, color: champagneGold, size: 18),
-                                label: Text('Export MTD', style: TextStyle(color: champagneGold, fontSize: 12, fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  color: darkCharcoal, 
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: store.isDarkMode ? Colors.white.withValues(alpha: 0.05) : Colors.grey.withValues(alpha: 0.3)),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    dropdownColor: darkCharcoal,
-                                    value: _graphTimeframe,
-                                    icon: Padding(
-                                      padding: const EdgeInsets.only(left: 8.0),
-                                      child: Icon(Icons.keyboard_arrow_down_rounded, color: textMuted, size: 16),
-                                    ),
-                                    items: <String>['This Month', 'Last 3 Months', 'Last 6 Months', 'Year to Date'].map((String value) {
-                                      return DropdownMenuItem<String>(
-                                        value: value,
-                                        child: Text(value, style: TextStyle(color: textMuted, fontSize: 12)),
-                                      );
-                                    }).toList(),
-                                    onChanged: (newValue) {
-                                      if (newValue != null) {
-                                        setState(() => _graphTimeframe = newValue);
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ],
-                          )
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        width: double.infinity,
-                        height: 240,
-                        padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                        decoration: BoxDecoration(
-                          color: darkCharcoal,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
-                          boxShadow: cardShadows,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: chartData.map((data) {
-                            final label = data['label'] as String;
-                            final pct = data['percentage'] as double;
-                            return _buildBar(label, pct, store);
-                          }).toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 40),
-                    ],
+        return Scaffold(
+          backgroundColor: palette.bg,
+          body: AppPage(
+            busy: _analytics.loading && _analytics.loaded,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                PageHeader(
+                  title: 'Finance & payouts',
+                  subtitle: data == null
+                      ? 'Move approved claims to paid'
+                      : '${formatDateRange(data.fromDate, data.toDate)} · '
+                            '${formatCount(data.summary.approvedCount)} approved '
+                            'in period',
+                  initials: _store.getInitials(_store.currentUserName),
+                  trailing: RangePicker(
+                    value: _analytics.range,
+                    onChanged: _analytics.selectRange,
                   ),
                 ),
-              ),
-            );
-          },
-        ),
-      ),
+                const SizedBox(height: 22),
+                if (firstLoad)
+                  const DashboardSkeleton()
+                else ...<Widget>[
+                  if (_analytics.error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: InlineError(
+                        message: _analytics.error!,
+                        onRetry: _analytics.load,
+                      ),
+                    ),
+                  _buildMetrics(data, palette),
+                  const SizedBox(height: 20),
+                  _buildPipelineAndStatus(data, palette),
+                  const SizedBox(height: 14),
+                  _buildTrend(data),
+                  const SizedBox(height: 22),
+                  _buildToPay(palette),
+                  const SizedBox(height: 12),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildBar(String month, double pct, ExpenseStore store) {
-    double fillHeight = 140.0 * pct;
-    if (pct > 0 && fillHeight < 6.0) fillHeight = 6.0;
+  Widget _buildMetrics(AnalyticsOverview? data, AppPalette palette) {
+    final AnalyticsSummary? summary = data?.summary;
+    final ReimbursementStats stats =
+        data?.reimbursements ?? const ReimbursementStats();
 
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Tooltip(
-          message: '${(pct * 100).toStringAsFixed(1)}% of Budget',
-          child: Container(
-            width: 34,
-            height: 140, 
-            decoration: BoxDecoration(
-              color: store.isDarkMode ? const Color(0xFF1E1E26) : Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            alignment: Alignment.bottomCenter,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeOutCubic,
-              width: 34,
-              height: fillHeight,
-              decoration: BoxDecoration(
-                color: store.accentGold,
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ),
-          ),
+    return AppGrid(
+      minItemWidth: 200,
+      children: <Widget>[
+        MetricCard(
+          label: 'Awaiting payment',
+          value: summary == null
+              ? '—'
+              : formatMoney(summary.approvedAmount, compact: true),
+          icon: Icons.pending_actions_rounded,
+          accent: palette.warning,
+          subtitle: summary == null
+              ? null
+              : '${formatCount(summary.approvedCount)} approved claims',
         ),
-        const SizedBox(height: 12),
-        Text(month, style: TextStyle(color: store.textMuted, fontSize: 13, fontWeight: FontWeight.w500)),
+        MetricCard(
+          label: 'Paid out',
+          value: summary == null
+              ? '—'
+              : formatMoney(summary.reimbursedAmount, compact: true),
+          icon: Icons.verified_rounded,
+          accent: palette.success,
+          subtitle: summary == null
+              ? null
+              : '${formatCount(summary.reimbursedCount)} reimbursements',
+        ),
+        MetricCard(
+          label: 'In flight',
+          value: formatMoney(stats.openAmount, compact: true),
+          icon: Icons.sync_rounded,
+          accent: palette.info,
+          subtitle: '${formatCount(stats.openCount)} payments processing',
+        ),
+        MetricCard(
+          label: 'Avg payment time',
+          value: stats.avgPaymentDays == null
+              ? '—'
+              : '${stats.avgPaymentDays!.toStringAsFixed(1)}d',
+          icon: Icons.timer_outlined,
+          accent: palette.gold,
+          subtitle: stats.failedCount > 0
+              ? '${formatCount(stats.failedCount)} failed — needs retry'
+              : 'From approval to paid',
+        ),
       ],
     );
   }
 
-  Widget _buildWideKpiCard({
-    required String title,
-    required String count,
-    required String amount,
-    required IconData icon,
-    required Color iconColor, // Note: kept to match parameter signature if needed or used as Color type below
-    required ExpenseStore store,
-    required List<BoxShadow> cardShadows,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: store.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: store.isDarkMode ? store.accentGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2)),
-        boxShadow: cardShadows,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(title, style: TextStyle(color: store.textMuted, fontSize: 13, fontWeight: FontWeight.w500)),
-              Icon(icon, color: iconColor as Color?, size: 20),
-            ],
+  Widget _buildPipelineAndStatus(AnalyticsOverview? data, AppPalette palette) {
+    final ReimbursementStats stats =
+        data?.reimbursements ?? const ReimbursementStats();
+    final double maxPipeline =
+        <double>[
+          stats.pendingAmount,
+          stats.processingAmount,
+          stats.paidAmount,
+          stats.failedAmount,
+        ].fold<double>(
+          0,
+          (double best, double value) => value > best ? value : best,
+        );
+
+    final Widget pipeline = ChartCard(
+      title: 'Payout pipeline',
+      subtitle: 'Value at each stage of reimbursement',
+      height: 250,
+      child: HorizontalBarChart(
+        bars: <HorizontalBar>[
+          HorizontalBar(
+            label: 'Pending',
+            value: stats.pendingAmount,
+            max: maxPipeline,
+            color: palette.warning,
+            caption: '${formatCount(stats.pendingCount)} payments',
           ),
-          const SizedBox(height: 16),
-          Text(amount, style: TextStyle(color: store.textFrost, fontSize: 24, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 4),
-          Text('$count Records', style: TextStyle(color: store.textMuted, fontSize: 12)),
+          HorizontalBar(
+            label: 'Processing',
+            value: stats.processingAmount,
+            max: maxPipeline,
+            color: palette.info,
+            caption: '${formatCount(stats.processingCount)} payments',
+          ),
+          HorizontalBar(
+            label: 'Paid',
+            value: stats.paidAmount,
+            max: maxPipeline,
+            color: palette.success,
+            caption: '${formatCount(stats.paidCount)} payments',
+          ),
+          if (stats.failedCount > 0)
+            HorizontalBar(
+              label: 'Failed',
+              value: stats.failedAmount,
+              max: maxPipeline,
+              color: palette.danger,
+              caption: '${formatCount(stats.failedCount)} payments',
+            ),
         ],
       ),
     );
+
+    final List<StatusSlice> statuses =
+        data?.statusBreakdown ?? const <StatusSlice>[];
+    final List<StatusSlice> visible = statuses
+        .where((StatusSlice s) => s.amount > 0)
+        .toList(growable: false);
+
+    final Widget statusCard = ChartCard(
+      title: 'Claims by status',
+      subtitle: 'Value, not just count',
+      height: 250,
+      legend: visible
+          .map(
+            (StatusSlice s) => ChartLegendItem(
+              statusLabel(s.status),
+              statusColor(s.status, palette),
+              value: formatMoney(s.amount, compact: true),
+            ),
+          )
+          .toList(growable: false),
+      child: DonutChart(
+        slices: visible
+            .map(
+              (StatusSlice s) => ChartSlice(
+                statusLabel(s.status),
+                s.amount,
+                color: statusColor(s.status, palette),
+              ),
+            )
+            .toList(growable: false),
+        centerValue: data == null
+            ? null
+            : formatMoney(
+                data.summary.approvedAmount + data.summary.reimbursedAmount,
+                compact: true,
+              ),
+        centerLabel: 'approved+paid',
+      ),
+    );
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        if (constraints.maxWidth < 760) {
+          return Column(
+            children: <Widget>[
+              pipeline,
+              const SizedBox(height: 14),
+              statusCard,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(child: pipeline),
+            const SizedBox(width: 14),
+            Expanded(child: statusCard),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTrend(AnalyticsOverview? data) {
+    final List<MonthlyPoint> monthly = data?.monthly ?? const <MonthlyPoint>[];
+    return ChartCard(
+      title: 'Reimbursement trend',
+      subtitle: 'Approved spend per month',
+      height: 200,
+      child: SpendTrendChart(
+        spend: monthly
+            .map((MonthlyPoint p) => ChartPoint(p.label, p.spend))
+            .toList(growable: false),
+        primaryColor: context.palette.success,
+      ),
+    );
+  }
+
+  Widget _buildToPay(AppPalette palette) {
+    final List<ExpenseRecord> approved =
+        _store.expenses
+            .where((ExpenseRecord e) => e.status == 'Approved')
+            .toList()
+          ..sort((ExpenseRecord a, ExpenseRecord b) {
+            // Oldest first: those have waited longest for payment.
+            final DateTime? left = parseLooseDate(a.date);
+            final DateTime? right = parseLooseDate(b.date);
+            if (left == null && right == null) return 0;
+            if (left == null) return 1;
+            if (right == null) return -1;
+            return left.compareTo(right);
+          });
+    final double total = approved.fold<double>(
+      0,
+      (double sum, ExpenseRecord e) => sum + e.amount,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SectionHeader(
+          title: 'Ready to pay',
+          subtitle: approved.isEmpty
+              ? 'Nothing waiting for payment'
+              : '${formatCount(approved.length)} claims · '
+                    '${formatMoney(total)}',
+        ),
+        if (!_store.expensesLoaded)
+          const AppCard(child: SkeletonBox(height: 70, radius: 12))
+        else if (approved.isEmpty)
+          AppCard(
+            child: EmptyState(
+              icon: Icons.task_alt_rounded,
+              title: 'Inbox zero',
+              message: 'Every approved claim has been paid.',
+              compact: true,
+            ),
+          )
+        else
+          Column(
+            children: approved
+                .map((ExpenseRecord expense) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: AppCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              ExpenseDetailsScreen(expenseId: expense.id),
+                        ),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: palette.warning.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(
+                                AppTokens.radiusSm,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              _store.getInitials(expense.name),
+                              style: TextStyle(
+                                color: palette.warning,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  expense.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: palette.text,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${expense.type} · ${expense.date}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: palette.muted,
+                                    fontSize: 11.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: <Widget>[
+                              Text(
+                                formatMoney(expense.amount),
+                                style: TextStyle(
+                                  color: palette.text,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                height: 30,
+                                child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    textStyle: const TextStyle(fontSize: 11.5),
+                                  ),
+                                  onPressed: () =>
+                                      _showMarkPaidDialog(expense, palette),
+                                  child: const Text('Mark paid'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                })
+                .toList(growable: false),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _showMarkPaidDialog(
+    ExpenseRecord expense,
+    AppPalette palette,
+  ) async {
+    final BuildContext messengerContext = context;
+    final MarkPaidOutcome outcome = await showMarkPaidDialog(
+      messengerContext,
+      expense,
+      store: _store,
+    );
+    if (!mounted || !messengerContext.mounted) return;
+    if (outcome == MarkPaidOutcome.paid) {
+      AppSnack.success(messengerContext, 'Expense marked as paid.');
+    }
   }
 }

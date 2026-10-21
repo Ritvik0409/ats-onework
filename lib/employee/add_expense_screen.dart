@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // <-- NEW: Required for strict keyboard locks
-import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:ats_onework/employee/receipt_capture_screen.dart';
-import 'package:ats_onework/management/expense_store.dart';
-import 'package:ats_onework/employee/my_requests_screen.dart';
 
+import '../core/formatting.dart';
+import '../management/expense_store.dart';
+import '../shared/app_snack.dart';
+import '../ui/tokens.dart';
+import '../ui/widgets.dart';
+import 'receipt_capture_screen.dart';
+
+/// The submission form: type, project, amount, date and the receipt.
+///
+/// The fields rely on the app theme for their styling — the old screen
+/// repeated the same five border definitions on every input.
 class AddExpenseScreen extends StatefulWidget {
   const AddExpenseScreen({super.key});
 
@@ -14,15 +21,15 @@ class AddExpenseScreen extends StatefulWidget {
 }
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _descriptionController = TextEditingController();
-  final _amountController = TextEditingController();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _amountController = TextEditingController();
+
   String? _selectedExpenseType;
+  String? _selectedProject;
   DateTime _selectedDate = DateTime.now();
   Uint8List? _receiptBytes;
   bool _isSubmitting = false;
-
-  String? _selectedProject;
 
   @override
   void dispose() {
@@ -32,423 +39,325 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   Future<void> _pickFromGallery() async {
-    final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      final bytes = await image.readAsBytes();
-      if (mounted) {
-        _showPreviewDialog(bytes);
-      }
+    final XFile? image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+    );
+    if (image == null) return;
+    final Uint8List bytes = await image.readAsBytes();
+    if (!mounted) return;
+    await _showPreviewDialog(bytes);
+  }
+
+  Future<void> _showPreviewDialog(Uint8List bytes) async {
+    final bool? use = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Receipt preview'),
+        content: SizedBox(
+          width: 420,
+          height: 320,
+          child: InteractiveViewer(
+            minScale: 1.0,
+            maxScale: 4.0,
+            child: Image.memory(bytes, fit: BoxFit.contain),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Pick another'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Use this receipt'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (use == true) {
+      setState(() => _receiptBytes = bytes);
+    } else if (use == false) {
+      // "Pick another" — go straight back to the gallery.
+      await _pickFromGallery();
     }
   }
 
-  void _showPreviewDialog(Uint8List bytes) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AnimatedBuilder(
-        animation: ExpenseStore.instance,
-        builder: (context, _) {
-          final store = ExpenseStore.instance;
-          return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16), 
-              side: BorderSide(color: store.accentGold.withValues(alpha: 0.2))
-            ),
-            title: Center(child: Text('Receipt Preview', style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold))),
-            content: Container(
-              constraints: const BoxConstraints(maxWidth: 600, maxHeight: 400),
-              child: InteractiveViewer(
-                minScale: 1.0,
-                maxScale: 4.0,
-                child: Image.memory(bytes, fit: BoxFit.contain),
-              ),
-            ),
-            actionsAlignment: MainAxisAlignment.spaceAround,
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                  _pickFromGallery(); 
-                },
-                child: Text('Retake', style: TextStyle(color: store.textMuted)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(dialogContext);
-                  setState(() => _receiptBytes = bytes); 
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: store.accentGold,
-                  foregroundColor: store.isDarkMode ? store.bg : Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('Use This Receipt', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            ],
-          );
-        }
+  Future<void> _captureWithCamera() async {
+    final Uint8List? captured = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute<Uint8List>(
+        builder: (BuildContext context) => const ReceiptCaptureScreen(),
       ),
     );
+    if (captured != null && mounted) {
+      setState(() => _receiptBytes = captured);
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final DateTime now = DateTime.now();
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate.isAfter(now) ? now : _selectedDate,
+      firstDate: DateTime(2000),
+      lastDate: now,
+    );
+    if (picked != null && picked != _selectedDate && mounted) {
+      setState(() => _selectedDate = picked);
+    }
   }
 
   Future<void> _submitExpense() async {
-    if (_formKey.currentState!.validate()) {
-      if (_receiptBytes == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please upload a receipt before submitting.'), backgroundColor: Colors.redAccent));
-        return;
-      }
-      
-      setState(() => _isSubmitting = true);
-
-      final store = ExpenseStore.instance;
-      final dateStr = DateFormat('d MMM yyyy').format(_selectedDate);
-      final error = await store.submitExpense(
-        type: _selectedExpenseType ?? 'Other',
-        amount: double.parse(_amountController.text),
-        date: dateStr,
-        description: _descriptionController.text.trim(),
-        rawDate: _selectedDate,
-        receiptBytes: _receiptBytes,
-        projectId: _selectedProject,
-      );
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-        if (error != null) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error), backgroundColor: Colors.redAccent));
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Expense submitted successfully!', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), backgroundColor: store.accentGold));
-          
-          _descriptionController.clear();
-          _amountController.clear();
-          setState(() {
-            _selectedExpenseType = null;
-            _selectedProject = null;
-            _receiptBytes = null;
-            _selectedDate = DateTime.now();
-          });
-        }
-      }
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_receiptBytes == null) {
+      AppSnack.error(context, 'Please attach a receipt before submitting.');
+      return;
     }
+
+    setState(() => _isSubmitting = true);
+
+    final ExpenseStore store = ExpenseStore.instance;
+    final String? error = await store.submitExpense(
+      type: _selectedExpenseType ?? 'Other',
+      amount: double.parse(_amountController.text),
+      date: formatDate(_selectedDate),
+      description: _descriptionController.text.trim(),
+      rawDate: _selectedDate,
+      receiptBytes: _receiptBytes,
+      projectId: _selectedProject,
+    );
+
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+
+    if (error != null) {
+      AppSnack.error(context, error);
+      return;
+    }
+
+    AppSnack.success(context, 'Expense submitted for approval.');
+    _descriptionController.clear();
+    _amountController.clear();
+    setState(() {
+      _selectedExpenseType = null;
+      _selectedProject = null;
+      _receiptBytes = null;
+      _selectedDate = DateTime.now();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
-    final bool isManagement = store.currentUserRole != 'employee';
+    final ExpenseStore store = ExpenseStore.instance;
 
     return AnimatedBuilder(
       animation: store,
-      builder: (context, _) {
+      builder: (BuildContext context, Widget? _) {
+        final AppPalette palette = context.palette;
         // Read inside the builder: captured outside, the list never
         // refreshed when the store did.
-        final availableProjects = store.myProjects;
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
-        final champagneGold = store.accentGold;
-        
-        final List<BoxShadow> cardShadows = store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 4)),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 12), spreadRadius: -4),
-                BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 2, offset: const Offset(0, -1)),
-              ];
+        final List<ProjectRecord> availableProjects = store.myProjects;
 
         return Scaffold(
-          backgroundColor: obsidianBlack,
-          appBar: AppBar(
-            backgroundColor: darkCharcoal,
-            elevation: 0,
-            iconTheme: IconThemeData(color: textFrost),
-            title: Text('Add New Expense', style: TextStyle(color: textFrost, fontWeight: FontWeight.bold)),
-            actions: [
-              if (isManagement)
-                Padding(
-                  padding: const EdgeInsets.only(right: 16.0, top: 8.0, bottom: 8.0),
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.list_alt_rounded, size: 16),
-                    label: const Text('My Requests', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: champagneGold,
-                      side: BorderSide(color: champagneGold.withValues(alpha: 0.5)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                    ),
-                    onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRequestsScreen()));
-                    },
-                  ),
-                ),
-            ],
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(color: champagneGold.withValues(alpha: 0.15), height: 1),
-            ),
-          ),
-          body: Align(
-            alignment: Alignment.topCenter,
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 600),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (availableProjects.isNotEmpty) ...[
-                        Text('Tag to Project (Optional)', style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedProject,
-                          dropdownColor: darkCharcoal,
-                          style: TextStyle(color: textFrost),
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: darkCharcoal,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300)),
-                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
-                          ),
-                          items: [
-                            DropdownMenuItem<String>(value: null, child: Text('No Project (General Expense)', style: TextStyle(color: textMuted))),
-                            // Keyed by backend id: display names are not
-                            // unique across budgets, and a duplicated
-                            // value crashes the DropdownButton assertion.
-                            ...availableProjects.map(
-                              (p) => DropdownMenuItem<String>(value: p.id, child: Text(p.name)),
-                            ),
-                          ],
-                          onChanged: (value) => setState(() => _selectedProject = value),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
-
-                      Text('Expense Type', style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedExpenseType,
-                        dropdownColor: darkCharcoal,
-                        style: TextStyle(color: textFrost),
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: darkCharcoal,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300)),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
-                        ),
-                        items: store.availableExpenseTypes.map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
-                        onChanged: (value) => setState(() => _selectedExpenseType = value),
-                        validator: (value) => value == null ? 'Please select a type' : null,
-                      ),
-                      const SizedBox(height: 20),
-
-                      Text('Description', style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _descriptionController,
-                        maxLines: 3,
-                        style: TextStyle(color: textFrost),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. Client meeting travel expense',
-                          hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5), fontSize: 14),
-                          filled: true,
-                          fillColor: darkCharcoal,
-                          contentPadding: const EdgeInsets.all(16),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300)),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
-                        ),
-                        validator: (value) => (value == null || value.trim().isEmpty) ? 'Please enter a description' : null,
-                      ),
-                      const SizedBox(height: 20),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Amount (₹)', style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.w600)),
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  controller: _amountController,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
-                                  ],
-                                  style: TextStyle(color: textFrost),
-                                  decoration: InputDecoration(
-                                    hintText: '0.00',
-                                    hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.5), fontSize: 14),
-                                    filled: true,
-                                    fillColor: darkCharcoal,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300)),
-                                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: champagneGold, width: 1.5)),
-                                  ),
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) return 'Required';
-                                    if (double.tryParse(value) == null) return 'Invalid';
-                                    return null;
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Date', style: TextStyle(color: textMuted, fontSize: 13, fontWeight: FontWeight.w600)),
-                                const SizedBox(height: 8),
-                                InkWell(
-                                  onTap: () async {
-                                    final now = DateTime.now();
-                                    final DateTime? picked = await showDatePicker(
-                                      context: context,
-                                      initialDate: _selectedDate.isAfter(now) ? now : _selectedDate,
-                                      firstDate: DateTime(2000),
-                                      lastDate: now,
-                                      builder: (context, child) {
-                                        return Theme(
-                                          data: Theme.of(context).copyWith(
-                                            colorScheme: store.isDarkMode 
-                                              ? ColorScheme.dark(primary: champagneGold, onPrimary: obsidianBlack, surface: darkCharcoal, onSurface: textFrost)
-                                              : ColorScheme.light(primary: champagneGold, onPrimary: Colors.white, surface: darkCharcoal, onSurface: textFrost), dialogTheme: DialogThemeData(backgroundColor: darkCharcoal),
-                                          ),
-                                          child: child!,
-                                        );
-                                      },
-                                    );
-                                    if (picked != null && picked != _selectedDate && mounted) {
-                                      setState(() => _selectedDate = picked);
-                                    }
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                    decoration: BoxDecoration(
-                                      color: darkCharcoal,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: store.isDarkMode ? Colors.transparent : Colors.grey.shade300),
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(DateFormat('d MMM yyyy').format(_selectedDate), style: TextStyle(color: textFrost, fontSize: 14)),
-                                        Icon(Icons.calendar_today_rounded, color: champagneGold, size: 18),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-
-                      Text('Upload Receipt / Bill', style: TextStyle(color: textFrost, fontSize: 14, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: darkCharcoal,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: _receiptBytes != null ? Colors.greenAccent.withValues(alpha: 0.3) : (store.isDarkMode ? champagneGold.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.2))),
-                          boxShadow: cardShadows,
-                        ),
-                        child: Column(
-                          children: [
-                            if (_receiptBytes != null) ...[
-                              const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 40),
-                              const SizedBox(height: 12),
-                              const Text('Receipt is uploaded with your expense for approval.', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 16),
-                              OutlinedButton.icon(
-                                onPressed: () => setState(() => _receiptBytes = null),
-                                icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                                label: const Text('Remove'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.redAccent,
-                                  side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5)),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
+          backgroundColor: palette.bg,
+          appBar: AppBar(title: const Text('Add expense')),
+          body: SingleChildScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        if (availableProjects.isNotEmpty) ...<Widget>[
+                          const AppFieldLabel('Project (optional)'),
+                          DropdownButtonFormField<String>(
+                            initialValue: _selectedProject,
+                            dropdownColor: palette.surfaceAlt,
+                            isExpanded: true,
+                            items: <DropdownMenuItem<String>>[
+                              const DropdownMenuItem<String>(
+                                value: null,
+                                child: Text('No project — general expense'),
                               ),
-                            ] else ...[
-                              Icon(Icons.security_rounded, color: champagneGold, size: 32),
-                              const SizedBox(height: 12),
-                              Text('Receipt will be uploaded with your expense.', style: TextStyle(color: textMuted, fontSize: 13)),
-                              const SizedBox(height: 20),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () async {
-                                        final Uint8List? capturedImage = await Navigator.push(
-                                          context,
-                                          MaterialPageRoute(builder: (context) => const ReceiptCaptureScreen()),
-                                        );
-                                        if (capturedImage != null && mounted) {
-                                          setState(() => _receiptBytes = capturedImage);
-                                        }
-                                      },
-                                      icon: const Icon(Icons.camera_alt_rounded, size: 16),
-                                      label: const Text('Scan with Camera', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        foregroundColor: champagneGold,
-                                        side: BorderSide(color: champagneGold.withValues(alpha: 0.3)),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
+                              // Keyed by backend id: display names are not
+                              // unique across budgets, and a duplicated
+                              // value crashes the DropdownButton assertion.
+                              ...availableProjects.map(
+                                (ProjectRecord project) =>
+                                    DropdownMenuItem<String>(
+                                      value: project.id,
+                                      child: Text(project.name),
                                     ),
+                              ),
+                            ],
+                            onChanged: (String? value) =>
+                                setState(() => _selectedProject = value),
+                          ),
+                          const SizedBox(height: 18),
+                        ],
+
+                        const AppFieldLabel('Expense type'),
+                        DropdownButtonFormField<String>(
+                          initialValue: _selectedExpenseType,
+                          dropdownColor: palette.surfaceAlt,
+                          isExpanded: true,
+                          items: store.availableExpenseTypes
+                              .map(
+                                (String type) => DropdownMenuItem<String>(
+                                  value: type,
+                                  child: Text(type),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: (String? value) =>
+                              setState(() => _selectedExpenseType = value),
+                          validator: (String? value) =>
+                              value == null ? 'Please select a type' : null,
+                        ),
+                        const SizedBox(height: 18),
+
+                        const AppFieldLabel('Description'),
+                        TextFormField(
+                          controller: _descriptionController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. Client meeting travel expense',
+                          ),
+                          validator: (String? value) =>
+                              (value == null || value.trim().isEmpty)
+                              ? 'Please enter a description'
+                              : null,
+                        ),
+                        const SizedBox(height: 18),
+
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  const AppFieldLabel('Amount (₹)'),
+                                  TextFormField(
+                                    controller: _amountController,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: <TextInputFormatter>[
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d+\.?\d*'),
+                                      ),
+                                    ],
+                                    decoration: const InputDecoration(
+                                      hintText: '0.00',
+                                    ),
+                                    validator: (String? value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Required';
+                                      }
+                                      final double? amount = double.tryParse(
+                                        value,
+                                      );
+                                      if (amount == null) return 'Invalid';
+                                      if (amount <= 0) {
+                                        return 'Must be more than zero';
+                                      }
+                                      return null;
+                                    },
                                   ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: _pickFromGallery,
-                                      icon: const Icon(Icons.photo_library_rounded, size: 16),
-                                      label: const Text('Choose from Gallery', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        foregroundColor: champagneGold,
-                                        side: BorderSide(color: champagneGold.withValues(alpha: 0.3)),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  const AppFieldLabel('Date'),
+                                  InkWell(
+                                    onTap: _pickDate,
+                                    borderRadius: BorderRadius.circular(
+                                      AppTokens.radiusMd,
+                                    ),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 16,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: palette.surfaceAlt,
+                                        borderRadius: BorderRadius.circular(
+                                          AppTokens.radiusMd,
+                                        ),
+                                        border: Border.all(
+                                          color: palette.border,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: <Widget>[
+                                          Text(
+                                            formatDate(_selectedDate),
+                                            style: TextStyle(
+                                              color: palette.text,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          Icon(
+                                            Icons.calendar_today_rounded,
+                                            color: palette.gold,
+                                            size: 17,
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                            ]
+                            ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 32),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton(
-                          onPressed: _isSubmitting ? null : _submitExpense,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: champagneGold,
-                            foregroundColor: store.isDarkMode ? Colors.black : Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: _isSubmitting
-                              ? SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: store.isDarkMode ? Colors.black : Colors.white, strokeWidth: 2))
-                              : const Text('Submit Expense', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 22),
+
+                        const SectionHeader(
+                          title: 'Receipt',
+                          subtitle: 'A receipt is required to submit',
                         ),
-                      ),
-                    ],
+                        _receiptCard(palette),
+                        const SizedBox(height: 26),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: FilledButton(
+                            onPressed: _isSubmitting ? null : _submitExpense,
+                            child: _isSubmitting
+                                ? const SizedBox(
+                                    height: 22,
+                                    width: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Submit expense',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -456,6 +365,76 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _receiptCard(AppPalette palette) {
+    if (_receiptBytes != null) {
+      return AppCard(
+        borderColor: palette.success.withValues(alpha: 0.35),
+        child: Column(
+          children: <Widget>[
+            Icon(Icons.check_circle_rounded, color: palette.success, size: 36),
+            const SizedBox(height: 10),
+            Text(
+              'Receipt attached',
+              style: TextStyle(
+                color: palette.success,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _receiptBytes = null),
+              icon: const Icon(Icons.delete_outline_rounded, size: 16),
+              label: const Text('Remove'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: palette.danger,
+                side: BorderSide(color: palette.danger.withValues(alpha: 0.45)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return AppCard(
+      child: Column(
+        children: <Widget>[
+          Icon(Icons.receipt_long_rounded, color: palette.gold, size: 30),
+          const SizedBox(height: 10),
+          Text(
+            'Scan or choose the bill for this expense.',
+            style: TextStyle(color: palette.muted, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _captureWithCamera,
+                  icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                  label: const Text(
+                    'Scan',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickFromGallery,
+                  icon: const Icon(Icons.photo_library_rounded, size: 16),
+                  label: const Text(
+                    'Gallery',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

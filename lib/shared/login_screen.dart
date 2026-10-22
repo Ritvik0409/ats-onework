@@ -101,6 +101,7 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
         List<String> roles = <String>[];
         List<String> permissions = <String>[];
         bool superuser = false;
+        bool profileOk = false;
         try {
           final me = await ApiClient.get('/users/me');
           if (me.statusCode == 200) {
@@ -111,8 +112,23 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
             roles = stringList(profile['roles']);
             permissions = stringList(profile['permissions']);
             superuser = profile['is_superuser'] == true;
+            profileOk = true;
           }
         } catch (_) {}
+
+        // Fail closed: without the profile the portal would open named
+        // "User" with no capabilities — an empty shell that looked like
+        // a broken account. Say so and leave the session on the table.
+        if (!profileOk) {
+          await ApiClient.signOut();
+          ExpenseStore.instance.resetForSignOut();
+          if (!mounted) return;
+          setState(() {
+            _errorMessage =
+                "Signed in, but couldn't load your profile. Please try again.";
+          });
+          return;
+        }
 
         ExpenseStore.instance.currentUserName = userName;
         ExpenseStore.instance.currentUserEmail = userEmail;
@@ -220,6 +236,9 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
                       ],
                       TextFormField(
                         controller: _idController,
+                        keyboardType: TextInputType.emailAddress,
+                        autofillHints: const <String>[AutofillHints.email],
+                        textInputAction: TextInputAction.next,
                         decoration: const InputDecoration(
                           labelText: 'Email',
                           hintText: 'your.name@company.com',
@@ -239,6 +258,9 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
                       TextFormField(
                         controller: _passwordController,
                         obscureText: !_isPasswordVisible,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) =>
+                            _isLoading ? null : _handleLogin(),
                         decoration: InputDecoration(
                           labelText: 'Password',
                           prefixIcon: const Icon(Icons.lock_outline_rounded),
@@ -269,12 +291,14 @@ class _UniversalLoginScreenState extends State<UniversalLoginScreen> {
                         child: FilledButton(
                           onPressed: _isLoading ? null : _handleLogin,
                           child: _isLoading
-                              ? const SizedBox(
+                              ? SizedBox(
                                   height: 20,
                                   width: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: Colors.white,
+                                    color: palette.isDark
+                                        ? AppTokens.darkBg
+                                        : Colors.white,
                                   ),
                                 )
                               : const Text(

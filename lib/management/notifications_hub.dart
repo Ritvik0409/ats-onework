@@ -83,23 +83,36 @@ class _NotificationsHubScreenState extends State<NotificationsHubScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _filters
-                      .map(
-                        (String filter) => ChoiceChip(
-                          label: Text(filter),
-                          selected: _filter == filter,
-                          onSelected: (bool selected) {
-                            if (selected) setState(() => _filter = filter);
-                          },
-                        ),
-                      )
-                      .toList(growable: false),
+                // Same shared bar as the list screens, so filters look
+                // and behave identically everywhere.
+                AppFilterBar(
+                  options: _filters,
+                  value: _filter,
+                  onChanged: (String filter) =>
+                      setState(() => _filter = filter),
                 ),
                 const SizedBox(height: 16),
-                if (items.isEmpty)
+                if (!_store.notificationsLoaded)
+                  // The first fetch is in flight: showing "No activity
+                  // yet" here made a slow network read as an empty feed.
+                  const Padding(
+                    padding: EdgeInsets.only(top: 80),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_store.notificationsError != null)
+                  AppCard(
+                    child: EmptyState(
+                      icon: Icons.cloud_off_rounded,
+                      title: "Couldn't load notifications",
+                      message: _store.notificationsError!,
+                      action: FilledButton.icon(
+                        onPressed: _store.fetchNotificationsFromBackend,
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Retry'),
+                      ),
+                    ),
+                  )
+                else if (items.isEmpty)
                   AppCard(
                     child: EmptyState(
                       icon: Icons.notifications_none_rounded,

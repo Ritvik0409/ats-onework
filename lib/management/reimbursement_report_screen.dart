@@ -81,6 +81,16 @@ class _ReimbursementReportScreenState extends State<ReimbursementReportScreen> {
         .toList(growable: false);
   }
 
+  /// Escapes one CSV field: a comma, quote or newline inside a value
+  /// (an employee name, an email…) would otherwise shift the columns
+  /// of that row and every row after it.
+  String _csvField(String value) {
+    if (!value.contains(',') && !value.contains('"') && !value.contains('\n')) {
+      return value;
+    }
+    return '"${value.replaceAll('"', '""')}"';
+  }
+
   void _downloadCsv(List<ExpenseRecord> rows) {
     if (rows.isEmpty) {
       AppSnack.error(context, 'Nothing to export for this filter.');
@@ -92,13 +102,13 @@ class _ReimbursementReportScreenState extends State<ReimbursementReportScreen> {
     for (final ExpenseRecord expense in rows) {
       csv.writeln(
         <String>[
-          expense.id,
-          expense.name,
-          expense.email,
-          expense.type,
-          expense.amount.toStringAsFixed(2),
-          expense.date,
-          expense.status,
+          _csvField(expense.id),
+          _csvField(expense.name),
+          _csvField(expense.email),
+          _csvField(expense.type),
+          _csvField(expense.amount.toStringAsFixed(2)),
+          _csvField(expense.date),
+          _csvField(expense.status),
         ].join(','),
       );
     }
@@ -106,11 +116,17 @@ class _ReimbursementReportScreenState extends State<ReimbursementReportScreen> {
       AppSnack.info(context, 'CSV export is available in the web build only.');
       return;
     }
-    downloader.downloadFile(
+    final bool ok = downloader.downloadFile(
       utf8.encode(csv.toString()),
       '${widget.exportName}_${DateTime.now().millisecondsSinceEpoch}.csv',
     );
-    AppSnack.success(context, 'Report downloaded.');
+    // The downloader only signals success through its bool — the
+    // snack must match what actually happened.
+    if (ok) {
+      AppSnack.success(context, 'Report downloaded.');
+    } else {
+      AppSnack.error(context, "Couldn't generate the report. Try again.");
+    }
   }
 
   @override
@@ -191,12 +207,49 @@ class _ReimbursementReportScreenState extends State<ReimbursementReportScreen> {
               ),
               const SizedBox(height: 14),
               Expanded(
-                child: rows.isEmpty
+                // The store gates the list: first load in flight, the
+                // load failed (with the reason in expensesError) and
+                // only then empty-vs-data.
+                child: !_store.expensesLoaded
+                    ? const Center(child: CircularProgressIndicator())
+                    : _store.expensesError != null
                     ? Center(
-                        child: EmptyState(
-                          icon: Icons.receipt_long_rounded,
-                          title: widget.emptyTitle,
-                          message: 'Try another timeframe or clear the search.',
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: EmptyState(
+                            icon: Icons.cloud_off_rounded,
+                            title: "Couldn't load claims",
+                            message: _store.expensesError,
+                            action: FilledButton.icon(
+                              onPressed: () =>
+                                  _store.fetchExpensesFromBackend(),
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Retry'),
+                            ),
+                          ),
+                        ),
+                      )
+                    : rows.isEmpty
+                    ? RefreshIndicator(
+                        // Pull-to-refresh must work on the empty state
+                        // too, and a RefreshIndicator only reacts to
+                        // the scroll notifications of a scrollable
+                        // child — so the empty state is one.
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: <Widget>[
+                            const SizedBox(height: 60),
+                            Center(
+                              child: EmptyState(
+                                icon: Icons.receipt_long_rounded,
+                                title: widget.emptyTitle,
+                                message:
+                                    'Try another timeframe or clear the '
+                                    'search.',
+                              ),
+                            ),
+                          ],
                         ),
                       )
                     : ListView.separated(

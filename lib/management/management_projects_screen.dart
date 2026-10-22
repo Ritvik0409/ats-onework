@@ -4,7 +4,9 @@ import 'package:ats_onework/management/expense_store.dart';
 import 'package:ats_onework/management/download_stub.dart'
     if (dart.library.html) 'package:ats_onework/management/download_web.dart';
 import 'package:ats_onework/management/expense_details.dart';
+import 'package:ats_onework/core/status.dart';
 import 'package:ats_onework/shared/app_snack.dart';
+import 'package:ats_onework/ui/tokens.dart';
 import 'package:ats_onework/ui/widgets.dart';
 
 class ManagementProjectsScreen extends StatefulWidget {
@@ -23,11 +25,12 @@ class _ManagementProjectsScreenState extends State<ManagementProjectsScreen> {
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) {
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final champagneGold = store.accentGold;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
+        final AppPalette palette = context.palette;
+        final obsidianBlack = palette.bg;
+        final darkCharcoal = palette.surface;
+        final champagneGold = palette.gold;
+        final textFrost = palette.text;
+        final textMuted = palette.muted;
 
         final projects = store.projects;
 
@@ -223,15 +226,10 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
         animation: store,
         builder: (context, _) {
           return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-            ),
             title: Text(
               'Update Project Budget',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -241,7 +239,10 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
               children: [
                 Text(
                   'Modify allocated budget for ${currentProj.name}.',
-                  style: TextStyle(color: store.textMuted, fontSize: 13),
+                  style: TextStyle(
+                    color: context.palette.muted,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -249,27 +250,9 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  style: TextStyle(color: store.textFrost),
-                  decoration: InputDecoration(
+                  style: TextStyle(color: context.palette.text),
+                  decoration: const InputDecoration(
                     labelText: 'New Budget (₹)',
-                    labelStyle: TextStyle(color: store.textMuted),
-                    filled: true,
-                    fillColor: store.isDarkMode
-                        ? store.bg
-                        : Colors.grey.shade100,
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(
-                        color: store.accentGold.withValues(alpha: 0.3),
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderSide: BorderSide(
-                        color: store.accentGold,
-                        width: 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
                   ),
                 ),
               ],
@@ -277,16 +260,12 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
-                child: Text('Cancel', style: TextStyle(color: store.textMuted)),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: store.accentGold,
-                  foregroundColor: store.isDarkMode ? store.bg : Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(color: context.palette.muted),
                 ),
+              ),
+              FilledButton(
                 onPressed: () async {
                   final newBudget = double.tryParse(budgetCtrl.text.trim());
                   if (newBudget != null && newBudget >= 0) {
@@ -339,42 +318,33 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
     final bool willBeActive = !currentProj.isActive;
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: willBeActive
-                ? store.accentGold.withValues(alpha: 0.3)
-                : Colors.redAccent.withValues(alpha: 0.3),
-          ),
-        ),
+      builder: (dialogContext) {
+        final AppPalette palette = dialogContext.palette;
+        return AlertDialog(
         title: Text(
           willBeActive ? 'Resume Project?' : 'Deactivate Project?',
-          style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: palette.text,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: Text(
           willBeActive
               ? 'Are you sure you want to resume ${currentProj.name}? This will re-enable budget modifications, member additions, and expense submissions.'
               : 'Are you sure you want to close ${currentProj.name}? This will mark the project as deactivated.',
-          style: TextStyle(color: store.textMuted, fontSize: 13),
+          style: TextStyle(color: palette.muted, fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+            child: Text('Cancel', style: TextStyle(color: palette.muted)),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: willBeActive
-                  ? store.accentGold
-                  : Colors.redAccent,
-              foregroundColor: willBeActive && store.isDarkMode
-                  ? store.bg
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: willBeActive ? palette.gold : palette.danger,
+              foregroundColor: palette.isDark
+                  ? AppTokens.darkBg
                   : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
             ),
             onPressed: () async {
               Navigator.pop(dialogContext);
@@ -399,7 +369,8 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
             ),
           ),
         ],
-      ),
+        );
+      },
     );
   }
 
@@ -410,32 +381,14 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) {
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final champagneGold = store.accentGold;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
+        final AppPalette palette = context.palette;
+        final obsidianBlack = palette.bg;
+        final darkCharcoal = palette.surface;
+        final champagneGold = palette.gold;
+        final textFrost = palette.text;
+        final textMuted = palette.muted;
 
-        final List<BoxShadow> cardShadows = store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 24,
-                  offset: const Offset(0, 12),
-                  spreadRadius: -4,
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.02),
-                  blurRadius: 2,
-                  offset: const Offset(0, -1),
-                ),
-              ];
+        final List<BoxShadow> cardShadows = palette.shadow;
 
         final currentProject = store.projects.firstWhere(
           (p) => p.id == project.id,
@@ -579,7 +532,7 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                                     ? Icons.lock_outline_rounded
                                     : Icons.lock_open_rounded,
                                 color: currentProject.isActive
-                                    ? Colors.redAccent
+                                    ? palette.danger
                                     : champagneGold,
                                 size: 16,
                               ),
@@ -589,18 +542,18 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
                                   color: currentProject.isActive
-                                      ? Colors.redAccent
+                                      ? palette.danger
                                       : champagneGold,
                                 ),
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: currentProject.isActive
-                                    ? Colors.redAccent
+                                    ? palette.danger
                                     : champagneGold,
                                 side: BorderSide(
                                   color:
                                       (currentProject.isActive
-                                              ? Colors.redAccent
+                                              ? palette.danger
                                               : champagneGold)
                                           .withValues(alpha: 0.5),
                                 ),
@@ -623,11 +576,7 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: darkCharcoal,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: store.isDarkMode
-                              ? champagneGold.withValues(alpha: 0.2)
-                              : Colors.grey.withValues(alpha: 0.2),
-                        ),
+                        border: Border.all(color: textMuted.withValues(alpha: 0.25)),
                         boxShadow: cardShadows,
                       ),
                       child: Column(
@@ -659,9 +608,7 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(6),
                             child: LinearProgressIndicator(
                               value: pct,
-                              backgroundColor: store.isDarkMode
-                                  ? obsidianBlack
-                                  : Colors.grey.shade200,
+                              backgroundColor: palette.surfaceAlt,
                               valueColor: AlwaysStoppedAnimation<Color>(
                                 champagneGold,
                               ),
@@ -686,12 +633,7 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                         OutlinedButton.icon(
                           onPressed: () {
                             if (projectExpenses.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('No expenses to download.'),
-                                  backgroundColor: Colors.redAccent,
-                                ),
-                              );
+                              AppSnack.info(context, 'No expenses to download.');
                               return;
                             }
                             String csvContent =
@@ -707,16 +649,12 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                               bytes,
                               '${currentProject.name.replaceAll(' ', '_')}_Report_$timestamp.csv',
                             );
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  downloaded
-                                      ? 'Download started!'
-                                      : 'CSV export is available in the web build.',
-                                ),
-                                backgroundColor: champagneGold,
-                              ),
-                            );
+                            downloaded
+                                ? AppSnack.success(context, 'Download started!')
+                                : AppSnack.info(
+                                    context,
+                                    'CSV export is available in the web build.',
+                                  );
                           },
                           icon: Icon(
                             Icons.download_rounded,
@@ -755,9 +693,7 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                           color: darkCharcoal,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: store.isDarkMode
-                                ? Colors.white.withValues(alpha: 0.05)
-                                : Colors.grey.withValues(alpha: 0.2),
+                            color: textMuted.withValues(alpha: 0.25),
                           ),
                           boxShadow: cardShadows,
                         ),
@@ -784,9 +720,7 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                             color: darkCharcoal,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: store.isDarkMode
-                                  ? Colors.white.withValues(alpha: 0.05)
-                                  : Colors.grey.withValues(alpha: 0.2),
+                              color: textMuted.withValues(alpha: 0.25),
                             ),
                             boxShadow: cardShadows,
                           ),
@@ -855,7 +789,10 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
                                         ? 'Payment Pending'
                                         : expense.status,
                                     style: TextStyle(
-                                      color: _getStatusColor(expense.status),
+                                      color: _getStatusColor(
+                                        context,
+                                        expense.status,
+                                      ),
                                       fontSize: 11,
                                       fontWeight: FontWeight.bold,
                                     ),
@@ -876,11 +813,8 @@ class ManagementProjectDetailsScreen extends StatelessWidget {
     );
   }
 
-  Color _getStatusColor(String status) {
-    if (status == 'Approved' || status == 'Paid') return Colors.greenAccent;
-    if (status == 'Rejected') return Colors.redAccent;
-    return Colors.orangeAccent;
-  }
+  Color _getStatusColor(BuildContext context, String status) =>
+      statusColor(status, context.palette);
 }
 
 class CreateProjectScreen extends StatefulWidget {
@@ -912,23 +846,13 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     final budgetText = _budgetCtrl.text.trim();
 
     if (name.isEmpty || budgetText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please fill all fields'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      AppSnack.error(context, 'Please fill all fields');
       return;
     }
 
     final budget = double.tryParse(budgetText);
     if (budget == null || budget <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid budget amount'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      AppSnack.error(context, 'Please enter a valid budget amount.');
       return;
     }
 
@@ -959,32 +883,14 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) {
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final champagneGold = store.accentGold;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
+        final AppPalette palette = context.palette;
+        final obsidianBlack = palette.bg;
+        final darkCharcoal = palette.surface;
+        final champagneGold = palette.gold;
+        final textFrost = palette.text;
+        final textMuted = palette.muted;
 
-        final List<BoxShadow> cardShadows = store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 24,
-                  offset: const Offset(0, 12),
-                  spreadRadius: -4,
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.02),
-                  blurRadius: 2,
-                  offset: const Offset(0, -1),
-                ),
-              ];
+        final List<BoxShadow> cardShadows = palette.shadow;
 
         final allEmployees = store.allEmployees;
         final filteredEmployees = allEmployees.where((emp) {
@@ -1016,9 +922,11 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
             child: Container(
               constraints: const BoxConstraints(maxWidth: 600),
               padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+              child: SingleChildScrollView(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                   Text(
                     'Project Name',
                     style: TextStyle(
@@ -1119,13 +1027,18 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                         );
                         return Chip(
                           backgroundColor: champagneGold,
-                          deleteIconColor: Colors.black,
-                          labelStyle: const TextStyle(
-                            color: Colors.black,
+                          labelStyle: TextStyle(
+                            color: palette.isDark
+                                ? AppTokens.darkBg
+                                : Colors.white,
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
                           ),
-                          label: Text('${empData['name']} (${empData['id']})'),
+                          label: Text(
+                            '${empData['name']} (${empData['id']})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           onDeleted: () {
                             setState(() => _selectedEmployeeIds.remove(empId));
                           },
@@ -1169,19 +1082,35 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                         color: darkCharcoal,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: store.isDarkMode
-                              ? champagneGold.withValues(alpha: 0.1)
-                              : Colors.grey.withValues(alpha: 0.2),
+                          color: textMuted.withValues(alpha: 0.25),
                         ),
                         boxShadow: cardShadows,
                       ),
                       child: Scrollbar(
                         thumbVisibility: true,
-                        child: ListView.separated(
+                        child: filteredEmployees.isEmpty
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Text(
+                                    store.usersError != null
+                                        ? store.usersError!
+                                        : _searchQuery.isEmpty
+                                        ? 'Loading the member directory…'
+                                        : 'No employees match "$_searchQuery".',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: textMuted,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
                           shrinkWrap: false,
                           itemCount: filteredEmployees.length,
                           separatorBuilder: (context, index) => Divider(
-                            color: store.border,
+                            color: palette.border,
                             height: 1,
                           ),
                           itemBuilder: (context, index) {
@@ -1194,14 +1123,16 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                             return CheckboxListTile(
                               value: isChecked,
                               activeColor: champagneGold,
-                              checkColor: store.isDarkMode
-                                  ? Colors.black
-                                  : Colors.white,
+                              checkColor: Theme.of(
+                                context,
+                              ).colorScheme.onPrimary,
                               side: BorderSide(
                                 color: textMuted.withValues(alpha: 0.5),
                               ),
                               title: Text(
                                 emp['name'] ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: textFrost,
                                   fontWeight: FontWeight.bold,
@@ -1209,6 +1140,8 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                               ),
                               subtitle: Text(
                                 'ID: $empId • ${emp['email'] ?? ''}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: textMuted,
                                   fontSize: 12,
@@ -1234,38 +1167,31 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                   SizedBox(
                     width: double.infinity,
                     height: 52,
-                    child: ElevatedButton(
+                    child: FilledButton.icon(
                       onPressed: _isSubmitting ? null : _submit,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: champagneGold,
-                        foregroundColor: store.isDarkMode
-                            ? Colors.black
-                            : Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: _isSubmitting
+                      icon: _isSubmitting
                           ? SizedBox(
-                              height: 24,
-                              width: 24,
+                              height: 18,
+                              width: 18,
                               child: CircularProgressIndicator(
-                                color: store.isDarkMode
-                                    ? Colors.black
+                                color: palette.isDark
+                                    ? AppTokens.darkBg
                                     : Colors.white,
                                 strokeWidth: 2,
                               ),
                             )
-                          : const Text(
-                              'Create Project',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                          : const Icon(Icons.add_rounded, size: 18),
+                      label: const Text(
+                        'Create Project',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -1297,12 +1223,7 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
     ExpenseStore store,
   ) {
     if (!project.isActive) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot add members to a deactivated project.'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      AppSnack.error(context, 'Cannot add members to a deactivated project.');
       return;
     }
 
@@ -1314,121 +1235,94 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
         .where((e) => !memberIds.contains(e['id']))
         .toList();
     final selectedIds = <String>{};
+    bool adding = false;
 
     showDialog(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AnimatedBuilder(
-              animation: store,
-              builder: (context, _) {
-                return AlertDialog(
-                  backgroundColor: store.card,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(
-                      color: store.accentGold.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  title: Text(
-                    'Add Members',
-                    style: TextStyle(
-                      color: store.textFrost,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  content: SizedBox(
-                    width: 500,
-                    // FIX: Changed from fixed 300 to dynamic BoxConstraints to handle longer lists properly.
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: MediaQuery.of(context).size.height * 0.5,
-                      ),
-                      child: available.isEmpty
-                          ? Center(
-                              child: Text(
-                                'No new employees available.',
-                                style: TextStyle(color: store.textMuted),
-                              ),
-                            )
-                          : Scrollbar(
-                              thumbVisibility: true,
-                              child: ListView.separated(
-                                shrinkWrap:
-                                    true, // FIX: Enabled shrinkWrap so it scrolls within constraints
-                                itemCount: available.length,
-                                separatorBuilder: (_, _) => Divider(
-                                  color: store.accentGold.withValues(
-                                    alpha: 0.1,
-                                  ),
-                                  height: 1,
-                                ),
-                                itemBuilder: (context, index) {
-                                  final emp = available[index];
-                                  final empId = emp['id']!;
-                                  final isChecked = selectedIds.contains(empId);
+            final AppPalette palette = context.palette;
+            return AlertDialog(
+              title: const Text('Add Members'),
+              content: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 480,
+                  maxHeight: MediaQuery.of(context).size.height * 0.5,
+                ),
+                child: available.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No new employees available.',
+                          style: TextStyle(color: palette.muted),
+                        ),
+                      )
+                    : Scrollbar(
+                        thumbVisibility: true,
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: available.length,
+                          separatorBuilder: (_, _) =>
+                              Divider(color: palette.border, height: 1),
+                          itemBuilder: (context, index) {
+                            final emp = available[index];
+                            final empId = emp['id']!;
+                            final isChecked = selectedIds.contains(empId);
 
-                                  return CheckboxListTile(
-                                    activeColor: store.accentGold,
-                                    checkColor: store.isDarkMode
-                                        ? store.bg
-                                        : Colors.white,
-                                    side: BorderSide(
-                                      color: store.textMuted.withValues(
-                                        alpha: 0.5,
-                                      ),
-                                    ),
-                                    title: Text(
-                                      emp['name'] ?? '',
-                                      style: TextStyle(
-                                        color: store.textFrost,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      'ID: $empId • ${emp['email']}',
-                                      style: TextStyle(
-                                        color: store.textMuted,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    value: isChecked,
-                                    onChanged: (val) {
-                                      setDialogState(() {
-                                        if (val == true) {
-                                          selectedIds.add(empId);
-                                        } else {
-                                          selectedIds.remove(empId);
-                                        }
-                                      });
-                                    },
-                                  );
-                                },
+                            return CheckboxListTile(
+                              activeColor: palette.gold,
+                              checkColor: Theme.of(
+                                context,
+                              ).colorScheme.onPrimary,
+                              side: BorderSide(
+                                color: palette.muted.withValues(alpha: 0.5),
                               ),
-                            ),
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext),
-                      child: Text(
-                        'Cancel',
-                        style: TextStyle(color: store.textMuted),
-                      ),
-                    ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: store.accentGold,
-                        foregroundColor: store.isDarkMode
-                            ? store.bg
-                            : Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                              title: Text(
+                                emp['name'] ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: palette.text,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: Text(
+                                'ID: $empId • ${emp['email']}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: palette.muted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              value: isChecked,
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  if (val == true) {
+                                    selectedIds.add(empId);
+                                  } else {
+                                    selectedIds.remove(empId);
+                                  }
+                                });
+                              },
+                            );
+                          },
                         ),
                       ),
-                      onPressed: () async {
-                        if (selectedIds.isNotEmpty) {
+              ),
+              actions: [
+                TextButton(
+                  onPressed: adding ? null : () => Navigator.pop(dialogContext),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(color: palette.muted),
+                  ),
+                ),
+                FilledButton(
+                  onPressed: adding || selectedIds.isEmpty
+                      ? null
+                      : () async {
+                          setDialogState(() => adding = true);
                           final ok = await store.addMembersToProject(
                             project.id,
                             selectedIds.toList(),
@@ -1452,16 +1346,19 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                               'Some members could not be added. Please try again.',
                             );
                           }
-                        }
-                      },
-                      child: const Text(
-                        'Add Selected',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                        },
+                  child: adding
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text(
+                          'Add Selected',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                ),
+              ],
             );
           },
         );
@@ -1478,39 +1375,32 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
   ) {
     showDialog(
       context: context,
-      builder: (dialogContext) => AnimatedBuilder(
-        animation: store,
-        builder: (context, _) {
-          return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.3)),
+      builder: (dialogContext) {
+        final AppPalette palette = dialogContext.palette;
+        return AlertDialog(
+          title: Text(
+            'Remove Member?',
+            style: TextStyle(
+              color: palette.text,
+              fontWeight: FontWeight.bold,
             ),
-            title: Text(
-              'Remove Member?',
-              style: TextStyle(
-                color: store.textFrost,
-                fontWeight: FontWeight.bold,
+          ),
+          content: Text(
+            'Are you sure you want to remove $empName from this project?',
+            style: TextStyle(color: palette.muted, fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Cancel', style: TextStyle(color: palette.muted)),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: palette.danger,
+                foregroundColor: palette.isDark
+                    ? AppTokens.darkBg
+                    : Colors.white,
               ),
-            ),
-            content: Text(
-              'Are you sure you want to remove $empName from this project?',
-              style: TextStyle(color: store.textMuted, fontSize: 14),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: Text('Cancel', style: TextStyle(color: store.textMuted)),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
                 onPressed: () async {
                   Navigator.pop(dialogContext);
                   final ok = await store.removeMemberFromProject(
@@ -1536,9 +1426,8 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                 ),
               ),
             ],
-          );
-        },
-      ),
+        );
+      },
     );
   }
 
@@ -1564,31 +1453,13 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
             const <ProjectMemberRecord>[];
         final membersLoading = store.projectMembersLoading && roster.isEmpty;
 
-        final obsidianBlack = store.bg;
-        final darkCharcoal = store.card;
-        final champagneGold = store.accentGold;
-        final textFrost = store.textFrost;
-        final textMuted = store.textMuted;
-        final List<BoxShadow> cardShadows = store.isDarkMode
-            ? <BoxShadow>[]
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 24,
-                  offset: const Offset(0, 12),
-                  spreadRadius: -4,
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.02),
-                  blurRadius: 2,
-                  offset: const Offset(0, -1),
-                ),
-              ];
+        final AppPalette palette = context.palette;
+        final obsidianBlack = palette.bg;
+        final darkCharcoal = palette.surface;
+        final champagneGold = palette.gold;
+        final textFrost = palette.text;
+        final textMuted = palette.muted;
+        final List<BoxShadow> cardShadows = palette.shadow;
 
         return Scaffold(
           backgroundColor: obsidianBlack,
@@ -1662,13 +1533,13 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.redAccent.withValues(alpha: 0.1),
+                            color: palette.danger.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Text(
+                          child: Text(
                             'Project Deactivated',
                             style: TextStyle(
-                              color: Colors.redAccent,
+                              color: palette.danger,
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
                             ),
@@ -1684,9 +1555,7 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                         color: darkCharcoal,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: store.isDarkMode
-                              ? champagneGold.withValues(alpha: 0.2)
-                              : Colors.grey.withValues(alpha: 0.2),
+                          color: textMuted.withValues(alpha: 0.25),
                         ),
                         boxShadow: cardShadows,
                       ),
@@ -1714,12 +1583,8 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                               // Real roster from GET /projects/{id}/members —
                               // assignedEmails is never populated by the backend.
                               itemCount: roster.length,
-                              separatorBuilder: (_, _) => Divider(
-                                color: store.isDarkMode
-                                    ? champagneGold.withValues(alpha: 0.1)
-                                    : Colors.grey.shade200,
-                                height: 1,
-                              ),
+                              separatorBuilder: (_, _) =>
+                              Divider(color: palette.border, height: 1),
                               itemBuilder: (context, index) {
                                 final member = roster[index];
                                 final empId = member.employeeId;
@@ -1767,9 +1632,10 @@ class _ProjectMembersScreenState extends State<ProjectMembersScreen> {
                                   trailing: (!project.isActive || isSelf)
                                       ? const SizedBox.shrink()
                                       : IconButton(
-                                          icon: const Icon(
+                                          tooltip: 'Remove from project',
+                                          icon: Icon(
                                             Icons.person_remove_rounded,
-                                            color: Colors.redAccent,
+                                            color: palette.danger,
                                             size: 20,
                                           ),
                                           onPressed: () => _confirmRemoveMember(

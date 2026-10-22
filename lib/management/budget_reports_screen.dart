@@ -34,6 +34,15 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
   List<Map<String, dynamic>> _cachedBudgetReports = <Map<String, dynamic>>[];
   bool _isLoadingReports = true;
 
+  /// True only when every month's coverage read failed — the whole
+  /// report is unknown, which needs a retry affordance rather than a
+  /// table of zeros. A partial failure renders per-month dashes instead,
+  /// keeping the months that did load useful.
+  bool _coverageFailed = false;
+
+  /// How many of the twelve months could not be read this pass.
+  int _unknownCoverageMonths = 0;
+
   @override
   void initState() {
     super.initState();
@@ -64,36 +73,24 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
     // an explicit monthly row. (The exact-month allocation read that
     // getBudgetForMonth performs is what the allocation screen edits,
     // not what a report should show.)
-    final List<double> budgets = await Future.wait(
+    final List<double?> budgets = await Future.wait(
       months.map(_store.getBudgetCoverageForMonth),
     );
+
+    // A null is "the month could not be read" — never a real total.
+    // Counting them keeps the header and the download honest.
+    final int unknown = budgets.where((double? b) => b == null).length;
 
     for (int i = 0; i < months.length; i++) {
       final DateTime targetMonth = months[i];
       final String monthName = formatMonthLabelLong(targetMonth);
 
-      final double budget = budgets[i];
-
-      double spent = 0;
-      for (final ExpenseRecord expense in _store.expenses) {
-        // Spend is approved + reimbursed, matching the budgets API and
-        // the analytics endpoint. Pending claims are not money out yet,
-        // and counting them under-reported the remaining budget.
-        if (expense.status != 'Approved' && expense.status != 'Paid') {
-          continue;
-        }
-        // The API sends an ISO date ("2026-10-20"). Matching it against
-        // a month abbreviation never matched, so every month reported a
-        // spend of zero.
-        final DateTime? expenseDate = _store.parseBackendDate(expense.date);
-        if (expenseDate == null) continue;
-        if (expenseDate.year == targetMonth.year &&
-            expenseDate.month == targetMonth.month) {
-          spent += expense.amount;
-        }
-      }
-
-      final double variance = budget - spent;
+      final double? budget = budgets[i];
+      final double spent = _spendForMonth(targetMonth);
+      // A month with unknown coverage contributes nothing to the totals
+      // and is flagged, so a network error can no longer print as a
+      // ₹0 allocation with a negative (fake overspend) variance.
+      final double? variance = budget == null ? null : budget - spent;
 
       final String query = _searchQuery.trim().toLowerCase();
       if (query.isNotEmpty && !monthName.toLowerCase().contains(query)) {
@@ -116,13 +113,39 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
     if (!mounted) return;
     setState(() {
       _cachedBudgetReports = reports;
+      _unknownCoverageMonths = unknown;
+      _coverageFailed = unknown == months.length;
       _isLoadingReports = false;
     });
   }
 
+  /// Spend for one month, computed from the already-loaded expenses.
+  double _spendForMonth(DateTime targetMonth) {
+    double spent = 0;
+    for (final ExpenseRecord expense in _store.expenses) {
+      // Spend is approved + reimbursed, matching the budgets API and
+      // the analytics endpoint. Pending claims are not money out yet,
+      // and counting them under-reported the remaining budget.
+      if (expense.status != 'Approved' && expense.status != 'Paid') {
+        continue;
+      }
+      // The API sends an ISO date ("2026-10-20"). Matching it against
+      // a month abbreviation never matched, so every month reported a
+      // spend of zero.
+      final DateTime? expenseDate = _store.parseBackendDate(expense.date);
+      if (expenseDate == null) continue;
+      if (expenseDate.year == targetMonth.year &&
+          expenseDate.month == targetMonth.month) {
+        spent += expense.amount;
+      }
+    }
+    return spent;
+  }
+
   double get _totalAllocatedBudget => _cachedBudgetReports.fold<double>(
     0,
-    (double sum, Map<String, dynamic> r) => sum + (r['budget'] as double),
+    (double sum, Map<String, dynamic> r) =>
+        sum + ((r['budget'] as double?) ?? 0),
   );
 
   double get _totalSpentBudget => _cachedBudgetReports.fold<double>(
@@ -140,12 +163,14 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
       'Remaining Variance (INR)\n',
     );
     for (final Map<String, dynamic> row in _cachedBudgetReports) {
+      // Unknown months export as empty cells — a zero would claim the
+      // organisation had no budget that month.
       csv.writeln(
         <String>[
           '"${row['month']}"',
-          (row['budget'] as double).toStringAsFixed(2),
-          (row['spent'] as double).toStringAsFixed(2),
-          (row['variance'] as double).toStringAsFixed(2),
+          (row['budget'] as double?)?.toStringAsFixed(2) ?? '',
+          (row['spent'] as double?)?.toStringAsFixed(2) ?? '0.00',
+          (row['variance'] as double?)?.toStringAsFixed(2) ?? '',
         ].join(','),
       );
     }
@@ -153,11 +178,17 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
       AppSnack.info(context, 'CSV export is available in the web build only.');
       return;
     }
-    downloader.downloadFile(
+    final bool ok = downloader.downloadFile(
       utf8.encode(csv.toString()),
       'budget_allocation_report_${DateTime.now().millisecondsSinceEpoch}.csv',
     );
-    AppSnack.success(context, 'Budget CSV report downloaded.');
+    // The downloader only signals success through its bool — the
+    // snack must match what actually happened.
+    if (ok) {
+      AppSnack.success(context, 'Budget CSV report downloaded.');
+    } else {
+      AppSnack.error(context, "Couldn't generate the report. Try again.");
+    }
   }
 
   @override
@@ -205,51 +236,67 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
                         horizontal: 16,
                         vertical: 14,
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Column(
                         children: <Widget>[
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: <Widget>[
-                              Text(
-                                'Total allocated',
-                                style: TextStyle(
-                                  color: palette.muted,
-                                  fontSize: 12,
-                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    'Total allocated',
+                                    style: TextStyle(
+                                      color: palette.muted,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    formatMoney(_totalAllocatedBudget),
+                                    style: TextStyle(
+                                      color: palette.text,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                formatMoney(_totalAllocatedBudget),
-                                style: TextStyle(
-                                  color: palette.text,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
-                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: <Widget>[
+                                  Text(
+                                    'Total spent',
+                                    style: TextStyle(
+                                      color: palette.muted,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    formatMoney(_totalSpentBudget),
+                                    style: TextStyle(
+                                      color: palette.gold,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: <Widget>[
-                              Text(
-                                'Total spent',
-                                style: TextStyle(
-                                  color: palette.muted,
-                                  fontSize: 12,
-                                ),
+                          if (_unknownCoverageMonths > 0) ...<Widget>[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Totals cover the ${12 - _unknownCoverageMonths} '
+                              'months that loaded; $_unknownCoverageMonths '
+                              'could not be read and show as dashes below.',
+                              style: TextStyle(
+                                color: palette.muted,
+                                fontSize: 11,
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                formatMoney(_totalSpentBudget),
-                                style: TextStyle(
-                                  color: palette.gold,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -260,6 +307,16 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
               Expanded(
                 child: _isLoadingReports
                     ? const Center(child: CircularProgressIndicator())
+                    : _coverageFailed
+                    ? Center(
+                        child: InlineError(
+                          title: 'Could not load budgets',
+                          message:
+                              'None of the last 12 months could be '
+                              'read from the server. Check your connection.',
+                          onRetry: _loadBudgetHistory,
+                        ),
+                      )
                     : _cachedBudgetReports.isEmpty
                     ? Center(
                         child: EmptyState(
@@ -276,9 +333,10 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
                         itemBuilder: (BuildContext context, int index) {
                           final Map<String, dynamic> row =
                               _cachedBudgetReports[index];
-                          final double budget = row['budget'] as double;
+                          final double? budget = row['budget'] as double?;
                           final double spent = row['spent'] as double;
-                          final double variance = row['variance'] as double;
+                          final double? variance = row['variance'] as double?;
+                          final bool uncovered = budget == null;
 
                           return AppCard(
                             padding: const EdgeInsets.symmetric(
@@ -302,10 +360,18 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Spent ${formatMoney(spent)} · '
-                                        'left ${formatMoney(variance)}',
+                                        uncovered
+                                            ? 'Spent ${formatMoney(spent)} '
+                                                  '· left — (budget not '
+                                                  'loaded)'
+                                            : 'Spent ${formatMoney(spent)} '
+                                                  '· left ${formatMoney(variance!)}',
                                         style: TextStyle(
-                                          color: variance < 0
+                                          // Without a loaded budget there
+                                          // is no variance to paint as
+                                          // danger; the dash stays muted.
+                                          color:
+                                              variance != null && variance < 0
                                               ? palette.danger
                                               : palette.muted,
                                           fontSize: 11,
@@ -315,9 +381,11 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
                                   ),
                                 ),
                                 Text(
-                                  formatMoney(budget),
+                                  uncovered ? '—' : formatMoney(budget),
                                   style: TextStyle(
-                                    color: palette.gold,
+                                    color: uncovered
+                                        ? palette.muted
+                                        : palette.gold,
                                     fontWeight: FontWeight.w700,
                                     fontSize: 14,
                                   ),

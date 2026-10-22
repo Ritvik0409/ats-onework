@@ -57,7 +57,7 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
                   subtitle: data == null
                       ? 'Organization-wide spend and decisions'
                       : '${formatDateRange(data.fromDate, data.toDate)} · '
-                          '${formatCount(data.summary.totalClaims)} claims',
+                            '${formatCount(data.summary.totalClaims)} claims',
                   initials: _store.getInitials(_store.currentUserName),
                   trailing: RangePicker(
                     value: _analytics.range,
@@ -78,7 +78,7 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
                     ),
                   _buildMetrics(data, palette),
                   const SizedBox(height: 20),
-                  _buildDecisionChart(data),
+                  _buildDecisionChart(data, palette),
                   const SizedBox(height: 14),
                   _buildQueueAndSpenders(data, palette),
                   const SizedBox(height: 14),
@@ -108,7 +108,7 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
           subtitle: summary == null
               ? null
               : '${formatCount(summary.approvedCount + summary.reimbursedCount)} '
-                  'approved or paid',
+                    'approved or paid',
           trend: summary?.spendChangePct,
           trendLabel: 'vs prev',
           increaseIsGood: false,
@@ -123,7 +123,7 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
           subtitle: summary == null
               ? null
               : '${formatMoney(summary.budgetRemaining, compact: true)} left of '
-                  '${formatMoney(summary.budgetAllocated, compact: true)}',
+                    '${formatMoney(summary.budgetAllocated, compact: true)}',
         ),
         MetricCard(
           label: 'Open approvals',
@@ -144,43 +144,47 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
           subtitle: summary == null
               ? null
               : '${formatCount(summary.rejectedCount)} rejected · '
-                  '${formatCount(summary.pendingCount)} pending',
+                    '${formatCount(summary.pendingCount)} pending',
         ),
       ],
     );
   }
 
-  Widget _buildDecisionChart(AnalyticsOverview? data) {
+  Widget _buildDecisionChart(AnalyticsOverview? data, AppPalette palette) {
     final List<MonthlyPoint> monthly = data?.monthly ?? const <MonthlyPoint>[];
     return ChartCard(
       title: 'Decision mix over time',
       subtitle: 'Approved, pending and rejected value per month',
       height: 224,
-      legend: const <ChartLegendItem>[
-        ChartLegendItem('Approved', AppTokens.success),
-        ChartLegendItem('Pending', AppTokens.warning),
-        ChartLegendItem('Rejected', AppTokens.danger),
+      // Palette-routed: the fixed dark tokens disagreed with the light
+      // theme's swapped variants.
+      legend: <ChartLegendItem>[
+        ChartLegendItem('Approved', palette.success),
+        ChartLegendItem('Pending', palette.warning),
+        ChartLegendItem('Rejected', palette.danger),
       ],
       child: GroupedBarChart(
-        labels: monthly.map((MonthlyPoint p) => p.label).toList(growable: false),
+        labels: monthly
+            .map((MonthlyPoint p) => p.label)
+            .toList(growable: false),
         series: <ChartSeries>[
           ChartSeries(
             label: 'Approved',
-            color: AppTokens.success,
+            color: palette.success,
             values: monthly
                 .map((MonthlyPoint p) => p.approvedAmount)
                 .toList(growable: false),
           ),
           ChartSeries(
             label: 'Pending',
-            color: AppTokens.warning,
+            color: palette.warning,
             values: monthly
                 .map((MonthlyPoint p) => p.pendingAmount)
                 .toList(growable: false),
           ),
           ChartSeries(
             label: 'Rejected',
-            color: AppTokens.danger,
+            color: palette.danger,
             values: monthly
                 .map((MonthlyPoint p) => p.rejectedAmount)
                 .toList(growable: false),
@@ -190,13 +194,9 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
     );
   }
 
-  Widget _buildQueueAndSpenders(
-    AnalyticsOverview? data,
-    AppPalette palette,
-  ) {
+  Widget _buildQueueAndSpenders(AnalyticsOverview? data, AppPalette palette) {
     final List<AgingBucket> aging = data?.aging ?? const <AgingBucket>[];
-    final List<TopSpender> spenders =
-        data?.topSpenders ?? const <TopSpender>[];
+    final List<TopSpender> spenders = data?.topSpenders ?? const <TopSpender>[];
 
     final Widget agingCard = ChartCard(
       title: 'Review queue age',
@@ -261,7 +261,8 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
   Widget _buildReimbursements(AnalyticsOverview? data, AppPalette palette) {
     final ReimbursementStats stats =
         data?.reimbursements ?? const ReimbursementStats();
-    final double total = stats.paidAmount + stats.openAmount + stats.failedAmount;
+    final double total =
+        stats.paidAmount + stats.openAmount + stats.failedAmount;
 
     return AppCard(
       child: Column(
@@ -272,7 +273,7 @@ class _DirectorDashboardState extends State<DirectorDashboard> {
             subtitle: stats.avgPaymentDays == null
                 ? 'Payment lifecycle across the window'
                 : 'Average ${stats.avgPaymentDays!.toStringAsFixed(1)} days '
-                    'from approval to payment',
+                      'from approval to payment',
             trailing: widget.onReviewRequests == null
                 ? null
                 : TextButton(

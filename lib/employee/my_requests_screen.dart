@@ -75,6 +75,33 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
               Expanded(
                 child: !_store.expensesLoaded
                     ? const _ListSkeleton()
+                    : _store.expensesError != null
+                    // A failed fetch used to fall through to the empty
+                    // state, which lied ("no claims yet"). Show the
+                    // failure with a retry instead — still scrollable so
+                    // pull-to-refresh works.
+                    ? RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: <Widget>[
+                            const SizedBox(height: 60),
+                            EmptyState(
+                              icon: Icons.cloud_off_rounded,
+                              title: "Couldn't load your claims",
+                              message: _store.expensesError!,
+                              action: FilledButton.icon(
+                                onPressed: _store.fetchExpensesFromBackend,
+                                icon: const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text('Retry'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
                     : RefreshIndicator(
                         onRefresh: () => _store.fetchExpensesFromBackend(),
                         child: filtered.isEmpty
@@ -107,7 +134,8 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                                               'rest of your claims.',
                                     action: _store.hasMoreExpenses
                                         ? FilledButton.icon(
-                                            onPressed: _store.expensesLoadingMore
+                                            onPressed:
+                                                _store.expensesLoadingMore
                                                 ? null
                                                 : _store.loadMoreExpenses,
                                             icon: const Icon(
@@ -266,6 +294,9 @@ class _ResubmitButtonState extends State<_ResubmitButton> {
     final TextEditingController controller = TextEditingController();
     final String? answer = await showDialog<String>(
       context: context,
+      // Mis-tapping outside the box used to throw away the whole typed
+      // answer, so the draft is explicit only: Cancel or Resubmit.
+      barrierDismissible: false,
       builder: (BuildContext dialogContext) => AlertDialog(
         title: const Text('Provide the requested details'),
         content: TextField(

@@ -1,4 +1,4 @@
-/// Managing who may do what.
+﻿/// Managing who may do what.
 ///
 /// The capabilities live in the database, and this is where they are
 /// changed: a role's grants, the roles a member holds, and the extra
@@ -158,11 +158,7 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bg = _store.bg;
-    final card = _store.card;
-    final gold = _store.accentGold;
-    final frost = _store.textFrost;
-    final muted = _store.textMuted;
+    final AppPalette palette = context.palette;
 
     // A platform super administrator also maintains the catalogue the
     // organizations are built from, and who the platform administrators
@@ -172,23 +168,21 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
     return DefaultTabController(
       length: isSuper ? 3 : 1,
       child: Scaffold(
-        backgroundColor: bg,
+        backgroundColor: palette.bg,
         appBar: AppBar(
-          backgroundColor: card,
-          foregroundColor: frost,
           title: const Text('Access'),
           actions: [
             IconButton(
               onPressed: _load,
-              icon: Icon(Icons.refresh_rounded, color: gold),
+              icon: Icon(Icons.refresh_rounded, color: palette.gold),
               tooltip: 'Reload',
             ),
           ],
           bottom: isSuper
               ? TabBar(
-                  labelColor: gold,
-                  unselectedLabelColor: muted,
-                  indicatorColor: gold,
+                  labelColor: palette.gold,
+                  unselectedLabelColor: palette.muted,
+                  indicatorColor: palette.gold,
                   tabs: const [
                     Tab(text: 'Organization'),
                     Tab(text: 'Catalogue'),
@@ -198,7 +192,7 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
               : null,
         ),
         body: _loading
-            ? Center(child: CircularProgressIndicator(color: gold))
+            ? Center(child: CircularProgressIndicator(color: palette.gold))
             : _error != null
             ? Center(
                 child: Padding(
@@ -212,9 +206,9 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
               )
             : TabBarView(
                 children: [
-                  _organizationTab(card, gold, frost, muted),
-                  if (isSuper) _catalogueTab(card, gold, frost, muted),
-                  if (isSuper) _administratorsTab(card, gold, frost, muted),
+                  _organizationTab(palette),
+                  if (isSuper) _catalogueTab(palette),
+                  if (isSuper) _administratorsTab(palette),
                 ],
               ),
       ),
@@ -222,7 +216,7 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
   }
 
   /// The organization's own roles, grants and people.
-  Widget _organizationTab(Color card, Color gold, Color frost, Color muted) {
+  Widget _organizationTab(AppPalette palette) {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -234,15 +228,14 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
             DropdownButtonFormField<int>(
               initialValue: _activeOrganizationId,
               isExpanded: true,
-              dropdownColor: card,
-              style: TextStyle(color: frost),
+              style: TextStyle(color: palette.text),
               items: _organizations
                   .map(
                     (org) => DropdownMenuItem<int>(
                       value: (org['organization_id'] as num?)?.toInt(),
                       child: Text(
                         org['name']?.toString() ?? '',
-                        style: TextStyle(color: frost),
+                        style: TextStyle(color: palette.text),
                       ),
                     ),
                   )
@@ -256,11 +249,27 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
             const SizedBox(height: 24),
           ],
           const SectionHeader(title: 'Roles'),
-          ..._roles.map(
-            (role) => _RoleTile(role: role, onTap: () => _openRole(role)),
-          ),
+          if (_roles.isEmpty)
+            EmptyState(
+              icon: Icons.badge_outlined,
+              title: 'No roles yet',
+              message: 'Roles define which capabilities a member holds.',
+              compact: true,
+            )
+          else
+            ..._roles.map(
+              (role) => _RoleTile(role: role, onTap: () => _openRole(role)),
+            ),
           const SizedBox(height: 24),
-          if (_members.isNotEmpty) ...[
+          if (_members.isEmpty) ...[
+            const SectionHeader(title: 'People'),
+            EmptyState(
+              icon: Icons.people_outline_rounded,
+              title: 'No people yet',
+              message: 'People appear here once they join the organization.',
+              compact: true,
+            ),
+          ] else ...[
             const SectionHeader(title: 'People'),
             ..._members.map(
               (member) =>
@@ -291,7 +300,7 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
 
   /// The platform's standard capabilities and roles — the catalogue an
   /// organization is built from.
-  Widget _catalogueTab(Color card, Color gold, Color frost, Color muted) {
+  Widget _catalogueTab(AppPalette palette) {
     final capabilities = _catalogue
         .where((entry) => entry['kind'] == 'permission')
         .toList();
@@ -299,9 +308,14 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
 
     if (_catalogue.isEmpty) {
       return Center(
-        child: Text(
-          'The catalogue could not be read.',
-          style: TextStyle(color: muted),
+        child: EmptyState(
+          icon: Icons.inventory_2_outlined,
+          title: 'The catalogue could not be read',
+          message: 'Pull to refresh, or try again below.',
+          action: OutlinedButton(
+            onPressed: _loadCatalogue,
+            child: const Text('Retry'),
+          ),
         ),
       );
     }
@@ -317,12 +331,15 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
             'built from. Changing one here does not change an '
             'organization that has already installed it — that is done '
             'from the roles of the organization itself.',
-            style: TextStyle(color: muted, fontSize: 12),
+            style: TextStyle(color: palette.muted, fontSize: 12),
           ),
           const SizedBox(height: 16),
           Text(
             'Standard roles',
-            style: TextStyle(color: gold, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              color: palette.gold,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 8),
           ...roles.map(
@@ -334,7 +351,10 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
           const SizedBox(height: 24),
           Text(
             'Standard capabilities',
-            style: TextStyle(color: gold, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              color: palette.gold,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 8),
           ...capabilities.map(
@@ -349,12 +369,17 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
   }
 
   /// The platform's super administrators.
-  Widget _administratorsTab(Color card, Color gold, Color frost, Color muted) {
+  Widget _administratorsTab(AppPalette palette) {
     if (_superusersLoaded != true) {
       return Center(
-        child: Text(
-          'The administrators could not be read.',
-          style: TextStyle(color: muted),
+        child: EmptyState(
+          icon: Icons.admin_panel_settings_outlined,
+          title: 'The administrators could not be read',
+          message: 'Pull to refresh, or try again below.',
+          action: OutlinedButton(
+            onPressed: _loadSuperusers,
+            child: const Text('Retry'),
+          ),
         ),
       );
     }
@@ -369,20 +394,31 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
             'configure any organization. It is separate from an '
             "organization's own administrator, which only governs that "
             'organization.',
-            style: TextStyle(color: muted, fontSize: 12),
+            style: TextStyle(color: palette.muted, fontSize: 12),
           ),
           const SizedBox(height: 16),
           Text(
             'Super administrators',
-            style: TextStyle(color: gold, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          ..._superusers.map(
-            (admin) => _SuperuserTile(
-              admin: admin,
-              onToggle: () => _toggleSuperuser(admin),
+            style: TextStyle(
+              color: palette.gold,
+              fontWeight: FontWeight.bold,
             ),
           ),
+          const SizedBox(height: 8),
+          if (_superusers.isEmpty)
+            EmptyState(
+              icon: Icons.admin_panel_settings_outlined,
+              title: 'No super administrators',
+              message: 'The platform currently runs without one.',
+              compact: true,
+            )
+          else
+            ..._superusers.map(
+              (admin) => _SuperuserTile(
+                admin: admin,
+                onToggle: () => _confirmToggleSuperuser(admin),
+              ),
+            ),
         ],
       ),
     );
@@ -419,16 +455,60 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
   Future<void> _openCatalogEntry(Map<String, dynamic> entry) async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: _store.card,
       isScrollControlled: true,
       builder: (_) => _CatalogEntrySheet(entry: entry, onSaved: _loadCatalogue),
     );
   }
 
-  Future<void> _toggleSuperuser(Map<String, dynamic> admin) async {
+  /// Granting or revoking platform-wide administrator rights by an
+  /// accidental tap is not acceptable — ask first.
+  Future<void> _confirmToggleSuperuser(Map<String, dynamic> admin) async {
+    final name = admin['name']?.toString() ?? '';
+    final isSuper = admin['is_superuser'] == true;
+    final String action = isSuper ? 'Remove' : 'Grant';
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final AppPalette palette = dialogContext.palette;
+        return AlertDialog(
+          title: Text('$action super administrator rights?'),
+          content: Text(
+            isSuper
+                ? '$name will no longer be able to administer the platform '
+                      'or any organization.'
+                : '$name will be able to maintain the catalogue and '
+                      'administer every organization.',
+            style: const TextStyle(fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text('Cancel', style: TextStyle(color: palette.muted)),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: isSuper ? palette.danger : palette.gold,
+                foregroundColor: isSuper
+                    ? Colors.white
+                    : (palette.isDark ? AppTokens.darkBg : Colors.white),
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text('$action rights'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) return;
+    await _toggleSuperuser(admin, isSuper);
+  }
+
+  Future<void> _toggleSuperuser(
+    Map<String, dynamic> admin,
+    bool isSuper,
+  ) async {
     final employeeId = (admin['employee_id'] as num?)?.toInt();
     if (employeeId == null) return;
-    final isSuper = admin['is_superuser'] == true;
     final response = await ApiClient.put(
       '/system/users/$employeeId/superuser',
       {'is_superuser': !isSuper},
@@ -471,7 +551,6 @@ class _AccessManagementScreenState extends State<AccessManagementScreen> {
     if (employeeId == null || orgId == null) return;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: _store.card,
       isScrollControlled: true,
       builder: (_) => _MemberAccessSheet(
         employeeId: employeeId,
@@ -528,10 +607,13 @@ class _SuperuserTile extends StatelessWidget {
       title: admin['name']?.toString() ?? '',
       subtitle: admin['email']?.toString() ?? '',
       leading: Icon(Icons.shield_outlined, color: palette.gold, size: 20),
-      trailing: Switch(
-        value: admin['is_superuser'] == true,
-        activeThumbColor: palette.gold,
-        onChanged: (_) => onToggle(),
+      trailing: Semantics(
+        label: "Toggle super administrator rights for ${admin['name']}",
+        child: Switch(
+          value: admin['is_superuser'] == true,
+          activeThumbColor: palette.gold,
+          onChanged: (_) => onToggle(),
+        ),
       ),
     );
   }
@@ -549,7 +631,6 @@ class _CatalogEntrySheet extends StatefulWidget {
 }
 
 class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
-  final ExpenseStore _store = ExpenseStore.instance;
   late final TextEditingController _description = TextEditingController(
     text: widget.entry['description']?.toString() ?? '',
   );
@@ -563,16 +644,14 @@ class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
 
   @override
   Widget build(BuildContext context) {
-    final gold = _store.accentGold;
-    final frost = _store.textFrost;
-    final muted = _store.textMuted;
+    final AppPalette palette = context.palette;
 
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.55,
       maxChildSize: 0.9,
       builder: (context, controller) => Container(
-        color: _store.card,
+        color: palette.surface,
         child: Column(
           children: [
             Padding(
@@ -580,7 +659,7 @@ class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
               child: Text(
                 widget.entry['name']?.toString() ?? '',
                 style: TextStyle(
-                  color: frost,
+                  color: palette.text,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
@@ -594,6 +673,7 @@ class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
                   TextField(
                     controller: _description,
                     maxLines: 3,
+                    textInputAction: TextInputAction.done,
                     decoration: const InputDecoration(labelText: 'Description'),
                   ),
                   const SizedBox(height: 12),
@@ -603,7 +683,7 @@ class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
                       'when a new organization is created. To change what an '
                       'existing organization grants, use the roles of that '
                       'organization.',
-                      style: TextStyle(color: muted, fontSize: 12),
+                      style: TextStyle(color: palette.muted, fontSize: 12),
                     ),
                 ],
               ),
@@ -613,19 +693,17 @@ class _CatalogEntrySheetState extends State<_CatalogEntrySheet> {
                 padding: const EdgeInsets.all(16),
                 child: SizedBox(
                   width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: gold,
-                      foregroundColor: Colors.black,
-                    ),
+                  child: FilledButton(
                     onPressed: _saving ? null : _save,
                     child: _saving
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.black,
+                              color: palette.isDark
+                                  ? AppTokens.darkBg
+                                  : Colors.white,
                             ),
                           )
                         : const Text('Save'),
@@ -727,7 +805,6 @@ class _RoleGrantsScreen extends StatefulWidget {
 }
 
 class _RoleGrantsScreenState extends State<_RoleGrantsScreen> {
-  final ExpenseStore _store = ExpenseStore.instance;
   late Set<String> _granted;
   bool _saving = false;
 
@@ -739,15 +816,11 @@ class _RoleGrantsScreenState extends State<_RoleGrantsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final frost = _store.textFrost;
-    final muted = _store.textMuted;
-    final gold = _store.accentGold;
+    final AppPalette palette = context.palette;
 
     return Scaffold(
-      backgroundColor: _store.bg,
+      backgroundColor: palette.bg,
       appBar: AppBar(
-        backgroundColor: _store.card,
-        foregroundColor: frost,
         title: Text(widget.role['name']?.toString() ?? 'Role'),
       ),
       body: Column(
@@ -758,19 +831,22 @@ class _RoleGrantsScreenState extends State<_RoleGrantsScreen> {
               children: [
                 Text(
                   'What the ${widget.role['name']} role may do.',
-                  style: TextStyle(color: muted),
+                  style: TextStyle(color: palette.muted),
                 ),
                 const SizedBox(height: 12),
                 ...widget.permissions.map((permission) {
                   final name = permission['api_name']?.toString() ?? '';
                   return CheckboxListTile(
                     value: _granted.contains(name),
-                    activeColor: gold,
-                    checkColor: Colors.black,
-                    title: Text(name, style: TextStyle(color: frost)),
+                    activeColor: palette.gold,
+                    checkColor: Theme.of(context).colorScheme.onPrimary,
+                    title: Text(name, style: TextStyle(color: palette.text)),
                     subtitle: Text(
                       permission['description']?.toString() ?? '',
-                      style: TextStyle(color: muted, fontSize: 12),
+                      style: TextStyle(
+                        color: palette.muted,
+                        fontSize: 12,
+                      ),
                     ),
                     onChanged: (value) {
                       setState(() {
@@ -791,19 +867,17 @@ class _RoleGrantsScreenState extends State<_RoleGrantsScreen> {
               padding: const EdgeInsets.all(16),
               child: SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: gold,
-                    foregroundColor: Colors.black,
-                  ),
+                child: FilledButton(
                   onPressed: _saving ? null : _save,
                   child: _saving
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.black,
+                            color: palette.isDark
+                                ? AppTokens.darkBg
+                                : Colors.white,
                           ),
                         )
                       : const Text('Save'),
@@ -864,11 +938,15 @@ class _MemberAccessSheet extends StatefulWidget {
 }
 
 class _MemberAccessSheetState extends State<_MemberAccessSheet> {
-  final ExpenseStore _store = ExpenseStore.instance;
   Set<int> _roleIds = <int>{};
   Set<String> _direct = <String>{};
   bool _loading = true;
   bool _saving = false;
+
+  /// Set when the member's current access could not be read. The sheet
+  /// must not render unchecked boxes over a failed load — that looks
+  /// like the member holds nothing, and saving would wipe their grants.
+  String? _error;
 
   @override
   void initState() {
@@ -877,12 +955,21 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
   }
 
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final response = await ApiClient.get(
         '/organizations/${widget.organizationId}/access/members/${widget.employeeId}',
       );
       if (response.statusCode != 200) {
-        if (mounted) setState(() => _loading = false);
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = 'Could not read this member\'s access.';
+          });
+        }
         return;
       }
       final body = json.decode(response.body) as Map<String, dynamic>;
@@ -895,22 +982,25 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
       _direct = stringList(body['direct_permissions']).toSet();
       if (mounted) setState(() => _loading = false);
     } catch (e) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Could not read this member\'s access.';
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final frost = _store.textFrost;
-    final muted = _store.textMuted;
-    final gold = _store.accentGold;
+    final AppPalette palette = context.palette;
 
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.8,
       maxChildSize: 0.95,
       builder: (context, controller) => Container(
-        color: _store.card,
+        color: palette.surface,
         child: Column(
           children: [
             Padding(
@@ -918,7 +1008,7 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
               child: Text(
                 widget.member['name']?.toString() ?? 'Access',
                 style: TextStyle(
-                  color: frost,
+                  color: palette.text,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
@@ -926,7 +1016,15 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
             ),
             Expanded(
               child: _loading
-                  ? Center(child: CircularProgressIndicator(color: gold))
+                  ? Center(child: CircularProgressIndicator(color: palette.gold))
+                  : _error != null
+                  ? Center(
+                      child: InlineError(
+                        message: _error!,
+                        title: 'Access could not be read',
+                        onRetry: _load,
+                      ),
+                    )
                   : ListView(
                       controller: controller,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -934,7 +1032,7 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
                         Text(
                           'Roles',
                           style: TextStyle(
-                            color: gold,
+                            color: palette.gold,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -942,11 +1040,12 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
                           final id = (role['role_id'] as num?)?.toInt() ?? 0;
                           return CheckboxListTile(
                             value: _roleIds.contains(id),
-                            activeColor: gold,
-                            checkColor: Colors.black,
+                            activeColor: palette.gold,
+                            checkColor:
+                                Theme.of(context).colorScheme.onPrimary,
                             title: Text(
                               role['name']?.toString() ?? '',
-                              style: TextStyle(color: frost),
+                              style: TextStyle(color: palette.text),
                             ),
                             onChanged: (value) {
                               setState(() {
@@ -963,21 +1062,28 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
                         Text(
                           'Extra capabilities',
                           style: TextStyle(
-                            color: gold,
+                            color: palette.gold,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         Text(
                           'Granted to this person on top of their roles.',
-                          style: TextStyle(color: muted, fontSize: 12),
+                          style: TextStyle(
+                            color: palette.muted,
+                            fontSize: 12,
+                          ),
                         ),
                         ...widget.permissions.map((permission) {
                           final name = permission['api_name']?.toString() ?? '';
                           return CheckboxListTile(
                             value: _direct.contains(name),
-                            activeColor: gold,
-                            checkColor: Colors.black,
-                            title: Text(name, style: TextStyle(color: frost)),
+                            activeColor: palette.gold,
+                            checkColor:
+                                Theme.of(context).colorScheme.onPrimary,
+                            title: Text(
+                              name,
+                              style: TextStyle(color: palette.text),
+                            ),
                             onChanged: (value) {
                               setState(() {
                                 if (value == true) {
@@ -998,19 +1104,17 @@ class _MemberAccessSheetState extends State<_MemberAccessSheet> {
                 padding: const EdgeInsets.all(16),
                 child: SizedBox(
                   width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: gold,
-                      foregroundColor: Colors.black,
-                    ),
-                    onPressed: _saving ? null : _save,
+                  child: FilledButton(
+                    onPressed: _saving || _error != null ? null : _save,
                     child: _saving
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.black,
+                              color: palette.isDark
+                                  ? AppTokens.darkBg
+                                  : Colors.white,
                             ),
                           )
                         : const Text('Save'),

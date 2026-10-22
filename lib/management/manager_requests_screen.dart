@@ -50,7 +50,10 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
               if (!matchesSearch) return false;
               if (_selectedFilter == 'All') return true;
               if (_selectedFilter == 'Pending') {
-                return expense.status == 'Pending Verification';
+                // Same rule as the employee screen: a claim the approver
+                // has asked for more info on is still "waiting on us".
+                return expense.status == 'Pending Verification' ||
+                    expense.status == 'Info Requested';
               }
               return expense.status == _selectedFilter;
             })
@@ -96,7 +99,35 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
               ),
               const SizedBox(height: 14),
               Expanded(
-                child: filtered.isEmpty
+                child: !_store.expensesLoaded
+                    // The first page is still in flight — landing on the
+                    // empty state here made a slow fetch read as "nothing
+                    // matches your filter".
+                    ? const Center(child: CircularProgressIndicator())
+                    : _store.expensesError != null
+                    ? RefreshIndicator(
+                        onRefresh: () => _store.fetchExpensesFromBackend(),
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: <Widget>[
+                            const SizedBox(height: 60),
+                            EmptyState(
+                              icon: Icons.cloud_off_rounded,
+                              title: "Couldn't load the queue",
+                              message: _store.expensesError!,
+                              action: FilledButton.icon(
+                                onPressed: _store.fetchExpensesFromBackend,
+                                icon: const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text('Retry'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : filtered.isEmpty
                     // A scrollable empty state: the queue is paged, so an
                     // empty page can still be followed by more claims —
                     // and pull-to-refresh has to work here too.
@@ -108,16 +139,12 @@ class _ManagerRequestsScreenState extends State<ManagerRequestsScreen> {
                             const SizedBox(height: 60),
                             EmptyState(
                               icon: Icons.search_off_rounded,
-                              title: _store.expensesLoaded
-                                  ? 'No matching claims'
-                                  : 'Loading claims…',
+                              title: 'No matching claims',
                               message: _store.hasMoreExpenses
                                   ? 'More claims are still being loaded — '
                                         'press "Load more" to fetch the next '
                                         'page.'
-                                  : _store.expensesLoaded
-                                  ? 'Try another filter or clear the search.'
-                                  : 'Fetching the review queue.',
+                                  : 'Try another filter or clear the search.',
                               action: _store.hasMoreExpenses
                                   ? FilledButton.icon(
                                       onPressed: _store.expensesLoadingMore

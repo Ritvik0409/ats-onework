@@ -86,28 +86,30 @@ class ExpenseRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: <Widget>[
-                    Text(
-                      expense.type,
-                      style: TextStyle(
-                        color: palette.text,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13.5,
-                      ),
-                    ),
-                    if (expense.projectName != null &&
-                        expense.projectName!.isNotEmpty)
-                      AppTag(
-                        label: expense.projectName!,
-                        icon: Icons.workspaces_rounded,
-                        dense: true,
-                      ),
-                  ],
+                // The claim type always leads on its own line; the project
+                // tag sits in its own steady slot below it. A Wrap of
+                // title+tag used to make the tag jump between "beside the
+                // title" and "under it" depending on length, so adjacent
+                // cards never looked related.
+                Text(
+                  expense.type,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.text,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
                 ),
+                if (expense.projectName != null &&
+                    expense.projectName!.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 5),
+                  AppTag(
+                    label: expense.projectName!,
+                    icon: Icons.workspaces_rounded,
+                    dense: true,
+                  ),
+                ],
                 if (meta.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 3),
                   Text(

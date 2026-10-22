@@ -401,12 +401,14 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
                         child: FilledButton(
                           onPressed: _saving ? null : _handleSave,
                           child: _saving
-                              ? const SizedBox(
+                              ? SizedBox(
                                   height: 20,
                                   width: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.5,
-                                    color: Colors.white,
+                                    color: palette.isDark
+                                        ? AppTokens.darkBg
+                                        : Colors.white,
                                   ),
                                 )
                               : const Text(

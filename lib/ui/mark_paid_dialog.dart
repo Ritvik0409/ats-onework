@@ -37,11 +37,47 @@ Future<MarkPaidOutcome> showMarkPaidDialog(
   String? serverError;
   MarkPaidOutcome outcome = MarkPaidOutcome.cancelled;
 
+  // Double-submit guard: a second tap while the payout call is in
+  // flight must not send the same payment twice.
+  bool submitting = false;
+
   await showDialog<void>(
     context: context,
+    // An accidental tap outside the dialog must not discard the
+    // typed transaction ID, so barrier dismissal is off — the only
+    // way out is Cancel or a completed payment.
+    barrierDismissible: false,
     builder: (BuildContext dialogContext) => StatefulBuilder(
       builder: (BuildContext context, StateSetter setDialogState) {
         final AppPalette palette = AppPalette.of(context);
+
+        // One guarded submit path, shared by the keyboard (Enter on
+        // the transaction ID field) and the confirm button.
+        Future<void> submitPayment() async {
+          if (submitting) return;
+          if (txController.text.trim().isEmpty) {
+            serverError = 'Transaction ID is compulsory.';
+            setDialogState(() {});
+            return;
+          }
+          setDialogState(() => submitting = true);
+          final String? failure = await expenseStore.markPaid(
+            expense.id,
+            txController.text.trim(),
+            receiptBytes: paymentReceiptBytes,
+          );
+          if (!dialogContext.mounted) return;
+          setDialogState(() => submitting = false);
+          if (failure != null) {
+            // Keep the dialog open so the typed reference survives.
+            serverError = failure;
+            setDialogState(() {});
+            return;
+          }
+          outcome = MarkPaidOutcome.paid;
+          Navigator.pop(dialogContext);
+        }
+
         return AlertDialog(
           title: const Text('Mark expense as paid'),
           content: SingleChildScrollView(
@@ -58,6 +94,12 @@ Future<MarkPaidOutcome> showMarkPaidDialog(
                 TextField(
                   controller: txController,
                   autofocus: true,
+                  // The transaction ID is the last field in the dialog,
+                  // so the keyboard's action closes it out.
+                  textInputAction: TextInputAction.done,
+                  // Enter on the keyboard runs the same guarded path
+                  // as the confirm button.
+                  onSubmitted: (_) => submitPayment(),
                   decoration: InputDecoration(
                     labelText: 'Transaction ID *',
                     hintText: 'UPI / NEFT reference',
@@ -113,27 +155,10 @@ Future<MarkPaidOutcome> showMarkPaidDialog(
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () async {
-                if (txController.text.trim().isEmpty) {
-                  serverError = 'Transaction ID is compulsory.';
-                  setDialogState(() {});
-                  return;
-                }
-                final String? failure = await expenseStore.markPaid(
-                  expense.id,
-                  txController.text.trim(),
-                  receiptBytes: paymentReceiptBytes,
-                );
-                if (!dialogContext.mounted) return;
-                if (failure != null) {
-                  // Keep the dialog open so the typed reference survives.
-                  serverError = failure;
-                  setDialogState(() {});
-                  return;
-                }
-                outcome = MarkPaidOutcome.paid;
-                Navigator.pop(dialogContext);
-              },
+              // Locked while a payout is in flight so the guard above
+              // also shows up as a disabled button, not just as a
+              // silently ignored tap.
+              onPressed: submitting ? null : () => submitPayment(),
               child: const Text('Confirm payment'),
             ),
           ],

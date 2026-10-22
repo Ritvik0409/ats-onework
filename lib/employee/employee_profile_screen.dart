@@ -15,38 +15,31 @@ class EmployeeProfileScreen extends StatefulWidget {
 }
 
 class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
-  bool _emailAlerts = true;
-  bool _pushAlerts = true;
-  bool _statusUpdateAlerts = true;
-
   void _confirmLogout(BuildContext context) {
     showDialog(
       context: context,
       builder: (dialogContext) => AnimatedBuilder(
         animation: ExpenseStore.instance,
         builder: (context, _) {
-          final store = ExpenseStore.instance;
           return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-            ),
             title: Text(
               'Log out?',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontWeight: FontWeight.bold,
               ),
             ),
             content: Text(
               'You will need to sign in again to access the Employee Portal.',
-              style: TextStyle(color: store.textMuted, fontSize: 13),
+              style: TextStyle(color: context.palette.muted, fontSize: 13),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
-                child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(color: context.palette.muted),
+                ),
               ),
               TextButton(
                 onPressed: () async {
@@ -69,10 +62,10 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                     );
                   }
                 },
-                child: const Text(
+                child: Text(
                   'Log Out',
                   style: TextStyle(
-                    color: Colors.redAccent,
+                    color: context.palette.danger,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -99,15 +92,10 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
         animation: store,
         builder: (context, _) {
           return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-            ),
             title: Text(
               'Update Full Name',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -118,27 +106,12 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                 children: [
                   TextFormField(
                     controller: nameCtrl,
-                    style: TextStyle(color: store.textFrost, fontSize: 14),
+                    style: TextStyle(color: context.palette.text, fontSize: 14),
                     decoration: InputDecoration(
                       labelText: 'Legal Full Name',
                       labelStyle: TextStyle(
-                        color: store.textMuted,
+                        color: context.palette.muted,
                         fontSize: 13,
-                      ),
-                      filled: true,
-                      fillColor: store.isDarkMode
-                          ? store.bg
-                          : Colors.grey.shade100,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(
-                          color: store.accentGold,
-                          width: 1.5,
-                        ),
                       ),
                     ),
                     validator: (value) {
@@ -158,21 +131,32 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
-                child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(color: context.palette.muted),
+                ),
               ),
               TextButton(
                 onPressed: () async {
                   if (formKey.currentState!.validate()) {
-                    await store.updateName(nameCtrl.text.trim(), isManager);
+                    final bool ok = await store.updateName(
+                      nameCtrl.text.trim(),
+                      isManager,
+                    );
                     if (!dialogContext.mounted) return;
                     Navigator.pop(dialogContext);
-                    _showSnack('Name updated successfully');
+                    ok
+                        ? _showSnack('Name updated successfully')
+                        : AppSnack.error(
+                            context,
+                            "Couldn't update your name. Try again.",
+                          );
                   }
                 },
                 child: Text(
                   'Save',
                   style: TextStyle(
-                    color: store.accentGold,
+                    color: context.palette.gold,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -191,7 +175,6 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
   Widget _preferenceSwitch(
     String label,
     bool value,
-    ExpenseStore store,
     ValueChanged<bool> onChanged,
   ) {
     return Row(
@@ -199,12 +182,12 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
         Expanded(
           child: Text(
             label,
-            style: TextStyle(color: store.textFrost, fontSize: 14),
+            style: TextStyle(color: context.palette.text, fontSize: 14),
           ),
         ),
         Switch(
           value: value,
-          activeThumbColor: store.accentGold,
+          activeThumbColor: context.palette.gold,
           onChanged: onChanged,
         ),
       ],
@@ -212,72 +195,53 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
   }
 
   void _showNotificationPreferences() {
+    final ExpenseStore store = ExpenseStore.instance;
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AnimatedBuilder(
-              animation: ExpenseStore.instance,
-              builder: (context, _) {
-                final store = ExpenseStore.instance;
-                return AlertDialog(
-                  backgroundColor: store.card,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(
-                      color: store.accentGold.withValues(alpha: 0.2),
-                    ),
+        return AnimatedBuilder(
+          animation: store,
+          builder: (context, _) {
+            return AlertDialog(
+              title: Text(
+                'Notification Preferences',
+                style: TextStyle(
+                  color: context.palette.text,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _preferenceSwitch(
+                    'Email alerts',
+                    store.emailAlerts,
+                    (val) => store.setNotificationPreference('email', val),
                   ),
-                  title: Text(
-                    'Notification Preferences',
+                  _preferenceSwitch(
+                    'Push notifications',
+                    store.pushAlerts,
+                    (val) => store.setNotificationPreference('push', val),
+                  ),
+                  _preferenceSwitch(
+                    'Status update alerts',
+                    store.statusUpdateAlerts,
+                    (val) => store.setNotificationPreference('status', val),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(
+                    'Done',
                     style: TextStyle(
-                      color: store.textFrost,
+                      color: context.palette.gold,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _preferenceSwitch(
-                        'Email alerts',
-                        _emailAlerts,
-                        store,
-                        (val) => setDialogState(() => _emailAlerts = val),
-                      ),
-                      _preferenceSwitch(
-                        'Push notifications',
-                        _pushAlerts,
-                        store,
-                        (val) => setDialogState(() => _pushAlerts = val),
-                      ),
-                      _preferenceSwitch(
-                        'Status update alerts',
-                        _statusUpdateAlerts,
-                        store,
-                        (val) =>
-                            setDialogState(() => _statusUpdateAlerts = val),
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(dialogContext);
-                        setState(() {});
-                        _showSnack('Notification preferences updated');
-                      },
-                      child: Text(
-                        'Done',
-                        style: TextStyle(
-                          color: store.accentGold,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                ),
+              ],
             );
           },
         );
@@ -291,17 +255,11 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
       builder: (dialogContext) => AnimatedBuilder(
         animation: ExpenseStore.instance,
         builder: (context, _) {
-          final store = ExpenseStore.instance;
           return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-            ),
             title: Text(
               'Reimbursement Details',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -326,7 +284,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                 child: Text(
                   'Got it',
                   style: TextStyle(
-                    color: store.accentGold,
+                    color: context.palette.gold,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -344,17 +302,11 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
       builder: (dialogContext) => AnimatedBuilder(
         animation: ExpenseStore.instance,
         builder: (context, _) {
-          final store = ExpenseStore.instance;
           return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-            ),
             title: Text(
               'Help & Support',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -365,7 +317,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                 Text(
                   'Need help using ATS OneWork?',
                   style: TextStyle(
-                    color: store.textFrost,
+                    color: context.palette.text,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -382,7 +334,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                 child: Text(
                   'Close',
                   style: TextStyle(
-                    color: store.accentGold,
+                    color: context.palette.gold,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -400,17 +352,11 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
       builder: (dialogContext) => AnimatedBuilder(
         animation: ExpenseStore.instance,
         builder: (context, _) {
-          final store = ExpenseStore.instance;
           return AlertDialog(
-            backgroundColor: store.card,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-            ),
             title: Text(
               'About ATS OneWork',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -421,7 +367,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                 Text(
                   'Version 1.0.0',
                   style: TextStyle(
-                    color: store.textFrost,
+                    color: context.palette.text,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -429,13 +375,13 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                 const SizedBox(height: 10),
                 Text(
                   'A mobile expense submission and approval system for employees and managers.',
-                  style: TextStyle(color: store.textMuted, fontSize: 13),
+                  style: TextStyle(color: context.palette.muted, fontSize: 13),
                 ),
                 const SizedBox(height: 14),
                 Text(
                   'Developed by:',
                   style: TextStyle(
-                    color: store.textFrost,
+                    color: context.palette.text,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -452,7 +398,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                 child: Text(
                   'Close',
                   style: TextStyle(
-                    color: store.accentGold,
+                    color: context.palette.gold,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -675,32 +621,26 @@ class _InfoBullet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: ExpenseStore.instance,
-      builder: (context, _) {
-        final store = ExpenseStore.instance;
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 6.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '•  ',
-                style: TextStyle(
-                  color: store.accentGold,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  text,
-                  style: TextStyle(color: store.textMuted, fontSize: 13),
-                ),
-              ),
-            ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '•  ',
+            style: TextStyle(
+              color: context.palette.gold,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        );
-      },
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(color: context.palette.muted, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

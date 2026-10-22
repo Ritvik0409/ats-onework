@@ -49,7 +49,9 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                 backgroundColor: currentlyActive
                     ? palette.danger
                     : palette.success,
-                foregroundColor: Colors.white,
+                foregroundColor: palette.isDark
+                    ? AppTokens.darkBg
+                    : Colors.white,
               ),
               onPressed: () => Navigator.pop(dialogContext, true),
               child: Text(action),
@@ -60,12 +62,16 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
     );
 
     if (confirmed != true) return;
-    await store.setEmployeeActive(email, !currentlyActive);
+    final bool ok = await store.setEmployeeActive(email, !currentlyActive);
     if (!mounted) return;
     if (currentlyActive) {
-      AppSnack.error(context, '$name deactivated');
+      ok
+          ? AppSnack.info(context, '$name deactivated')
+          : AppSnack.error(context, "Couldn't deactivate $name. Try again.");
     } else {
-      AppSnack.success(context, '$name reactivated');
+      ok
+          ? AppSnack.success(context, '$name reactivated')
+          : AppSnack.error(context, "Couldn't reactivate $name. Try again.");
     }
   }
 
@@ -104,6 +110,18 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
               Expanded(
                 child: !store.usersLoaded
                     ? const Center(child: CircularProgressIndicator())
+                    : store.usersError != null && store.usersList.isEmpty
+                    ? Center(
+                        child: EmptyState(
+                          icon: Icons.cloud_off_outlined,
+                          title: "Couldn't load the directory",
+                          message: store.usersError,
+                          action: OutlinedButton(
+                            onPressed: store.fetchUsersFromBackend,
+                            child: const Text('Retry'),
+                          ),
+                        ),
+                      )
                     : employees.isEmpty
                     ? Center(
                         child: EmptyState(
@@ -208,11 +226,16 @@ class _EmployeeManagementScreenState extends State<EmployeeManagementScreen> {
                                     ],
                                   ),
                                 ),
-                                Switch(
-                                  value: isActive,
-                                  activeThumbColor: palette.gold,
-                                  onChanged: (_) =>
-                                      _confirmToggle(email, name, isActive),
+                                Semantics(
+                                  label: '$name — toggle access (${
+                                    isActive ? 'active' : 'deactivated'
+                                  })',
+                                  child: Switch(
+                                    value: isActive,
+                                    activeThumbColor: palette.gold,
+                                    onChanged: (_) =>
+                                        _confirmToggle(email, name, isActive),
+                                  ),
                                 ),
                               ],
                             ),

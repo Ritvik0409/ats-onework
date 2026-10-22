@@ -309,6 +309,13 @@ class _FinanceDashboardState extends State<FinanceDashboard> {
         ),
         if (!_store.expensesLoaded)
           const AppCard(child: SkeletonBox(height: 70, radius: 12))
+        else if (_store.expensesError != null)
+          // The load failed — say so instead of claiming "Inbox zero".
+          InlineError(
+            title: 'Could not load the payout queue',
+            message: _store.expensesError!,
+            onRetry: () => _store.fetchExpensesFromBackend(),
+          )
         else if (approved.isEmpty)
           AppCard(
             child: EmptyState(

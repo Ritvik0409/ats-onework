@@ -239,12 +239,14 @@ class _BudgetSetupScreenState extends State<BudgetSetupScreen> {
                           child: FilledButton(
                             onPressed: _isSaving ? null : _handleSave,
                             child: _isSaving
-                                ? const SizedBox(
+                                ? SizedBox(
                                     width: 20,
                                     height: 20,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2.5,
-                                      color: Colors.white,
+                                      color: palette.isDark
+                                          ? AppTokens.darkBg
+                                          : Colors.white,
                                     ),
                                   )
                                 : const Text(

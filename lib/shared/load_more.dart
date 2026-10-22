@@ -7,7 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import 'package:ats_onework/management/expense_store.dart';
+import 'package:ats_onework/ui/tokens.dart';
 
 /// Shows a button that fetches the next page, when there is one.
 ///
@@ -27,7 +27,7 @@ class LoadMoreFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final store = ExpenseStore.instance;
+    final AppPalette palette = context.palette;
     if (!hasMore) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 20),
@@ -40,13 +40,15 @@ class LoadMoreFooter extends StatelessWidget {
               )
             : OutlinedButton.icon(
                 onPressed: onLoad,
-                icon: Icon(Icons.expand_more_rounded, color: store.accentGold),
+                icon: Icon(Icons.expand_more_rounded, color: palette.gold),
                 label: Text(
                   'Load more',
-                  style: TextStyle(color: store.accentGold),
+                  style: TextStyle(color: palette.gold),
                 ),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: store.accentGold.withValues(alpha: 0.4)),
+                  side: BorderSide(
+                    color: palette.gold.withValues(alpha: 0.4),
+                  ),
                 ),
               ),
       ),

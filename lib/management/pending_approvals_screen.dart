@@ -18,6 +18,17 @@ class PendingApprovalsScreen extends StatefulWidget {
 }
 
 class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
+  /// Whether the first load is still on its way — the "All caught up"
+  /// state must not show while the queue is still being fetched.
+  bool _loading = true;
+
+  /// Set when the queue failed to load.
+  String? _error;
+
+  /// One queue decision at a time: buttons lock while a decide call is
+  /// in flight so a second tap can't double-submit.
+  bool _busy = false;
+
   @override
   void initState() {
     super.initState();
@@ -25,8 +36,42 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
     // restarted the request on every rebuild, and the fetch notifies
     // listeners — so the screen refetched itself in a loop.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ExpenseStore.instance.fetchProjectRequestsFromBackend();
+      if (mounted) _refresh();
     });
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final bool ok = await ExpenseStore.instance.fetchProjectRequestsFromBackend();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _error = ok ? null : "Couldn't load the requests. Check your connection.";
+    });
+  }
+
+  Future<void> _decide({
+    required bool approve,
+    required String requestId,
+    required Future<void> Function() successUi,
+    required String failMessage,
+  }) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final bool ok = await ExpenseStore.instance.decideProjectAccess(
+      requestId,
+      approve,
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (ok) {
+      await successUi();
+    } else {
+      AppSnack.error(context, failMessage);
+    }
   }
 
   void _showApproveDialog(
@@ -90,19 +135,18 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                 ? null
                 : () async {
                     if (dialogContext.mounted) Navigator.pop(dialogContext);
-                    final bool ok = await store.decideProjectAccess(
-                      requestId,
-                      true,
+                    await _decide(
+                      approve: true,
+                      requestId: requestId,
+                      successUi: () async {
+                        if (!context.mounted) return;
+                        AppSnack.success(
+                          context,
+                          '$employeeName assigned successfully.',
+                        );
+                      },
+                      failMessage: 'Could not approve the request.',
                     );
-                    if (!context.mounted) return;
-                    if (ok) {
-                      AppSnack.success(
-                        context,
-                        '$employeeName assigned successfully.',
-                      );
-                    } else {
-                      AppSnack.error(context, 'Could not approve the request.');
-                    }
                   },
             child: const Text('Confirm & grant access'),
           ),
@@ -137,25 +181,24 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
             FilledButton(
               style: FilledButton.styleFrom(
                 backgroundColor: palette.danger,
-                foregroundColor: Colors.white,
+                foregroundColor: palette.isDark ? AppTokens.darkBg : Colors.white,
               ),
               onPressed: requestId.isEmpty
                   ? null
                   : () async {
                       Navigator.pop(dialogContext);
-                      final bool ok = await store.decideProjectAccess(
-                        requestId,
-                        false,
+                      await _decide(
+                        approve: false,
+                        requestId: requestId,
+                        successUi: () async {
+                          if (!context.mounted) return;
+                          AppSnack.info(
+                            context,
+                            'Project access request denied.',
+                          );
+                        },
+                        failMessage: 'Could not deny the request.',
                       );
-                      if (!context.mounted) return;
-                      if (ok) {
-                        AppSnack.info(
-                          context,
-                          'Project access request denied.',
-                        );
-                      } else {
-                        AppSnack.error(context, 'Could not deny the request.');
-                      }
                     },
               child: const Text('Yes, deny'),
             ),
@@ -184,8 +227,34 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
 
         return Scaffold(
           backgroundColor: palette.bg,
-          appBar: AppBar(title: const Text('Project access requests')),
-          body: requests.isEmpty
+          appBar: AppBar(
+            title: const Text('Project access requests'),
+            actions: [
+              IconButton(
+                tooltip: 'Reload',
+                onPressed: _busy ? null : _refresh,
+                icon: Icon(Icons.refresh_rounded, color: palette.gold),
+              ),
+            ],
+          ),
+          body: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: EmptyState(
+                      icon: Icons.cloud_off_outlined,
+                      title: "Couldn't load the requests",
+                      message: _error,
+                      action: OutlinedButton(
+                        onPressed: _refresh,
+                        child: const Text('Retry'),
+                      ),
+                    ),
+                  ),
+                )
+              : requests.isEmpty
               ? Center(
                   child: EmptyState(
                     icon: Icons.check_circle_outline_rounded,
@@ -259,14 +328,17 @@ class _PendingApprovalsScreenState extends State<PendingApprovalsScreen> {
                                 color: palette.danger.withValues(alpha: 0.4),
                               ),
                             ),
-                            onPressed: () =>
-                                _handleDeny(context, request, store),
+                            onPressed: _busy
+                                ? null
+                                : () => _handleDeny(context, request, store),
                             child: const Text('Deny'),
                           ),
                           const SizedBox(width: 8),
                           FilledButton(
-                            onPressed: () =>
-                                _showApproveDialog(context, request, store),
+                            onPressed: _busy
+                                ? null
+                                : () =>
+                                      _showApproveDialog(context, request, store),
                             child: const Text('Approve'),
                           ),
                         ],

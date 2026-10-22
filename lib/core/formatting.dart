@@ -16,6 +16,7 @@ final NumberFormat _compact = NumberFormat('0.#', 'en_IN');
 
 final DateFormat _dayMonth = DateFormat('d MMM');
 final DateFormat _fullDate = DateFormat('d MMM yyyy');
+final DateFormat _dateTime = DateFormat('d MMM yyyy, HH:mm');
 
 /// `₹1,24,500` (Indian grouping). Values below ₹1,000 keep no decimals
 /// only when they are whole numbers, so a ₹499.50 expense still reads
@@ -63,6 +64,9 @@ String formatCount(int value) =>
     NumberFormat.decimalPattern('en_IN').format(value);
 
 String formatDate(DateTime date) => _fullDate.format(date);
+
+/// A date with its time — the audit trail needs both.
+String formatDateTime(DateTime date) => _dateTime.format(date);
 
 String formatMonthLabel(DateTime date) => DateFormat('MMM yyyy').format(date);
 

@@ -25,6 +25,19 @@ def _expense_scope(employee_id: int | None) -> tuple[str, tuple[object, ...]]:
     return " AND e.employee_id = %s", (employee_id,)
 
 
+def _budget_scope(employee_id: int | None, alias: str) -> tuple[str, tuple[object, ...]]:
+    """Optional owner filter for budget reads.
+
+    A budget belongs to the employee it was allocated to, so the personal
+    view has to read *that* employee's budgets — not the organization's
+    total, which would put the whole company's allocation next to one
+    person's spending.
+    """
+    if employee_id is None:
+        return "", ()
+    return f" AND {alias}.employee_id = %s", (employee_id,)
+
+
 _SPEND_FILTER = "e.status IN ('approved', 'reimbursed')"
 
 
@@ -93,12 +106,14 @@ class AnalyticsRepository:
         organization_id: int,
         from_date: date,
         to_date: date,
+        employee_id: int | None = None,
     ) -> Row:
+        scope, scope_args = _budget_scope(employee_id, "budgets")
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT COALESCE(SUM(amount), 0) AS budget FROM budgets"
-                " WHERE organization_id = %s AND start_date <= %s AND end_date >= %s",
-                (organization_id, to_date, from_date),
+                " WHERE organization_id = %s AND start_date <= %s AND end_date >= %s" + scope,
+                (organization_id, to_date, from_date, *scope_args),
             )
             row = await cur.fetchone()
         return row or {}
@@ -114,6 +129,7 @@ class AnalyticsRepository:
     ) -> list[Row]:
         """One row per calendar month, zero-filled by ``generate_series``."""
         scope, scope_args = _expense_scope(employee_id)
+        budget_scope, budget_scope_args = _budget_scope(employee_id, "bd")
         async with conn.cursor() as cur:
             await cur.execute(
                 "WITH months AS ("
@@ -154,8 +170,7 @@ class AnalyticsRepository:
                 "       FROM budgets bd"
                 "      WHERE bd.organization_id = %s"
                 "        AND bd.start_date < (m.month_start + interval '1 month')::date"
-                "        AND bd.end_date >= m.month_start"
-                "   ) b ON TRUE"
+                "        AND bd.end_date >= m.month_start" + budget_scope + "   ) b ON TRUE"
                 "  ORDER BY m.month_start",
                 (
                     month_start,
@@ -163,6 +178,7 @@ class AnalyticsRepository:
                     organization_id,
                     *scope_args,
                     organization_id,
+                    *budget_scope_args,
                 ),
             )
             return list(await cur.fetchall())

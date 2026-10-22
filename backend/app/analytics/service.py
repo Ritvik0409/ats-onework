@@ -101,6 +101,8 @@ class AnalyticsService:
 
         month_start = start.replace(day=1)
         month_end = end.replace(day=1)
+        # The organization view is not scoped to the caller: the whole
+        # tenant's spend and the whole tenant's budget.
         monthly_rows = await self._repository.monthly(
             conn,
             organization_id=organization_id,

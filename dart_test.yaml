@@ -1,0 +1,9 @@
+# Tags for the test suites.
+#
+# `live` talks to a running backend — it is skipped unless LIVE_API=1 is
+# set and something is listening on 127.0.0.1:8000. Run it with:
+#
+#   set LIVE_API=1 && flutter test --tags live
+tags:
+  live:
+    timeout: 2x

@@ -22,6 +22,7 @@ import 'package:ats_onework/employee/employee_projects.dart';
 import 'package:ats_onework/employee/employee_wait_screen.dart';
 import 'package:ats_onework/employee/my_requests_screen.dart';
 import 'package:ats_onework/management/access_management_screen.dart';
+import 'package:ats_onework/management/audit_log_screen.dart';
 import 'package:ats_onework/management/budget_allocation_screen.dart';
 import 'package:ats_onework/management/director_dashboard.dart';
 import 'package:ats_onework/management/employee_management_screen.dart';
@@ -47,6 +48,7 @@ enum PortalTab {
   toPay,
   paid,
   access,
+  audit,
   profile,
 }
 
@@ -99,21 +101,20 @@ class _PortalShellState extends State<PortalShell> {
 
   Future<void> _openNotifications() async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const NotificationsHubScreen(),
-      ),
+      MaterialPageRoute<void>(builder: (_) => const NotificationsHubScreen()),
     );
   }
 
-  Future<void> _openAdmin(Widget screen) => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => screen),
-      );
+  Future<void> _openAdmin(Widget screen) => Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => screen));
 
   /// Employee dashboard callbacks are tab identities, not legacy indexes,
   /// so a custom tab set can never land the person on the wrong page.
   Widget _dashboardFor(ExpenseStore store) {
     final bool managementUser = store.hasManagementAccess || store.isSuperUser;
-    final bool canUseOrgAnalytics = store.canReadAllExpenses || store.isSuperUser;
+    final bool canUseOrgAnalytics =
+        store.canReadAllExpenses || store.isSuperUser;
     if (!managementUser || !canUseOrgAnalytics) {
       // A custom management role may hold project or people capabilities
       // without `expense.read_all`. The organization dashboard would 403,
@@ -140,7 +141,8 @@ class _PortalShellState extends State<PortalShell> {
 
   List<_PortalEntry> _entries(ExpenseStore store) {
     final bool managementUser = store.hasManagementAccess || store.isSuperUser;
-    final bool canBuildProjects = store.can('project.create') ||
+    final bool canBuildProjects =
+        store.can('project.create') ||
         store.can('project.manage') ||
         store.can('project.member.manage');
 
@@ -237,6 +239,19 @@ class _PortalShellState extends State<PortalShell> {
         ),
       );
     }
+    // The audit trail is admin-only on the server; the capability
+    // decides whether the tab is there at all.
+    if (store.canReadAuditLog) {
+      entries.add(
+        const _PortalEntry(
+          tab: PortalTab.audit,
+          label: 'Audit',
+          icon: Icons.history_rounded,
+          selectedIcon: Icons.history_toggle_off_rounded,
+          screen: AuditLogScreen(),
+        ),
+      );
+    }
     entries.add(
       _PortalEntry(
         tab: PortalTab.profile,
@@ -285,14 +300,18 @@ class _PortalShellState extends State<PortalShell> {
           _selectedTab = _home;
         }
 
-        final List<_PortalEntry> primary =
-            entries.take(maxPrimary).toList(growable: false);
-        final List<_PortalEntry> overflow =
-            entries.skip(maxPrimary).toList(growable: false);
-        final int stackIndex =
-            entries.indexWhere((_PortalEntry e) => e.tab == _selectedTab);
-        final bool selectedIsOverflow =
-            !primary.any((_PortalEntry e) => e.tab == _selectedTab);
+        final List<_PortalEntry> primary = entries
+            .take(maxPrimary)
+            .toList(growable: false);
+        final List<_PortalEntry> overflow = entries
+            .skip(maxPrimary)
+            .toList(growable: false);
+        final int stackIndex = entries.indexWhere(
+          (_PortalEntry e) => e.tab == _selectedTab,
+        );
+        final bool selectedIsOverflow = !primary.any(
+          (_PortalEntry e) => e.tab == _selectedTab,
+        );
 
         final Widget stack = IndexedStack(
           index: stackIndex < 0 ? 0 : stackIndex,
@@ -333,11 +352,8 @@ class _PortalShellState extends State<PortalShell> {
             primary: primary,
             selectedTab: _selectedTab,
             selectedIsOverflow: selectedIsOverflow,
-            onOpenMore: () => _showMoreSheet(
-              context,
-              entries: entries,
-              primary: primary,
-            ),
+            onOpenMore: () =>
+                _showMoreSheet(context, entries: entries, primary: primary),
           ),
         );
       },
@@ -354,8 +370,9 @@ class _PortalShellState extends State<PortalShell> {
     required bool selectedIsOverflow,
     required VoidCallback onOpenMore,
   }) {
-    final List<NavigationDestination> destinations =
-        primary.map((_PortalEntry entry) {
+    final List<NavigationDestination> destinations = primary.map((
+      _PortalEntry entry,
+    ) {
       return NavigationDestination(
         icon: Icon(entry.icon),
         selectedIcon: Icon(entry.selectedIcon),
@@ -410,8 +427,10 @@ class _PortalShellState extends State<PortalShell> {
       builder: (BuildContext sheetContext) {
         final AppPalette palette = sheetContext.palette;
         final List<_PortalEntry> overflow = entries
-            .where((_PortalEntry e) =>
-                !primary.any((_PortalEntry p) => p.tab == e.tab))
+            .where(
+              (_PortalEntry e) =>
+                  !primary.any((_PortalEntry p) => p.tab == e.tab),
+            )
             .toList(growable: false);
 
         return SafeArea(
@@ -450,8 +469,7 @@ class _PortalShellState extends State<PortalShell> {
                           ? Icon(Icons.check_rounded, color: palette.gold)
                           : null,
                       shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppTokens.radiusMd),
+                        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
                       ),
                       onTap: () {
                         Navigator.pop(sheetContext);
@@ -466,8 +484,10 @@ class _PortalShellState extends State<PortalShell> {
                   leading: Badge(
                     isLabelVisible: _store.unreadNotificationCount > 0,
                     label: Text('${_store.unreadNotificationCount}'),
-                    child: Icon(Icons.notifications_none_rounded,
-                        color: palette.muted),
+                    child: Icon(
+                      Icons.notifications_none_rounded,
+                      color: palette.muted,
+                    ),
                   ),
                   title: Text(
                     'Notifications',
@@ -509,8 +529,10 @@ class _PortalShellState extends State<PortalShell> {
                   _sheetLabel(palette, 'Admin tools'),
                   if (_store.can('budget.manage'))
                     ListTile(
-                      leading: Icon(Icons.account_balance_wallet_rounded,
-                          color: palette.muted),
+                      leading: Icon(
+                        Icons.account_balance_wallet_rounded,
+                        color: palette.muted,
+                      ),
                       title: Text(
                         'Budget allocation',
                         style: TextStyle(
@@ -519,8 +541,7 @@ class _PortalShellState extends State<PortalShell> {
                         ),
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppTokens.radiusMd),
+                        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
                       ),
                       onTap: () {
                         Navigator.pop(sheetContext);
@@ -529,8 +550,10 @@ class _PortalShellState extends State<PortalShell> {
                     ),
                   if (_store.canManagePeople)
                     ListTile(
-                      leading: Icon(Icons.manage_accounts_rounded,
-                          color: palette.muted),
+                      leading: Icon(
+                        Icons.manage_accounts_rounded,
+                        color: palette.muted,
+                      ),
                       title: Text(
                         'Employee management',
                         style: TextStyle(
@@ -539,8 +562,7 @@ class _PortalShellState extends State<PortalShell> {
                         ),
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppTokens.radiusMd),
+                        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
                       ),
                       onTap: () {
                         Navigator.pop(sheetContext);
@@ -565,17 +587,17 @@ class _PortalShellState extends State<PortalShell> {
   }
 
   Widget _sheetLabel(AppPalette palette, String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-        child: Text(
-          text.toUpperCase(),
-          style: TextStyle(
-            color: palette.gold,
-            fontSize: 10.5,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.3,
-          ),
-        ),
-      );
+    padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+    child: Text(
+      text.toUpperCase(),
+      style: TextStyle(
+        color: palette.gold,
+        fontSize: 10.5,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 1.3,
+      ),
+    ),
+  );
 
   // ----------------------------------------------------------------- wide
 
@@ -646,7 +668,8 @@ class _PortalShellState extends State<PortalShell> {
                 color: palette.muted,
               ),
             ),
-            if (overflow.isNotEmpty || _store.can('budget.manage') ||
+            if (overflow.isNotEmpty ||
+                _store.can('budget.manage') ||
                 _store.canManagePeople)
               IconButton(
                 tooltip: 'More',

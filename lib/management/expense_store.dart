@@ -1594,28 +1594,31 @@ class ExpenseStore extends ChangeNotifier {
   /// explicit monthly row, and mixing the yearly seed allocation into
   /// that edit box invited saving a second overlapping row instead of
   /// editing one.
-  Future<double> getBudgetCoverageForMonth(DateTime month) async {
+  ///
+  /// Returns `null` when the month could not be read. The old "return
+  /// 0.0 on failure" made a network error print as a month with no
+  /// allocation and a negative variance — spend against a budget that
+  /// was never loaded looked like overspend.
+  Future<double?> getBudgetCoverageForMonth(DateTime month) async {
     try {
       final orgId = await _orgId();
-      if (orgId != null) {
-        final response = await ApiClient.get(
-          '/organizations/$orgId/budgets',
-          query: {'month': _monthKey(month), 'limit': '100'},
-        );
-        if (response.statusCode == 200) {
-          double total = 0.0;
-          for (final item in ApiClient.pageItems(
-            response,
-          ).cast<Map<String, dynamic>>()) {
-            total += parseBackendDouble(item['amount']) ?? 0.0;
-          }
-          return total;
-        }
+      if (orgId == null) return null;
+      final response = await ApiClient.get(
+        '/organizations/$orgId/budgets',
+        query: {'month': _monthKey(month), 'limit': '100'},
+      );
+      if (response.statusCode != 200) return null;
+      double total = 0.0;
+      for (final item in ApiClient.pageItems(
+        response,
+      ).cast<Map<String, dynamic>>()) {
+        total += parseBackendDouble(item['amount']) ?? 0.0;
       }
+      return total;
     } catch (e) {
       debugPrint('Network error reading budget coverage for month: $e');
+      return null;
     }
-    return 0.0;
   }
 
   Future<double?> getBudgetForMonth(DateTime month) async {

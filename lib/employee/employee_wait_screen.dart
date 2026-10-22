@@ -9,31 +9,91 @@ import '../ui/widgets.dart';
 
 /// Shown to an employee who is verified but has not been assigned to a
 /// project yet — they cannot submit claims without one.
-class EmployeeWaitScreen extends StatelessWidget {
+class EmployeeWaitScreen extends StatefulWidget {
   const EmployeeWaitScreen({super.key});
+
+  @override
+  State<EmployeeWaitScreen> createState() => _EmployeeWaitScreenState();
+}
+
+class _EmployeeWaitScreenState extends State<EmployeeWaitScreen> {
+  /// One request at a time: the button locks while the access request is
+  /// in flight so a second tap cannot stack a second dialog on top of
+  /// the first one.
+  bool _requesting = false;
+
+  /// True while sign-out is actually running — the button shows a
+  /// spinner instead of spawning a second sign-out.
+  bool _signingOut = false;
 
   /// Requests are per-project (migration 0002): pick a project first,
   /// then POST /projects/{id}/access-requests.
-  Future<void> _pickAndRequestProject(
-    BuildContext context,
-    ExpenseStore store,
-  ) async {
-    // Keep the project list fresh before choosing.
-    await store.fetchProjectsFromBackend();
-    final List<ProjectRecord> activeProjects = store.projects
-        .where((ProjectRecord p) => p.isActive)
-        .toList(growable: false);
-    if (!context.mounted) return;
+  Future<void> _pickAndRequestProject() async {
+    if (_requesting || _signingOut) return;
+    setState(() => _requesting = true);
+    try {
+      final ExpenseStore store = ExpenseStore.instance;
+      // Keep the project list fresh before choosing.
+      await store.fetchProjectsFromBackend();
+      if (!mounted) return;
+      final String? selectedProjectId = await _showProjectPickerDialog(store);
+      if (selectedProjectId == null || !mounted) return;
+      final bool sent = await store.submitProjectAccessRequest(
+        selectedProjectId,
+      );
+      if (!mounted) return;
+      if (sent) {
+        AppSnack.success(
+          context,
+          'Access request sent — a manager will review it.',
+        );
+      } else {
+        AppSnack.error(context, 'Could not send the access request.');
+      }
+    } finally {
+      if (mounted) setState(() => _requesting = false);
+    }
+  }
 
+  /// The project picker. Returns the chosen project id, or null when the
+  /// dialog was dismissed (or a retry of a failed load left nothing to
+  /// pick from).
+  Future<String?> _showProjectPickerDialog(ExpenseStore store) {
     String? selectedProjectId;
-    final bool? confirmed = await showDialog<bool>(
+    bool retrying = false;
+    return showDialog<String>(
       context: context,
       builder: (BuildContext dialogContext) => StatefulBuilder(
         builder: (BuildContext context, StateSetter setDialogState) {
           final AppPalette palette = context.palette;
+          final List<ProjectRecord> activeProjects = store.projects
+              .where((ProjectRecord p) => p.isActive)
+              .toList(growable: false);
           return AlertDialog(
             title: const Text('Request project access'),
-            content: activeProjects.isEmpty
+            content: store.projectsError != null
+                ? EmptyState(
+                    // A failed sync is not "ask your manager to create a
+                    // project" — show the real reason and let the user
+                    // retry before the picker is worth opening again.
+                    icon: Icons.cloud_off_rounded,
+                    title: "Couldn't load projects",
+                    message: store.projectsError,
+                    compact: true,
+                    action: OutlinedButton(
+                      onPressed: retrying
+                          ? null
+                          : () async {
+                              setDialogState(() => retrying = true);
+                              await store.fetchProjectsFromBackend();
+                              if (dialogContext.mounted) {
+                                setDialogState(() => retrying = false);
+                              }
+                            },
+                      child: const Text('Retry'),
+                    ),
+                  )
+                : activeProjects.isEmpty
                 ? Text(
                     'No projects are currently synced. Ask your manager to '
                     'create one.',
@@ -62,13 +122,13 @@ class EmployeeWaitScreen extends StatelessWidget {
                   ),
             actions: <Widget>[
               TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
+                onPressed: () => Navigator.pop(dialogContext),
                 child: const Text('Cancel'),
               ),
               FilledButton(
                 onPressed: selectedProjectId == null
                     ? null
-                    : () => Navigator.pop(dialogContext, true),
+                    : () => Navigator.pop(dialogContext, selectedProjectId),
                 child: const Text('Send request'),
               ),
             ],
@@ -76,31 +136,66 @@ class EmployeeWaitScreen extends StatelessWidget {
         },
       ),
     );
-
-    if (confirmed != true || selectedProjectId == null || !context.mounted) {
-      return;
-    }
-    final bool sent = await store.submitProjectAccessRequest(
-      selectedProjectId!,
-    );
-    if (!context.mounted) return;
-    if (sent) {
-      AppSnack.success(
-        context,
-        'Access request sent — a manager will review it.',
-      );
-    } else {
-      AppSnack.error(context, 'Could not send the access request.');
-    }
   }
 
   Future<void> _refreshProjects() async {
     await ExpenseStore.instance.fetchProjectsFromBackend();
   }
 
+  /// Confirm first — sign-out is instant and irreversible — then run it
+  /// while the button is locked.
+  Future<void> _signOut() async {
+    if (_signingOut) return;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        final AppPalette palette = context.palette;
+        return AlertDialog(
+          title: Text(
+            'Log out?',
+            style: TextStyle(color: palette.text, fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            'You will need to sign in again.',
+            style: TextStyle(color: palette.muted, fontSize: 13),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Cancel', style: TextStyle(color: palette.muted)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(
+                'Log out',
+                style: TextStyle(
+                  color: palette.danger,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _signingOut = true);
+    // Revokes the refresh token and clears the local JWT store
+    // (api_client.dart).
+    await ApiClient.signOut();
+    // Drop the previous user's data from the shared store.
+    ExpenseStore.instance.resetForSignOut();
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => const UniversalLoginScreen(),
+      ),
+      (Route<dynamic> route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final ExpenseStore store = ExpenseStore.instance;
     final AppPalette palette = context.palette;
 
     return Scaffold(
@@ -156,8 +251,16 @@ class EmployeeWaitScreen extends StatelessWidget {
                     width: double.infinity,
                     height: 48,
                     child: FilledButton.icon(
-                      onPressed: () => _pickAndRequestProject(context, store),
-                      icon: const Icon(Icons.mail_outline_rounded, size: 18),
+                      onPressed: (_requesting || _signingOut)
+                          ? null
+                          : _pickAndRequestProject,
+                      icon: _requesting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.mail_outline_rounded, size: 18),
                       label: const Text('Request project access'),
                     ),
                   ),
@@ -185,26 +288,14 @@ class EmployeeWaitScreen extends StatelessWidget {
                           color: palette.danger.withValues(alpha: 0.5),
                         ),
                       ),
-                      onPressed: () async {
-                        // Revokes the refresh token and clears the
-                        // local JWT store (api_client.dart).
-                        await ApiClient.signOut();
-                        // Drop the previous user's data from the shared
-                        // store.
-                        ExpenseStore.instance.resetForSignOut();
-                        if (!context.mounted) return;
-                        Navigator.of(
-                          context,
-                          rootNavigator: true,
-                        ).pushAndRemoveUntil(
-                          MaterialPageRoute<void>(
-                            builder: (BuildContext context) =>
-                                const UniversalLoginScreen(),
-                          ),
-                          (Route<dynamic> route) => false,
-                        );
-                      },
-                      icon: const Icon(Icons.logout_rounded, size: 18),
+                      onPressed: (_requesting || _signingOut) ? null : _signOut,
+                      icon: _signingOut
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.logout_rounded, size: 18),
                       label: const Text('Log out'),
                     ),
                   ),

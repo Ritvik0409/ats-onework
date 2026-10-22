@@ -1211,30 +1211,52 @@ class AppFilterBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppPalette palette = context.palette;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: options
-          .map((String option) {
-            final bool selected = option == value;
-            return ChoiceChip(
-              label: Text(option),
-              selected: selected,
-              showCheckmark: false,
-              onSelected: (bool isSelected) {
-                if (isSelected) onChanged(option);
+    // A single scrollable line instead of a Wrap: five filters on a
+    // narrow phone used to wrap into two rows of floating chips, which
+    // read as clutter. One steady row keeps the card list predictable.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      clipBehavior: Clip.none,
+      child: Row(
+        children: <Widget>[
+          for (int i = 0; i < options.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(width: 8),
+            Builder(
+              builder: (BuildContext chipContext) {
+                final bool selected = options[i] == value;
+                return ChoiceChip(
+                  label: Text(options[i]),
+                  selected: selected,
+                  showCheckmark: false,
+                  onSelected: (bool isSelected) {
+                    if (!isSelected) return;
+                    onChanged(options[i]);
+                    // Bring the picked chip fully into view when it was
+                    // partly scrolled off.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      Scrollable.ensureVisible(
+                        chipContext,
+                        alignment: 0.1,
+                        duration: const Duration(milliseconds: 200),
+                      );
+                    });
+                  },
+                  selectedColor: palette.gold.withValues(alpha: 0.18),
+                  backgroundColor: palette.surfaceAlt,
+                  side: BorderSide(
+                    color: selected ? palette.gold : palette.border,
+                  ),
+                  labelStyle: TextStyle(
+                    color: selected ? palette.gold : palette.muted,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    fontSize: 12.5,
+                  ),
+                );
               },
-              selectedColor: palette.gold.withValues(alpha: 0.18),
-              backgroundColor: palette.surfaceAlt,
-              side: BorderSide(color: selected ? palette.gold : palette.border),
-              labelStyle: TextStyle(
-                color: selected ? palette.gold : palette.muted,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                fontSize: 12.5,
-              ),
-            );
-          })
-          .toList(growable: false),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -1281,12 +1303,16 @@ class AppTag extends StatelessWidget {
     this.icon,
     this.color,
     this.dense = false,
+    this.maxLines,
   });
 
   final String label;
   final IconData? icon;
   final Color? color;
   final bool dense;
+
+  /// Clamps the label so a long value cannot stretch a row it sits in.
+  final int? maxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -1309,12 +1335,16 @@ class AppTag extends StatelessWidget {
             Icon(icon, size: dense ? 10 : 12, color: tint),
             const SizedBox(width: 4),
           ],
-          Text(
-            label,
-            style: TextStyle(
-              color: tint,
-              fontSize: dense ? 10 : 11.5,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: maxLines ?? 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: tint,
+                fontSize: dense ? 10 : 11.5,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

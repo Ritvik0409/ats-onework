@@ -237,12 +237,14 @@ class ProjectMemberRecord {
 }
 
 /// One page of a cursor-paginated list: the rows, and the cursor of the
-/// next page — or nothing when the list is exhausted.
+/// next page — or nothing when the list is exhausted. [failed] marks a
+/// non-200 response so callers can tell "no data" from "load refused".
 class _Page {
-  const _Page(this.items, this.nextCursor);
+  const _Page(this.items, this.nextCursor, {this.failed = false});
 
   final List<Map<String, dynamic>> items;
   final String? nextCursor;
+  final bool failed;
 }
 
 class ExpenseStore extends ChangeNotifier {
@@ -280,6 +282,14 @@ class ExpenseStore extends ChangeNotifier {
 
   bool isDarkMode = true;
 
+  // Per-user device-local notification preferences. The profile screens
+  // present them as "saved on this device", so they must actually survive
+  // a restart — previously they were plain State fields that reset on
+  // every launch while claiming to be saved.
+  bool emailAlerts = true;
+  bool pushAlerts = true;
+  bool statusUpdateAlerts = true;
+
   // Palette aliases kept for the screens that still read colours from the
   // store. New code uses `context.palette`; both resolve to AppTokens, so
   // there is one source of truth and the light theme is never a different
@@ -305,7 +315,38 @@ class ExpenseStore extends ChangeNotifier {
     isDarkMode = prefs.getBool(key) ?? true;
     lastSeenNotificationCount =
         prefs.getInt(_notificationSeenKey(activeEmail)) ?? 0;
+
+    final prefsKey = _perUserPrefsKey(activeEmail);
+    emailAlerts = prefs.getBool('${prefsKey}_email') ?? true;
+    pushAlerts = prefs.getBool('${prefsKey}_push') ?? true;
+    statusUpdateAlerts = prefs.getBool('${prefsKey}_status') ?? true;
+
     notifyListeners();
+  }
+
+  String _perUserPrefsKey(String activeEmail) =>
+      'notification_prefs_${activeEmail.isEmpty ? currentUserRole : activeEmail}';
+
+  /// Persists a device-local notification preference for the signed-in
+  /// user. Called by the profile screens' preference switches so the
+  /// "saved on this device" wording is true.
+  Future<void> setNotificationPreference(String which, bool value) async {
+    switch (which) {
+      case 'email':
+        emailAlerts = value;
+      case 'push':
+        pushAlerts = value;
+      case 'status':
+        statusUpdateAlerts = value;
+      default:
+        return;
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    final activeEmail = currentUserRole == 'employee'
+        ? currentEmployeeEmail
+        : currentManagerEmail;
+    await prefs.setBool('${_perUserPrefsKey(activeEmail)}_$which', value);
   }
 
   /// How many notifications had been seen when the feed was last opened.
@@ -401,14 +442,25 @@ class ExpenseStore extends ChangeNotifier {
   bool projectsLoaded = false;
   bool usersLoaded = false;
 
+  /// What went wrong the last time a collection failed to load, or null
+  /// when the last attempt succeeded. An empty list and a failed fetch
+  /// look identical without this, so a network blip was shown as "No
+  /// claims yet" — a false statement of fact.
+  String? usersError;
+  String? expensesError;
+  String? projectsError;
+
   Future<void> fetchUsersFromBackend() async {
     try {
       final page = await _fetchPage('/users');
       usersList = page.items.map(_userRow).toList();
       usersCursor = page.nextCursor;
+      usersError = null;
       notifyListeners();
     } catch (e) {
+      usersError = "Couldn't load the member directory.";
       debugPrint('Network error fetching users: $e');
+      notifyListeners();
     } finally {
       usersLoaded = true;
     }
@@ -497,6 +549,8 @@ class ExpenseStore extends ChangeNotifier {
     // The seen-count belongs to the person who just signed out — the next
     // user must not inherit their badge.
     lastSeenNotificationCount = 0;
+    notificationsLoaded = false;
+    notificationsError = null;
     employeeActiveStatus.clear();
     currentUserRoles = <String>[];
     grantedPermissions = <String>{};
@@ -505,6 +559,9 @@ class ExpenseStore extends ChangeNotifier {
     expensesLoaded = false;
     projectsLoaded = false;
     usersLoaded = false;
+    usersError = null;
+    expensesError = null;
+    projectsError = null;
     currentUserId = '';
     currentUserEmail = '';
     currentUserName = '';
@@ -531,34 +588,53 @@ class ExpenseStore extends ChangeNotifier {
   /// until the next refresh reconciles them.
   List<AppNotification> notifications = [];
 
+  /// Whether the feed has completed its first fetch.
+  bool notificationsLoaded = false;
+
+  /// Null unless the last feed fetch failed and produced nothing usable.
+  String? notificationsError;
+
   /// Loads the signed-in user's real notification feed from the backend
   /// (GET /notifications — already scoped to the token's employee).
-  Future<void> fetchNotificationsFromBackend() async {
+  /// Returns `false` when the load failed — the reason is in
+  /// [notificationsError] for the hub screen to show with a retry.
+  Future<bool> fetchNotificationsFromBackend() async {
     try {
       final response = await ApiClient.get(
         '/notifications',
         query: {'limit': '50'},
       );
-      if (response.statusCode == 200) {
-        final items = ApiClient.pageItems(response);
-        notifications = items.map((raw) {
-          final map = raw as Map<String, dynamic>;
-          final createdAt = DateTime.tryParse(
-            map['created_at']?.toString() ?? '',
-          );
-          return AppNotification(
-            expenseId: map['reference_id']?.toString() ?? '',
-            title: map['title']?.toString() ?? '',
-            subtitle: map['message']?.toString() ?? '',
-            time: createdAt == null ? '' : _timeLabel(createdAt),
-            createdAt: createdAt,
-            type: normalizeNotificationType(map['type']?.toString() ?? ''),
-          );
-        }).toList();
-        notifyListeners();
+      if (response.statusCode != 200) {
+        notificationsError =
+            "Couldn't load notifications (server ${response.statusCode}).";
+        return false;
       }
+      final items = ApiClient.pageItems(response);
+      notifications = items.map((raw) {
+        final map = raw as Map<String, dynamic>;
+        final createdAt = DateTime.tryParse(
+          map['created_at']?.toString() ?? '',
+        );
+        return AppNotification(
+          expenseId: map['reference_id']?.toString() ?? '',
+          title: map['title']?.toString() ?? '',
+          subtitle: map['message']?.toString() ?? '',
+          time: createdAt == null ? '' : _timeLabel(createdAt),
+          createdAt: createdAt,
+          type: normalizeNotificationType(map['type']?.toString() ?? ''),
+        );
+      }).toList();
+      notificationsError = null;
+      notifyListeners();
+      return true;
     } catch (e) {
+      notificationsError =
+          "Couldn't load notifications. Check your connection.";
       debugPrint('Network error fetching notifications: $e');
+      return false;
+    } finally {
+      notifyListeners();
+      notificationsLoaded = true;
     }
   }
 
@@ -836,10 +912,16 @@ class ExpenseStore extends ChangeNotifier {
     }
   }
 
-  Future<void> fetchProjectsFromBackend() async {
+  /// Fetches the project list. Returns `false` when the load failed — the
+  /// reason is in [projectsError] for the screens to show.
+  Future<bool> fetchProjectsFromBackend() async {
     try {
       final orgId = await _orgId();
-      if (orgId == null) return;
+      if (orgId == null) {
+        projectsLoaded = true;
+        notifyListeners();
+        return false;
+      }
       final response = await ApiClient.get(
         '/organizations/$orgId/projects',
         query: {'limit': '100'},
@@ -849,16 +931,25 @@ class ExpenseStore extends ChangeNotifier {
         projects = projectsJson
             .map((data) => ProjectRecord.fromJson(data as Map<String, dynamic>))
             .toList();
+        projectsError = null;
         notifyListeners();
+        return true;
+      } else {
+        projectsError =
+            "Couldn't load projects (server ${response.statusCode}).";
+        return false;
       }
     } catch (e) {
+      projectsError = "Couldn't load projects. Check your connection.";
       debugPrint('Network error fetching projects: $e');
+      return false;
     } finally {
+      notifyListeners();
       projectsLoaded = true;
     }
   }
 
-  Future<void> fetchProjectRequestsFromBackend() async {
+  Future<bool> fetchProjectRequestsFromBackend() async {
     try {
       final response = await ApiClient.get(
         '/access-requests',
@@ -877,11 +968,13 @@ class ExpenseStore extends ChangeNotifier {
           };
         }).toList();
         notifyListeners();
-      } else {
-        debugPrint('Failed to load access requests: ${response.statusCode}');
+        return true;
       }
+      debugPrint('Failed to load access requests: ${response.statusCode}');
+      return false;
     } catch (e) {
       debugPrint('Network error fetching project requests: $e');
+      return false;
     }
   }
 
@@ -1356,32 +1449,41 @@ class ExpenseStore extends ChangeNotifier {
     return name.trim().isEmpty ? fallback : name;
   }
 
-  Future<void> updateName(String newName, bool isManager) async {
+  /// PATCH /users/{id} with the new display name. Returns true only when
+  /// the backend confirmed it — the callers used to show "updated"
+  /// unconditionally, so a failed PATCH claimed success and then
+  /// reverted on the next sign-in.
+  Future<bool> updateName(String newName, bool isManager) async {
     final trimmed = newName.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty) return false;
     try {
       // The backend does support this: PATCH /users/{employee_id} with a
       // name. Without the call the new name was shown as saved and then
       // reverted on the next sign-in.
       final employeeId = int.tryParse(currentUserId.trim());
+      bool ok = false;
       if (employeeId != null) {
         final response = await ApiClient.patch('/users/$employeeId', {
           'name': trimmed,
         });
         if (response.statusCode != 200) {
           debugPrint('Name update rejected: ${response.statusCode}');
-          return;
+          return false;
         }
         final body = json.decode(response.body) as Map<String, dynamic>;
         currentUserName = body['name']?.toString() ?? trimmed;
+        ok = true;
       } else {
         currentUserName = trimmed;
+        ok = true;
       }
       currentManagerName = trimmed;
       currentEmployeeName = trimmed;
       notifyListeners();
+      return ok;
     } catch (e) {
       debugPrint('Name update error: $e');
+      return false;
     }
   }
 
@@ -1392,14 +1494,27 @@ class ExpenseStore extends ChangeNotifier {
     return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
   }
 
-  Future<void> fetchExpensesFromBackend() async {
+  /// Fetches the signed-in user's expense claims. Returns `false` when the
+  /// load failed — the reason is in [expensesError] for the screens to show.
+  Future<bool> fetchExpensesFromBackend() async {
     try {
       final page = await _fetchPage('/expenses');
+      if (page.failed) {
+        expensesError =
+            "Couldn't load expense claims (server error). Try again.";
+        notifyListeners();
+        return false;
+      }
       expenses = page.items.map(ExpenseRecord.fromJson).toList();
       expensesCursor = page.nextCursor;
+      expensesError = null;
       notifyListeners();
+      return true;
     } catch (e) {
+      expensesError = "Couldn't load expense claims. Check your connection.";
       debugPrint('Network error fetching expenses: $e');
+      notifyListeners();
+      return false;
     } finally {
       expensesLoaded = true;
     }
@@ -1452,7 +1567,7 @@ class ExpenseStore extends ChangeNotifier {
     final response = await ApiClient.get(path, query: parameters);
     if (response.statusCode != 200) {
       debugPrint('Failed to load $path: ${response.statusCode}');
-      return const _Page([], null);
+      return const _Page([], null, failed: true);
     }
     return _Page(
       ApiClient.pageItems(response).cast<Map<String, dynamic>>(),
@@ -1642,9 +1757,11 @@ class ExpenseStore extends ChangeNotifier {
   /// auto-closes the currently open status record and opens the new one.
   /// Optimistic local update; rolls back if the call fails. 409 (target
   /// state already open) counts as success — the UI wants that state.
-  Future<void> setEmployeeActive(String email, bool isActive) async {
+  /// Returns true when the backend confirms the state, false when the
+  /// optimistic value rolled back — the caller owns what it tells the user.
+  Future<bool> setEmployeeActive(String email, bool isActive) async {
     final previous = employeeActiveStatus[email] ?? true;
-    if (previous == isActive) return;
+    if (previous == isActive) return true;
     employeeActiveStatus[email] = isActive;
     notifyListeners();
 
@@ -1666,7 +1783,7 @@ class ExpenseStore extends ChangeNotifier {
       if (id == null) {
         debugPrint('setEmployeeActive: no backend employee id for $email.');
         rollback();
-        return;
+        return false;
       }
       final response = await ApiClient.post('/users/$id/statuses', {
         'status': isActive ? 'active' : 'inactive',
@@ -1679,17 +1796,21 @@ class ExpenseStore extends ChangeNotifier {
             user['account_status'] = isActive ? 'active' : 'inactive';
           }
         }
+        return true;
       } else if (response.statusCode == 409) {
         debugPrint(
           'setEmployeeActive: already in that status (409 treated as success).',
         );
+        return true;
       } else {
         rollback();
         debugPrint('setEmployeeActive failed: ${response.statusCode}');
+        return false;
       }
     } catch (e) {
       rollback();
       debugPrint('setEmployeeActive error: $e');
+      return false;
     }
   }
 

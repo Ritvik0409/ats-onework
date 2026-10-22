@@ -36,6 +36,7 @@ import 'package:ats_onework/management/manager_requests_screen.dart';
 import 'package:ats_onework/management/notifications_hub.dart';
 import 'package:ats_onework/shared/ats_logo.dart';
 import 'package:ats_onework/ui/tokens.dart';
+import 'package:ats_onework/ui/widgets.dart';
 
 /// The tabs the shell can show. The visible set is capability-gated per
 /// user, so navigation happens by tab identity, never by index.
@@ -276,12 +277,31 @@ class _PortalShellState extends State<PortalShell> {
         // --- The plain-employee gatekeeper -----------------------------
         // Wait screen only while the project fetch has not completed;
         // the project-access request flow takes over after an empty
-        // result — an unassigned employee is never stranded here.
+        // result — an unassigned employee is never stranded here. A
+        // failed fetch is not "awaiting assignment": it gets its own
+        // retry state instead of a misleading message.
         if (!_store.hasManagementAccess && !_store.isSuperUser) {
           if (!_store.projectsLoaded && _store.myProjects.isEmpty) {
             return Scaffold(
               backgroundColor: palette.bg,
               body: const Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (_store.projectsError != null && _store.myProjects.isEmpty) {
+            return Scaffold(
+              backgroundColor: palette.bg,
+              body: Center(
+                child: EmptyState(
+                  icon: Icons.cloud_off_rounded,
+                  title: "Couldn't load your projects",
+                  message: _store.projectsError!,
+                  action: FilledButton.icon(
+                    onPressed: () => _store.fetchProjectsFromBackend(),
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Retry'),
+                  ),
+                ),
+              ),
             );
           }
           if (_store.myProjects.isEmpty) {
@@ -295,10 +315,19 @@ class _PortalShellState extends State<PortalShell> {
         final int maxPrimary = wide ? 5 : 4;
 
         // A capability can disappear mid-session (role changed on the
-        // server, org switched); never sit on a tab that is gone.
-        if (!entries.any((_PortalEntry e) => e.tab == _selectedTab)) {
-          _selectedTab = _home;
+        // server, org switched); never sit on a tab that is gone. The
+        // reset lands in a post-frame callback instead of mutating state
+        // directly inside build.
+        final bool selectedTabGone = !entries.any(
+          (_PortalEntry e) => e.tab == _selectedTab,
+        );
+        if (selectedTabGone && _selectedTab != _home) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _selectedTab = _home);
+          });
         }
+        final PortalTab selectedTab = selectedTabGone ? _home : _selectedTab;
 
         final List<_PortalEntry> primary = entries
             .take(maxPrimary)
@@ -307,10 +336,10 @@ class _PortalShellState extends State<PortalShell> {
             .skip(maxPrimary)
             .toList(growable: false);
         final int stackIndex = entries.indexWhere(
-          (_PortalEntry e) => e.tab == _selectedTab,
+          (_PortalEntry e) => e.tab == selectedTab,
         );
         final bool selectedIsOverflow = !primary.any(
-          (_PortalEntry e) => e.tab == _selectedTab,
+          (_PortalEntry e) => e.tab == selectedTab,
         );
 
         final Widget stack = IndexedStack(
@@ -328,7 +357,7 @@ class _PortalShellState extends State<PortalShell> {
                   palette: palette,
                   entries: primary,
                   overflow: overflow,
-                  selectedTab: _selectedTab,
+                  selectedTab: selectedTab,
                   selectedIsOverflow: selectedIsOverflow,
                   extended: width >= 1180,
                 ),
@@ -350,7 +379,7 @@ class _PortalShellState extends State<PortalShell> {
             context: context,
             palette: palette,
             primary: primary,
-            selectedTab: _selectedTab,
+            selectedTab: selectedTab,
             selectedIsOverflow: selectedIsOverflow,
             onOpenMore: () =>
                 _showMoreSheet(context, entries: entries, primary: primary),
@@ -640,52 +669,54 @@ class _PortalShellState extends State<PortalShell> {
             ),
           )
           .toList(),
-      trailing: Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const SizedBox(height: 12),
-            IconButton(
-              tooltip: 'Notifications',
-              onPressed: _openNotifications,
-              icon: Badge(
-                isLabelVisible: _store.unreadNotificationCount > 0,
-                label: Text('${_store.unreadNotificationCount}'),
-                child: Icon(
-                  Icons.notifications_none_rounded,
-                  color: palette.muted,
-                ),
-              ),
-            ),
-            IconButton(
-              tooltip: _store.isDarkMode ? 'Switch to light' : 'Switch to dark',
-              onPressed: _store.toggleTheme,
-              icon: Icon(
-                _store.isDarkMode
-                    ? Icons.light_mode_rounded
-                    : Icons.dark_mode_rounded,
+      // trailingAtBottom pins the utility group to the bottom of the
+      // rail with a divider above — previously the icons floated right
+      // after the last tab, reading as stray unlabeled widgets.
+      trailingAtBottom: true,
+      trailing: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Divider(height: 8, thickness: 1, color: palette.border),
+          const SizedBox(height: 6),
+          IconButton(
+            tooltip: 'Notifications',
+            onPressed: _openNotifications,
+            icon: Badge(
+              isLabelVisible: _store.unreadNotificationCount > 0,
+              label: Text('${_store.unreadNotificationCount}'),
+              child: Icon(
+                Icons.notifications_none_rounded,
                 color: palette.muted,
               ),
             ),
-            if (overflow.isNotEmpty ||
-                _store.can('budget.manage') ||
-                _store.canManagePeople)
-              IconButton(
-                tooltip: 'More',
-                onPressed: () => _showMoreSheet(
-                  context,
-                  entries: <_PortalEntry>[...entries, ...overflow],
-                  primary: entries,
-                ),
-                icon: Icon(
-                  Icons.more_horiz_rounded,
-                  color: selectedIsOverflow ? palette.gold : palette.muted,
-                ),
+          ),
+          IconButton(
+            tooltip: _store.isDarkMode ? 'Switch to light' : 'Switch to dark',
+            onPressed: _store.toggleTheme,
+            icon: Icon(
+              _store.isDarkMode
+                  ? Icons.light_mode_rounded
+                  : Icons.dark_mode_rounded,
+              color: palette.muted,
+            ),
+          ),
+          if (overflow.isNotEmpty ||
+              _store.can('budget.manage') ||
+              _store.canManagePeople)
+            IconButton(
+              tooltip: 'More',
+              onPressed: () => _showMoreSheet(
+                context,
+                entries: <_PortalEntry>[...entries, ...overflow],
+                primary: entries,
               ),
-            const SizedBox(height: 14),
-          ],
-        ),
+              icon: Icon(
+                Icons.more_horiz_rounded,
+                color: selectedIsOverflow ? palette.gold : palette.muted,
+              ),
+            ),
+          const SizedBox(height: 10),
+        ],
       ),
     );
   }

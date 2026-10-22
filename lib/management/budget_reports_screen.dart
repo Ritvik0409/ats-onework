@@ -153,11 +153,17 @@ class _BudgetReportsScreenState extends State<BudgetReportsScreen> {
       AppSnack.info(context, 'CSV export is available in the web build only.');
       return;
     }
-    downloader.downloadFile(
+    final bool ok = downloader.downloadFile(
       utf8.encode(csv.toString()),
       'budget_allocation_report_${DateTime.now().millisecondsSinceEpoch}.csv',
     );
-    AppSnack.success(context, 'Budget CSV report downloaded.');
+    // The downloader only signals success through its bool — the
+    // snack must match what actually happened.
+    if (ok) {
+      AppSnack.success(context, 'Budget CSV report downloaded.');
+    } else {
+      AppSnack.error(context, "Couldn't generate the report. Try again.");
+    }
   }
 
   @override

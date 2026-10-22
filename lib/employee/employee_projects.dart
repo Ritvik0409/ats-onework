@@ -31,6 +31,23 @@ class EmployeeProjectsScreen extends StatelessWidget {
           appBar: AppBar(title: const Text('My projects')),
           body: !store.projectsLoaded
               ? const Center(child: CircularProgressIndicator())
+              : store.projectsError != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: EmptyState(
+                      // A failed load is not "no assignments" — surface
+                      // the store's reason with a retry.
+                      icon: Icons.cloud_off_rounded,
+                      title: "Couldn't load projects",
+                      message: store.projectsError,
+                      action: OutlinedButton(
+                        onPressed: () => store.fetchProjectsFromBackend(),
+                        child: const Text('Retry'),
+                      ),
+                    ),
+                  ),
+                )
               : projects.isEmpty
               ? Center(
                   child: EmptyState(

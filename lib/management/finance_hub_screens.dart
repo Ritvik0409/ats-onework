@@ -121,6 +121,25 @@ class _FinanceToPayScreenState extends State<FinanceToPayScreen> {
               Expanded(
                 child: !_store.expensesLoaded
                     ? const Center(child: CircularProgressIndicator())
+                    : _store.expensesError != null
+                    // The load failed — show why, with a retry, instead
+                    // of an empty state that would read as "no claims".
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: EmptyState(
+                            icon: Icons.cloud_off_rounded,
+                            title: "Couldn't load claims",
+                            message: _store.expensesError,
+                            action: FilledButton.icon(
+                              onPressed: () =>
+                                  _store.fetchExpensesFromBackend(),
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Retry'),
+                            ),
+                          ),
+                        ),
+                      )
                     : RefreshIndicator(
                         onRefresh: () => _store.fetchExpensesFromBackend(),
                         child: approved.isEmpty
@@ -323,69 +342,103 @@ class _PaidReimbursementsScreenState extends State<PaidReimbursementsScreen> {
               Expanded(
                 child: !_store.expensesLoaded
                     ? const Center(child: CircularProgressIndicator())
-                    : paid.isEmpty
-                    ? ListView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        children: <Widget>[
-                          const SizedBox(height: 60),
-                          EmptyState(
-                            icon: Icons.payments_outlined,
-                            title: 'No paid claims yet',
-                            message: _store.hasMoreExpenses
-                                ? 'More claims are still being loaded — '
-                                      'press "Load more" to fetch the next '
-                                      'page.'
-                                : 'Reimbursements appear here once they are '
-                                      'marked as paid.',
-                            action: _store.hasMoreExpenses
-                                ? FilledButton.icon(
-                                    onPressed: _store.expensesLoadingMore
-                                        ? null
-                                        : _store.loadMoreExpenses,
-                                    icon: const Icon(
-                                      Icons.expand_more_rounded,
-                                      size: 18,
-                                    ),
-                                    label: const Text('Load more'),
-                                  )
-                                : null,
+                    : _store.expensesError != null
+                    // The load failed — show why, with a retry, instead
+                    // of an empty state that would read as "nothing
+                    // paid yet".
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: EmptyState(
+                            icon: Icons.cloud_off_rounded,
+                            title: "Couldn't load claims",
+                            message: _store.expensesError,
+                            action: FilledButton.icon(
+                              onPressed: () =>
+                                  _store.fetchExpensesFromBackend(),
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Retry'),
+                            ),
                           ),
-                        ],
+                        ),
                       )
                     : RefreshIndicator(
                         onRefresh: () => _store.fetchExpensesFromBackend(),
-                        child: ListView.separated(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 32),
-                          // One extra row for the "load more" footer, so a
-                          // list longer than one page can be walked through.
-                          itemCount:
-                              paid.length + (_store.hasMoreExpenses ? 1 : 0),
-                          separatorBuilder: (BuildContext context, int index) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (BuildContext context, int index) {
-                            if (index >= paid.length) {
-                              return LoadMoreFooter(
-                                hasMore: _store.hasMoreExpenses,
-                                loading: _store.expensesLoadingMore,
-                                onLoad: _store.loadMoreExpenses,
-                              );
-                            }
-                            final ExpenseRecord expense = paid[index];
-                            return ExpenseRow(
-                              expense: expense,
-                              showId: true,
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (BuildContext context) =>
-                                      ExpenseDetailsScreen(
-                                        expenseId: expense.id,
-                                      ),
+                        child: paid.isEmpty
+                            // Same as the To Pay list: a RefreshIndicator
+                            // only reacts to the scroll notifications of
+                            // a scrollable child, so the empty state has
+                            // to be one too — otherwise pull-to-refresh
+                            // does nothing exactly when it is wanted.
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: <Widget>[
+                                  const SizedBox(height: 60),
+                                  EmptyState(
+                                    icon: Icons.payments_outlined,
+                                    title: 'No paid claims yet',
+                                    message: _store.hasMoreExpenses
+                                        ? 'More claims are still being '
+                                              'loaded — press "Load more" '
+                                              'to fetch the next page.'
+                                        : 'Reimbursements appear here once '
+                                              'they are marked as paid.',
+                                    action: _store.hasMoreExpenses
+                                        ? FilledButton.icon(
+                                            onPressed:
+                                                _store.expensesLoadingMore
+                                                ? null
+                                                : _store.loadMoreExpenses,
+                                            icon: const Icon(
+                                              Icons.expand_more_rounded,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Load more'),
+                                          )
+                                        : null,
+                                  ),
+                                ],
+                              )
+                            : ListView.separated(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  0,
+                                  18,
+                                  32,
                                 ),
+                                // One extra row for the "load more"
+                                // footer, so a list longer than one page
+                                // can be walked through.
+                                itemCount:
+                                    paid.length +
+                                    (_store.hasMoreExpenses ? 1 : 0),
+                                separatorBuilder:
+                                    (BuildContext context, int index) =>
+                                        const SizedBox(height: 10),
+                                itemBuilder: (BuildContext context, int index) {
+                                  if (index >= paid.length) {
+                                    return LoadMoreFooter(
+                                      hasMore: _store.hasMoreExpenses,
+                                      loading: _store.expensesLoadingMore,
+                                      onLoad: _store.loadMoreExpenses,
+                                    );
+                                  }
+                                  final ExpenseRecord expense = paid[index];
+                                  return ExpenseRow(
+                                    expense: expense,
+                                    showId: true,
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (BuildContext context) =>
+                                            ExpenseDetailsScreen(
+                                              expenseId: expense.id,
+                                            ),
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                        ),
                       ),
               ),
             ],

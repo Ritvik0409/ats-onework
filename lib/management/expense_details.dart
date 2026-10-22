@@ -124,7 +124,9 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: confirmColor,
-              foregroundColor: Colors.white,
+              foregroundColor: dialogContext.palette.isDark
+                  ? AppTokens.darkBg
+                  : Colors.white,
             ),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: Text(confirmLabel),
@@ -179,7 +181,9 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: confirmColor,
-              foregroundColor: Colors.white,
+              foregroundColor: dialogContext.palette.isDark
+                  ? AppTokens.darkBg
+                  : Colors.white,
             ),
             onPressed: () {
               if (formKey.currentState!.validate()) {
@@ -254,6 +258,7 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
               top: 20,
               right: 20,
               child: IconButton(
+                tooltip: 'Close receipt',
                 icon: const Icon(
                   Icons.close_rounded,
                   color: Colors.white,
@@ -376,6 +381,8 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
               children: <Widget>[
                 Text(
                   expense.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: palette.text,
                     fontSize: 17,
@@ -385,6 +392,8 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                 const SizedBox(height: 2),
                 Text(
                   expense.email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: palette.muted, fontSize: 12.5),
                 ),
                 const SizedBox(height: 6),
@@ -470,10 +479,10 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                       height: 280,
                       width: double.infinity,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, _, _) => const Center(
+                      errorBuilder: (_, _, _) => Center(
                         child: Text(
                           'Receipt file unavailable.',
-                          style: TextStyle(color: Colors.grey),
+                          style: TextStyle(color: palette.muted),
                         ),
                       ),
                     ),
@@ -657,7 +666,9 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: palette.success,
-                      foregroundColor: Colors.white,
+                      foregroundColor: palette.isDark
+                          ? AppTokens.darkBg
+                          : Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                     onPressed: _handleApprove,
@@ -673,7 +684,9 @@ class _ExpenseDetailsScreenState extends State<ExpenseDetailsScreen> {
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: palette.danger,
-                      foregroundColor: Colors.white,
+                      foregroundColor: palette.isDark
+                          ? AppTokens.darkBg
+                          : Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                     onPressed: _handleReject,

@@ -25,7 +25,8 @@ class EmployeeDashboardScreen extends StatefulWidget {
   final VoidCallback? onViewProjects;
 
   @override
-  State<EmployeeDashboardScreen> createState() => _EmployeeDashboardScreenState();
+  State<EmployeeDashboardScreen> createState() =>
+      _EmployeeDashboardScreenState();
 }
 
 class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
@@ -66,7 +67,7 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
                   subtitle: data == null
                       ? 'Your expense activity'
                       : '${formatDateRange(data.fromDate, data.toDate)} · '
-                          '${formatCount(data.summary.totalClaims)} claims',
+                            '${formatCount(data.summary.totalClaims)} claims',
                   initials: _store.getInitials(_store.currentEmployeeName),
                   trailing: RangePicker(
                     value: _analytics.range,
@@ -120,7 +121,7 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
           subtitle: totals == null
               ? null
               : '${formatMoney(totals.totalSpend, compact: true)} '
-                  'approved + paid',
+                    'approved + paid',
         ),
         MetricCard(
           label: 'Awaiting decision',
@@ -211,11 +212,7 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
       builder: (BuildContext context, BoxConstraints constraints) {
         if (constraints.maxWidth < 720) {
           return Column(
-            children: <Widget>[
-              trend,
-              const SizedBox(height: 14),
-              mix,
-            ],
+            children: <Widget>[trend, const SizedBox(height: 14), mix],
           );
         }
         return Row(
@@ -278,8 +275,7 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
         if (right == null) return -1;
         return right.compareTo(left);
       });
-    final List<ExpenseRecord> recent =
-        mine.take(4).toList(growable: false);
+    final List<ExpenseRecord> recent = mine.take(4).toList(growable: false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -292,33 +288,45 @@ class _EmployeeDashboardScreenState extends State<EmployeeDashboardScreen> {
             child: const Text('View all'),
           ),
         ),
-        AppCard(
-          padding: EdgeInsets.zero,
-          child: recent.isEmpty
-              ? EmptyState(
-                  icon: Icons.upload_file_rounded,
-                  title: 'No expenses submitted yet',
-                  message: 'Submit your first claim to see it here.',
-                  action: FilledButton.icon(
-                    onPressed: widget.onAddExpense,
-                    icon: const Icon(Icons.add_rounded, size: 18),
-                    label: const Text('Submit expense'),
-                  ),
-                  compact: true,
-                )
-              : Column(
-                  children: <Widget>[
-                    for (int i = 0; i < recent.length; i++) ...<Widget>[
-                      _RecentRow(
-                        expense: recent[i],
-                        onTap: widget.onViewRequests,
-                      ),
-                      if (i != recent.length - 1)
-                        Divider(height: 1, color: palette.border),
+        if (_store.expensesError != null)
+          // A failed load is not "no expenses yet" — surface why, the
+          // same way the analytics sections above do.
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: InlineError(
+              title: 'Could not load your claims',
+              message: _store.expensesError!,
+              onRetry: () => _store.fetchExpensesFromBackend(),
+            ),
+          )
+        else
+          AppCard(
+            padding: EdgeInsets.zero,
+            child: recent.isEmpty
+                ? EmptyState(
+                    icon: Icons.upload_file_rounded,
+                    title: 'No expenses submitted yet',
+                    message: 'Submit your first claim to see it here.',
+                    action: FilledButton.icon(
+                      onPressed: widget.onAddExpense,
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('Submit expense'),
+                    ),
+                    compact: true,
+                  )
+                : Column(
+                    children: <Widget>[
+                      for (int i = 0; i < recent.length; i++) ...<Widget>[
+                        _RecentRow(
+                          expense: recent[i],
+                          onTap: widget.onViewRequests,
+                        ),
+                        if (i != recent.length - 1)
+                          Divider(height: 1, color: palette.border),
+                      ],
                     ],
-                  ],
-                ),
-        ),
+                  ),
+          ),
       ],
     );
   }

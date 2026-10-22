@@ -67,7 +67,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                   subtitle: data == null
                       ? 'Team spend and approvals'
                       : '${formatDateRange(data.fromDate, data.toDate)} · '
-                          '${formatCount(data.summary.totalClaims)} claims',
+                            '${formatCount(data.summary.totalClaims)} claims',
                   initials: _store.getInitials(_store.currentUserName),
                   trailing: RangePicker(
                     value: _analytics.range,
@@ -88,7 +88,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                     ),
                   _buildMetrics(data, palette),
                   const SizedBox(height: 20),
-                  _buildTrend(data),
+                  _buildTrend(data, palette),
                   const SizedBox(height: 14),
                   _buildBreakdowns(data, palette),
                   const SizedBox(height: 20),
@@ -141,7 +141,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           subtitle: summary == null
               ? null
               : '${formatFractionPercent(summary.budgetUtilisation)} of '
-                  '${formatMoney(summary.budgetAllocated, compact: true)}',
+                    '${formatMoney(summary.budgetAllocated, compact: true)}',
         ),
         MetricCard(
           label: 'Avg decision time',
@@ -153,21 +153,23 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           subtitle: summary == null
               ? null
               : '${formatCount(summary.approvedCount)} approved · '
-                  '${formatCount(summary.rejectedCount)} rejected',
+                    '${formatCount(summary.rejectedCount)} rejected',
         ),
       ],
     );
   }
 
-  Widget _buildTrend(AnalyticsOverview? data) {
+  Widget _buildTrend(AnalyticsOverview? data, AppPalette palette) {
     final List<MonthlyPoint> monthly = data?.monthly ?? const <MonthlyPoint>[];
     return ChartCard(
       title: 'Spend trend',
       subtitle: 'Monthly approved spend against the monthly budget',
       height: 220,
-      legend: const <ChartLegendItem>[
-        ChartLegendItem('Spend', AppTokens.gold),
-        ChartLegendItem('Budget', AppTokens.info),
+      // Palette-routed: the fixed dark tokens disagreed with the light
+      // theme's swapped variants.
+      legend: <ChartLegendItem>[
+        ChartLegendItem('Spend', palette.gold),
+        ChartLegendItem('Budget', palette.info),
       ],
       child: SpendTrendChart(
         spend: monthly
@@ -219,8 +221,9 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
 
     final List<ProjectSlice> topProjects = projects.toList()
       ..sort((ProjectSlice a, ProjectSlice b) => b.amount.compareTo(a.amount));
-    final List<ProjectSlice> shown =
-        topProjects.take(4).toList(growable: false);
+    final List<ProjectSlice> shown = topProjects
+        .take(4)
+        .toList(growable: false);
 
     final Widget projectCard = ChartCard(
       title: 'Project burn',
@@ -235,7 +238,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 max: p.budget > 0 ? p.budget : null,
                 caption: p.budget > 0
                     ? '${formatFractionPercent(p.utilisation)} of '
-                        '${formatMoney(p.budget, compact: true)} budget'
+                          '${formatMoney(p.budget, compact: true)} budget'
                     : '${formatCount(p.count)} claims · no budget set',
               ),
             )
@@ -270,15 +273,20 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
   List<CategorySlice> _topCategories(List<CategorySlice> categories) {
     if (categories.length <= 5) return categories;
     final List<CategorySlice> sorted = categories.toList()
-      ..sort((CategorySlice a, CategorySlice b) => b.amount.compareTo(a.amount));
+      ..sort(
+        (CategorySlice a, CategorySlice b) => b.amount.compareTo(a.amount),
+      );
     final List<CategorySlice> top = sorted.take(4).toList();
     final double restAmount = sorted
         .skip(4)
         .fold<double>(0, (double sum, CategorySlice c) => sum + c.amount);
-    final int restCount =
-        sorted.skip(4).fold<int>(0, (int sum, CategorySlice c) => sum + c.count);
+    final int restCount = sorted
+        .skip(4)
+        .fold<int>(0, (int sum, CategorySlice c) => sum + c.count);
     if (restAmount > 0) {
-      top.add(CategorySlice(name: 'Other', amount: restAmount, count: restCount));
+      top.add(
+        CategorySlice(name: 'Other', amount: restAmount, count: restCount),
+      );
     }
     return top;
   }
@@ -354,6 +362,13 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
         ),
         if (!_store.expensesLoaded)
           const AppCard(child: SkeletonBox(height: 64, radius: 12))
+        else if (_store.expensesError != null)
+          // The load failed — say so instead of claiming "All caught up".
+          InlineError(
+            title: 'Could not load the review queue',
+            message: _store.expensesError!,
+            onRetry: () => _store.fetchExpensesFromBackend(),
+          )
         else if (urgent.isEmpty)
           AppCard(
             child: EmptyState(
@@ -365,89 +380,96 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           )
         else
           Column(
-            children: urgent.map((Map<String, dynamic> item) {
-              final ExpenseRecord request = item['expense'] as ExpenseRecord;
-              final String reason = item['reason'] as String;
-              final bool isSla = item['isSla'] as bool;
-              final Color accent = isSla ? palette.danger : palette.warning;
+            children: urgent
+                .map((Map<String, dynamic> item) {
+                  final ExpenseRecord request =
+                      item['expense'] as ExpenseRecord;
+                  final String reason = item['reason'] as String;
+                  final bool isSla = item['isSla'] as bool;
+                  final Color accent = isSla ? palette.danger : palette.warning;
 
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: AppCard(
-                  borderColor: accent.withValues(alpha: 0.35),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          ExpenseDetailsScreen(expenseId: request.id),
-                    ),
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: accent.withValues(alpha: 0.12),
-                          borderRadius:
-                              BorderRadius.circular(AppTokens.radiusSm),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          _store.getInitials(request.name),
-                          style: TextStyle(
-                            color: accent,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 13,
-                          ),
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: AppCard(
+                      borderColor: accent.withValues(alpha: 0.35),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              ExpenseDetailsScreen(expenseId: request.id),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              '${request.name} · ${request.type}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                      child: Row(
+                        children: <Widget>[
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(
+                                AppTokens.radiusSm,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              _store.getInitials(request.name),
                               style: TextStyle(
-                                color: palette.text,
-                                fontWeight: FontWeight.w700,
+                                color: accent,
+                                fontWeight: FontWeight.w900,
                                 fontSize: 13,
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 8,
-                              crossAxisAlignment: WrapCrossAlignment.center,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
-                                StatusBadge(
-                                  status: reason,
-                                  color: accent,
-                                  icon: isSla
-                                      ? Icons.schedule_rounded
-                                      : Icons.priority_high_rounded,
-                                ),
                                 Text(
-                                  formatMoney(request.amount),
+                                  '${request.name} · ${request.type}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: palette.muted,
-                                    fontSize: 12,
+                                    color: palette.text,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
                                   ),
+                                ),
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  spacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: <Widget>[
+                                    StatusBadge(
+                                      status: reason,
+                                      color: accent,
+                                      icon: isSla
+                                          ? Icons.schedule_rounded
+                                          : Icons.priority_high_rounded,
+                                    ),
+                                    Text(
+                                      formatMoney(request.amount),
+                                      style: TextStyle(
+                                        color: palette.muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: palette.muted,
+                            size: 20,
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      Icon(Icons.chevron_right_rounded,
-                          color: palette.muted, size: 20),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(growable: false),
+                    ),
+                  );
+                })
+                .toList(growable: false),
           ),
       ],
     );

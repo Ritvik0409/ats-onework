@@ -53,13 +53,18 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
         title: const Text('Receipt preview'),
-        content: SizedBox(
-          width: 420,
-          height: 320,
-          child: InteractiveViewer(
-            minScale: 1.0,
-            maxScale: 4.0,
-            child: Image.memory(bytes, fit: BoxFit.contain),
+        // A fixed 420×320 box overflowed narrow phones; the AlertDialog
+        // already caps its own width, so only constrain the preview and
+        // let the aspect ratio scale it.
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: AspectRatio(
+            aspectRatio: 4 / 3,
+            child: InteractiveViewer(
+              minScale: 1.0,
+              maxScale: 4.0,
+              child: Image.memory(bytes, fit: BoxFit.contain),
+            ),
           ),
         ),
         actions: <Widget>[
@@ -173,7 +178,21 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        if (availableProjects.isNotEmpty) ...<Widget>[
+                        if (!store.projectsLoaded) ...<Widget>[
+                          const AppFieldLabel('Project (optional)'),
+                          // While the project list is still on its way
+                          // the field stays visible but disabled —
+                          // hiding it made the form jump when it
+                          // appeared.
+                          DropdownButtonFormField<String>(
+                            dropdownColor: palette.surfaceAlt,
+                            isExpanded: true,
+                            items: const <DropdownMenuItem<String>>[],
+                            onChanged: null,
+                            disabledHint: const Text('Loading projects…'),
+                          ),
+                          const SizedBox(height: 18),
+                        ] else if (availableProjects.isNotEmpty) ...<Widget>[
                           const AppFieldLabel('Project (optional)'),
                           DropdownButtonFormField<String>(
                             initialValue: _selectedProject,
@@ -225,6 +244,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                         TextFormField(
                           controller: _descriptionController,
                           maxLines: 3,
+                          // Multiline: Enter inserts a line break instead
+                          // of submitting the form.
+                          keyboardType: TextInputType.multiline,
+                          textInputAction: TextInputAction.newline,
                           decoration: const InputDecoration(
                             hintText: 'e.g. Client meeting travel expense',
                           ),
@@ -249,6 +272,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                                         const TextInputType.numberWithOptions(
                                           decimal: true,
                                         ),
+                                    textInputAction: TextInputAction.done,
                                     inputFormatters: <TextInputFormatter>[
                                       FilteringTextInputFormatter.allow(
                                         RegExp(r'^\d+\.?\d*'),
@@ -269,6 +293,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                                         return 'Must be more than zero';
                                       }
                                       return null;
+                                    },
+                                    // Enter on the amount submits — this
+                                    // is the last editable field of the
+                                    // form.
+                                    onFieldSubmitted: (String _) {
+                                      if (!_isSubmitting) _submitExpense();
                                     },
                                   ),
                                 ],
@@ -339,12 +369,16 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                           child: FilledButton(
                             onPressed: _isSubmitting ? null : _submitExpense,
                             child: _isSubmitting
-                                ? const SizedBox(
+                                ? SizedBox(
                                     height: 22,
                                     width: 22,
+                                    // Dark ink in dark mode — plain white
+                                    // washes out on the gold button there.
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: Colors.white,
+                                      color: palette.isDark
+                                          ? AppTokens.darkBg
+                                          : Colors.white,
                                     ),
                                   )
                                 : const Text(

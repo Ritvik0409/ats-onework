@@ -18,32 +18,28 @@ class ManagerProfileScreen extends StatefulWidget {
 }
 
 class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
-  bool _emailAlerts = true;
-  bool _pushAlerts = true;
-  bool _slaBreachAlerts = true;
-
   void _confirmLogout(BuildContext context) {
-    final store = ExpenseStore.instance;
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-        ),
         title: Text(
           'Log out?',
-          style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: context.palette.text,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: Text(
           'You will need to sign in again to access the Management Portal.',
-          style: TextStyle(color: store.textMuted, fontSize: 13),
+          style: TextStyle(color: context.palette.muted, fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: context.palette.muted),
+            ),
           ),
           TextButton(
             onPressed: () async {
@@ -63,10 +59,10 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
                 );
               }
             },
-            child: const Text(
+            child: Text(
               'Log Out',
               style: TextStyle(
-                color: Colors.redAccent,
+                color: context.palette.danger,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -88,14 +84,12 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-        ),
         title: Text(
           'Update Full Name',
-          style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: context.palette.text,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: Form(
           key: formKey,
@@ -104,19 +98,12 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             children: [
               TextFormField(
                 controller: nameCtrl,
-                style: TextStyle(color: store.textFrost, fontSize: 14),
+                style: TextStyle(color: context.palette.text, fontSize: 14),
                 decoration: InputDecoration(
                   labelText: 'Legal Full Name',
-                  labelStyle: TextStyle(color: store.textMuted, fontSize: 13),
-                  filled: true,
-                  fillColor: store.bg,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: store.accentGold, width: 1.5),
+                  labelStyle: TextStyle(
+                    color: context.palette.muted,
+                    fontSize: 13,
                   ),
                 ),
                 validator: (value) {
@@ -136,21 +123,33 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text('Cancel', style: TextStyle(color: store.textMuted)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: context.palette.muted),
+            ),
           ),
           TextButton(
             onPressed: () async {
               if (formKey.currentState!.validate()) {
-                await store.updateName(nameCtrl.text.trim(), isManager);
+                final bool ok = await store.updateName(
+                  nameCtrl.text.trim(),
+                  isManager,
+                );
                 if (!dialogContext.mounted) return;
                 Navigator.pop(dialogContext);
-                _showSnack('Name updated successfully');
+                if (!mounted) return;
+                ok
+                    ? _showSnack('Name updated successfully')
+                    : AppSnack.error(
+                        context,
+                        "Couldn't update your name. Try again.",
+                      );
               }
             },
             child: Text(
               'Save',
               style: TextStyle(
-                color: store.accentGold,
+                color: context.palette.gold,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -165,59 +164,48 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
   }
 
   void _showNotificationPreferences() {
-    final store = ExpenseStore.instance;
+    final ExpenseStore store = ExpenseStore.instance;
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
+        return AnimatedBuilder(
+          animation: store,
+          builder: (context, _) {
             return AlertDialog(
-              backgroundColor: store.card,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(
-                  color: store.accentGold.withValues(alpha: 0.2),
-                ),
-              ),
               title: Text(
                 'Notification Preferences',
                 style: TextStyle(
-                  color: store.textFrost,
+                  color: context.palette.text,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _preferenceSwitch('Email alerts', _emailAlerts, store, (val) {
-                    setDialogState(() => _emailAlerts = val);
+                  _preferenceSwitch('Email alerts', store.emailAlerts, (val) {
+                    store.setNotificationPreference('email', val);
                   }),
-                  _preferenceSwitch('Push notifications', _pushAlerts, store, (
+                  _preferenceSwitch('Push notifications', store.pushAlerts, (
                     val,
                   ) {
-                    setDialogState(() => _pushAlerts = val);
+                    store.setNotificationPreference('push', val);
                   }),
                   _preferenceSwitch(
                     'SLA breach warnings',
-                    _slaBreachAlerts,
-                    store,
+                    store.statusUpdateAlerts,
                     (val) {
-                      setDialogState(() => _slaBreachAlerts = val);
+                      store.setNotificationPreference('status', val);
                     },
                   ),
                 ],
               ),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    Navigator.pop(dialogContext);
-                    setState(() {});
-                    _showSnack('Notification preferences updated');
-                  },
+                  onPressed: () => Navigator.pop(dialogContext),
                   child: Text(
                     'Done',
                     style: TextStyle(
-                      color: store.accentGold,
+                      color: context.palette.gold,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -233,7 +221,6 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
   Widget _preferenceSwitch(
     String label,
     bool value,
-    ExpenseStore store,
     ValueChanged<bool> onChanged,
   ) {
     return Row(
@@ -241,12 +228,12 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
         Expanded(
           child: Text(
             label,
-            style: TextStyle(color: store.textFrost, fontSize: 14),
+            style: TextStyle(color: context.palette.text, fontSize: 14),
           ),
         ),
         Switch(
           value: value,
-          activeThumbColor: store.accentGold,
+          activeThumbColor: context.palette.gold,
           onChanged: onChanged,
         ),
       ],
@@ -254,38 +241,29 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
   }
 
   void _showSecurityInfo() {
-    final store = ExpenseStore.instance;
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-        ),
         title: Text(
           'Security & Encryption',
-          style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: context.palette.text,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _InfoBullet(
-              'Receipts are encrypted (AES-256) before upload.',
-              store,
-            ),
+            _InfoBullet('Receipts are encrypted (AES-256) before upload.'),
             _InfoBullet(
               'Only verified management accounts can decrypt receipts.',
-              store,
             ),
             _InfoBullet(
               'Only @company.com accounts can sign in to this portal.',
-              store,
             ),
             _InfoBullet(
               'Approved/Rejected decisions are permanent and cannot be reversed.',
-              store,
             ),
           ],
         ),
@@ -295,7 +273,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             child: Text(
               'Got it',
               style: TextStyle(
-                color: store.accentGold,
+                color: context.palette.gold,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -306,18 +284,15 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
   }
 
   void _showHelpSupport() {
-    final store = ExpenseStore.instance;
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-        ),
         title: Text(
           'Help & Support',
-          style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: context.palette.text,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -326,15 +301,15 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             Text(
               'Need help using ATS OneWork?',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 10),
-            _InfoBullet('Email: support@aniruddhagps.com', store),
-            _InfoBullet('Aniruddha Telemetry Systems Pvt Ltd', store),
-            _InfoBullet('Web: www.Aniruddhagps.com', store),
+            _InfoBullet('Email: support@aniruddhagps.com'),
+            _InfoBullet('Aniruddha Telemetry Systems Pvt Ltd'),
+            _InfoBullet('Web: www.Aniruddhagps.com'),
           ],
         ),
         actions: [
@@ -343,7 +318,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             child: Text(
               'Close',
               style: TextStyle(
-                color: store.accentGold,
+                color: context.palette.gold,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -354,18 +329,15 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
   }
 
   void _showAbout() {
-    final store = ExpenseStore.instance;
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-        ),
         title: Text(
           'About ATS OneWork',
-          style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: context.palette.text,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -374,7 +346,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             Text(
               'Version 1.0.0',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
@@ -382,21 +354,21 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             const SizedBox(height: 10),
             Text(
               'A mobile expense submission and approval system for employees and managers.',
-              style: TextStyle(color: store.textMuted, fontSize: 13),
+              style: TextStyle(color: context.palette.muted, fontSize: 13),
             ),
             const SizedBox(height: 14),
             Text(
               'Developed by:',
               style: TextStyle(
-                color: store.textFrost,
+                color: context.palette.text,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 6),
-            _InfoBullet('Krisha Pakhare', store),
-            _InfoBullet('Aayush Keny ', store),
-            _InfoBullet('Ritvik Maurya', store),
+            _InfoBullet('Krisha Pakhare'),
+            _InfoBullet('Aayush Keny '),
+            _InfoBullet('Ritvik Maurya'),
           ],
         ),
         actions: [
@@ -405,7 +377,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
             child: Text(
               'Close',
               style: TextStyle(
-                color: store.accentGold,
+                color: context.palette.gold,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -420,53 +392,50 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: store.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: store.accentGold.withValues(alpha: 0.2)),
-        ),
         title: Text(
           'Add Expense Type',
-          style: TextStyle(color: store.textFrost, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: context.palette.text,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: TextField(
           controller: controller,
-          style: TextStyle(color: store.textFrost),
-          decoration: InputDecoration(
-            labelText: 'Expense Type Name',
-            labelStyle: TextStyle(color: store.textMuted),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(
-                color: store.accentGold.withValues(alpha: 0.3),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: store.accentGold),
-            ),
-          ),
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) =>
+              _submitExpenseType(controller, store, dialogContext),
+          decoration: const InputDecoration(labelText: 'Expense Type Name'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text('Cancel', style: TextStyle(color: store.textMuted)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: store.accentGold),
-            onPressed: () async {
-              if (controller.text.trim().isNotEmpty) {
-                await store.addNewExpenseType(controller.text.trim());
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                _showSnack('Expense type added successfully!');
-              }
-            },
-            child: const Text(
-              'Add',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: context.palette.muted),
             ),
+          ),
+          FilledButton(
+            onPressed: () =>
+                _submitExpenseType(controller, store, dialogContext),
+            child: const Text('Add'),
           ),
         ],
       ),
     );
+  }
+
+  /// Validates, submits and closes the add-expense-type dialog in one
+  /// step — the enter key and the Add button now do the same thing.
+  Future<void> _submitExpenseType(
+    TextEditingController controller,
+    ExpenseStore store,
+    BuildContext dialogContext,
+  ) async {
+    if (controller.text.trim().isEmpty) return;
+    await store.addNewExpenseType(controller.text.trim());
+    if (dialogContext.mounted) Navigator.pop(dialogContext);
+    _showSnack('Expense type added successfully!');
   }
 
   @override
@@ -804,8 +773,7 @@ class _ManagerProfileScreenState extends State<ManagerProfileScreen> {
 
 class _InfoBullet extends StatelessWidget {
   final String text;
-  final ExpenseStore store;
-  const _InfoBullet(this.text, this.store);
+  const _InfoBullet(this.text);
 
   @override
   Widget build(BuildContext context) {
@@ -817,14 +785,14 @@ class _InfoBullet extends StatelessWidget {
           Text(
             '•  ',
             style: TextStyle(
-              color: store.accentGold,
+              color: context.palette.gold,
               fontWeight: FontWeight.bold,
             ),
           ),
           Expanded(
             child: Text(
               text,
-              style: TextStyle(color: store.textMuted, fontSize: 13),
+              style: TextStyle(color: context.palette.muted, fontSize: 13),
             ),
           ),
         ],

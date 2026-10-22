@@ -1,7 +1,8 @@
 """Reset the seeded accounts' password so the live API can be exercised.
 
-Local development helper — it rewrites the password of the four seeded
-accounts only, and prints what it did.
+Local development helper — it rewrites the password of the seeded
+accounts only, and prints what it did. The account list comes from the
+seeder, so a new persona is covered automatically.
 """
 
 from __future__ import annotations
@@ -16,13 +17,9 @@ from pwdlib import PasswordHash
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.config import get_settings
+from scripts.seed import USERS
 
-EMAILS = (
-    "admin@acme-corp.dev",
-    "employee@acme-corp.dev",
-    "admin@globex-inc.dev",
-    "employee@globex-inc.dev",
-)
+EMAILS = tuple(email for email, *_rest in USERS)
 
 
 def main() -> int:
